@@ -1,0 +1,715 @@
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { visionTestAPI } from '../services/api'
+
+/**
+ * Glaucoma "Neural Loss" Test
+ * 
+ * Glaucoma kills retinal ganglion cells responsible for processing edges and shadows.
+ * Contrast sensitivity (CS) often drops YEARS before "tunnel vision" appears.
+ * 
+ * This test identifies arcuate scotomas (curved blind spots) typical of early glaucoma
+ * by testing central vs. paracentral vision with low-contrast stimuli.
+ */
+
+const GlaucomaTest = () => {
+  const navigate = useNavigate()
+  const [testState, setTestState] = useState('instructions') // instructions, testing, results
+  const [currentTrial, setCurrentTrial] = useState(0)
+  const [responses, setResponses] = useState([])
+  const [startTime, setStartTime] = useState(null)
+  const [testStartTime, setTestStartTime] = useState(null)
+  const [currentStimulus, setCurrentStimulus] = useState(null)
+  const [score, setScore] = useState(0)
+  const [isListening, setIsListening] = useState(false)
+  const [transcript, setTranscript] = useState('')
+  const [recognition, setRecognition] = useState(null)
+  const handleResponseRef = useRef(null)
+
+  // Test parameters
+  const TOTAL_TRIALS = 24 // 8 positions × 3 contrast levels
+  const letters = ['C', 'D', 'H', 'K', 'N', 'O', 'R', 'S', 'V', 'Z']
+  
+  // Contrast levels (focusing on low contrast to stress the neural system)
+  const contrastLevels = [
+    { level: 'high', contrast: 0.6, logCS: 1.6 },
+    { level: 'medium', contrast: 0.25, logCS: 1.2 },
+    { level: 'low', contrast: 0.10, logCS: 0.8 }
+  ]
+
+  // Paracentral positions (10-15 degrees off-center) for arcuate scotoma detection
+  // Glaucoma typically affects superior and inferior nasal quadrants first
+  const positions = [
+    { name: 'center', x: 50, y: 50, angle: 0, region: 'central' },
+    { name: 'superior-nasal', x: 35, y: 25, angle: -45, region: 'paracentral' },
+    { name: 'superior', x: 50, y: 20, angle: 0, region: 'paracentral' },
+    { name: 'superior-temporal', x: 65, y: 25, angle: 45, region: 'paracentral' },
+    { name: 'nasal', x: 25, y: 50, angle: -90, region: 'paracentral' },
+    { name: 'temporal', x: 75, y: 50, angle: 90, region: 'paracentral' },
+    { name: 'inferior-nasal', x: 35, y: 75, angle: -135, region: 'paracentral' },
+    { name: 'inferior', x: 50, y: 80, angle: 180, region: 'paracentral' },
+    { name: 'inferior-temporal', x: 65, y: 75, angle: 135, region: 'paracentral' }
+  ]
+
+  // Generate a random stimulus
+  const generateStimulus = useCallback((trialNum) => {
+    const letter = letters[Math.floor(Math.random() * letters.length)]
+    
+    // Cycle through positions and contrast levels
+    const positionIndex = Math.floor(trialNum / 3) % positions.length
+    const contrastIndex = trialNum % 3
+    
+    const position = positions[positionIndex]
+    const contrastData = contrastLevels[contrastIndex]
+    
+    return {
+      letter,
+      position,
+      contrast: contrastData.contrast,
+      contrastLevel: contrastData.level,
+      logCS: contrastData.logCS,
+      trial: trialNum
+    }
+  }, [])
+
+  // Calculate text color based on contrast level
+  const getTextColor = (contrast) => {
+    const bgRGB = 245 // light gray background
+    const foregroundValue = Math.round(bgRGB - (bgRGB * contrast))
+    return `rgb(${foregroundValue}, ${foregroundValue}, ${foregroundValue})`
+  }
+
+  // Initialize speech recognition
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+      if (SpeechRecognition) {
+        const recognitionInstance = new SpeechRecognition()
+        recognitionInstance.continuous = false
+        recognitionInstance.interimResults = false
+        recognitionInstance.lang = 'en-US'
+
+        recognitionInstance.onresult = (event) => {
+          const speechResult = event.results[0][0].transcript.toUpperCase()
+          setTranscript(speechResult)
+          
+          // Extract letter from speech
+          const spokenLetter = speechResult.trim()
+          
+          // Check if it's a valid letter
+          if (letters.includes(spokenLetter)) {
+            if (handleResponseRef.current) {
+              handleResponseRef.current(spokenLetter)
+            }
+          } else {
+            // Try to find the letter in the transcript
+            for (const letter of letters) {
+              if (speechResult.includes(letter)) {
+                if (handleResponseRef.current) {
+                  handleResponseRef.current(letter)
+                }
+                return
+              }
+            }
+            // If no valid letter found, show error
+            setTranscript(`Not recognized. Say one letter: ${letters.join(', ')}`)
+            setTimeout(() => setTranscript(''), 2000)
+          }
+        }
+
+        recognitionInstance.onerror = (event) => {
+          console.error('Speech recognition error:', event.error)
+          setIsListening(false)
+          if (event.error !== 'no-speech') {
+            setTranscript('Error. Please try again.')
+            setTimeout(() => setTranscript(''), 2000)
+            setTimeout(() => startListening(), 2500)
+          }
+        }
+
+        recognitionInstance.onend = () => {
+          setIsListening(false)
+        }
+
+        setRecognition(recognitionInstance)
+      }
+    }
+  }, [])
+
+  // Start listening
+  const startListening = useCallback(() => {
+    if (recognition && testState === 'testing') {
+      setTranscript('')
+      setIsListening(true)
+      try {
+        recognition.start()
+      } catch (error) {
+        console.error('Error starting recognition:', error)
+        setIsListening(false)
+      }
+    }
+  }, [recognition, testState])
+
+  // Auto-start listening when stimulus appears
+  useEffect(() => {
+    if (testState === 'testing' && currentStimulus && !isListening) {
+      // Small delay to ensure stimulus is visible
+      const timeout = setTimeout(() => {
+        startListening()
+      }, 300)
+      return () => clearTimeout(timeout)
+    }
+  }, [currentStimulus, testState, isListening, startListening])
+
+  // Start the test
+  const startTest = () => {
+    setTestState('testing')
+    setResponses([])
+    setCurrentTrial(0)
+    setTestStartTime(Date.now())
+    const stimulus = generateStimulus(0)
+    setCurrentStimulus(stimulus)
+    setStartTime(Date.now())
+  }
+
+  // Handle user response
+  const handleResponse = useCallback((answer) => {
+    if (!currentStimulus || !startTime) return
+
+    // Stop current recognition
+    if (recognition) {
+      try {
+        recognition.stop()
+      } catch (e) {
+        // Already stopped
+      }
+    }
+    setIsListening(false)
+
+    const responseTime = Date.now() - startTime
+    const isCorrect = answer === currentStimulus.letter
+    
+    const response = {
+      trial: currentTrial,
+      position: currentStimulus.position,
+      contrast: currentStimulus.contrast,
+      contrastLevel: currentStimulus.contrastLevel,
+      logCS: currentStimulus.logCS,
+      letter: currentStimulus.letter,
+      userAnswer: answer,
+      correct: isCorrect,
+      responseTime
+    }
+
+    const newResponses = [...responses, response]
+    setResponses(newResponses)
+
+    // Check if test should end
+    if (currentTrial + 1 >= TOTAL_TRIALS) {
+      finishTest(newResponses)
+      return
+    }
+
+    // Continue test
+    const nextTrial = currentTrial + 1
+    setCurrentTrial(nextTrial)
+    const newStimulus = generateStimulus(nextTrial)
+    setCurrentStimulus(newStimulus)
+    setStartTime(Date.now())
+  }, [currentStimulus, startTime, recognition, currentTrial, responses, generateStimulus])
+
+  // Update ref when handleResponse changes
+  useEffect(() => {
+    handleResponseRef.current = handleResponse
+  }, [handleResponse])
+
+  // Calculate final score and analyze for glaucoma risk
+  const finishTest = async (finalResponses) => {
+    setTestState('results')
+
+    // Analyze performance by region and contrast
+    const centralPerformance = {}
+    const paracentralPerformance = {}
+    
+    contrastLevels.forEach(level => {
+      centralPerformance[level.level] = { correct: 0, total: 0 }
+      paracentralPerformance[level.level] = { correct: 0, total: 0 }
+    })
+
+    finalResponses.forEach(r => {
+      const perfMap = r.position.region === 'central' ? centralPerformance : paracentralPerformance
+      perfMap[r.contrastLevel].total++
+      if (r.correct) perfMap[r.contrastLevel].correct++
+    })
+
+    // Calculate accuracy by region
+    const centralAccuracy = {}
+    const paracentralAccuracy = {}
+    
+    Object.keys(centralPerformance).forEach(level => {
+      const stats = centralPerformance[level]
+      centralAccuracy[level] = stats.total > 0 ? stats.correct / stats.total : 0
+    })
+    
+    Object.keys(paracentralPerformance).forEach(level => {
+      const stats = paracentralPerformance[level]
+      paracentralAccuracy[level] = stats.total > 0 ? stats.correct / stats.total : 0
+    })
+
+    // Key glaucoma indicator: Paracentral low-contrast deficit
+    // If central vision is good but paracentral low-contrast is poor → early glaucoma flag
+    const centralLowContrastAccuracy = centralAccuracy['low'] || 0
+    const paracentralLowContrastAccuracy = paracentralAccuracy['low'] || 0
+    const contrastDeficit = centralLowContrastAccuracy - paracentralLowContrastAccuracy
+
+    // Overall score weighted toward low-contrast paracentral performance
+    const overallAccuracy = finalResponses.filter(r => r.correct).length / finalResponses.length
+    const paracentralWeight = (paracentralAccuracy['low'] + paracentralAccuracy['medium']) / 2
+    
+    const finalScore = Math.round(overallAccuracy * 50 + paracentralWeight * 50)
+    setScore(finalScore)
+
+    // Glaucoma risk assessment
+    const glaucomaRisk = contrastDeficit > 0.3 ? 'high' : 
+                         contrastDeficit > 0.15 ? 'moderate' : 'low'
+
+    // Calculate average response time
+    const avgResponseTime = Math.round(
+      finalResponses.reduce((sum, r) => sum + r.responseTime, 0) / finalResponses.length
+    )
+
+    // Analyze by quadrant for arcuate scotoma pattern
+    const quadrantPerformance = {
+      'superior-nasal': 0,
+      'superior-temporal': 0,
+      'inferior-nasal': 0,
+      'inferior-temporal': 0
+    }
+    
+    const quadrantCounts = {
+      'superior-nasal': 0,
+      'superior-temporal': 0,
+      'inferior-nasal': 0,
+      'inferior-temporal': 0
+    }
+
+    finalResponses.forEach(r => {
+      if (r.position.name.includes('-')) {
+        const quadrant = r.position.name
+        if (quadrantPerformance[quadrant] !== undefined) {
+          quadrantCounts[quadrant]++
+          if (r.correct) quadrantPerformance[quadrant]++
+        }
+      }
+    })
+
+    Object.keys(quadrantPerformance).forEach(quad => {
+      if (quadrantCounts[quad] > 0) {
+        quadrantPerformance[quad] = quadrantPerformance[quad] / quadrantCounts[quad]
+      }
+    })
+
+    // Submit to backend
+    try {
+      await visionTestAPI.submit({
+        test_type: 'glaucoma_neural',
+        score: finalScore,
+        response_time_ms: avgResponseTime,
+        errors: finalResponses.filter(r => !r.correct).length,
+        test_details: {
+          central_performance: centralPerformance,
+          paracentral_performance: paracentralPerformance,
+          central_accuracy: centralAccuracy,
+          paracentral_accuracy: paracentralAccuracy,
+          contrast_deficit: contrastDeficit,
+          glaucoma_risk: glaucomaRisk,
+          quadrant_performance: quadrantPerformance,
+          responses: finalResponses,
+          test_duration_ms: Date.now() - testStartTime
+        }
+      })
+    } catch (error) {
+      console.error('Failed to submit test:', error)
+    }
+  }
+
+  // Get risk interpretation
+  const getRiskInterpretation = () => {
+    // Calculate the contrast deficit from responses
+    const centralResponses = responses.filter(r => r.position.region === 'central')
+    const paracentralResponses = responses.filter(r => r.position.region === 'paracentral')
+    
+    const centralLowContrast = centralResponses.filter(r => r.contrastLevel === 'low')
+    const paracentralLowContrast = paracentralResponses.filter(r => r.contrastLevel === 'low')
+    
+    const centralAcc = centralLowContrast.length > 0 ? 
+      centralLowContrast.filter(r => r.correct).length / centralLowContrast.length : 1
+    const paracentralAcc = paracentralLowContrast.length > 0 ?
+      paracentralLowContrast.filter(r => r.correct).length / paracentralLowContrast.length : 1
+    
+    const deficit = centralAcc - paracentralAcc
+
+    if (score >= 80 && deficit < 0.15) {
+      return {
+        status: 'Low Risk',
+        color: 'green',
+        message: 'Your neural contrast sensitivity appears healthy across all regions.',
+        icon: '✓',
+        risk: 'low'
+      }
+    } else if (score >= 65 && deficit < 0.3) {
+      return {
+        status: 'Moderate Risk',
+        color: 'yellow',
+        message: 'Some reduction in paracentral contrast sensitivity detected. Consider a professional eye exam.',
+        icon: '!',
+        risk: 'moderate'
+      }
+    } else {
+      return {
+        status: 'Higher Risk',
+        color: 'red',
+        message: 'Significant paracentral contrast deficit detected. This pattern can indicate early glaucoma. Please consult an eye care professional for a comprehensive exam including IOP and OCT.',
+        icon: '!',
+        risk: 'high'
+      }
+    }
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50 py-8 px-4">
+      <div className="max-w-4xl mx-auto">
+        {/* Instructions */}
+        {testState === 'instructions' && (
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+            <div className="text-center mb-8">
+              <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-8 h-8 text-red-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+              </div>
+              <h1 className="text-3xl font-serif font-bold text-gray-900 mb-2">
+                Glaucoma Neural Loss Test
+              </h1>
+              <p className="text-sm text-red-600 font-medium mb-4">
+                Early Detection of Retinal Ganglion Cell Damage
+              </p>
+            </div>
+
+            <div className="space-y-6 text-left">
+              <div className="bg-red-50 border-l-4 border-red-500 p-6">
+                <h3 className="font-semibold text-red-900 mb-2 flex items-center">
+                  <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                  </svg>
+                  Why This Test Is Critical
+                </h3>
+                <div className="text-sm text-red-900 space-y-2">
+                  <p>
+                    <strong>Glaucoma kills retinal ganglion cells</strong> - the neurons that process edges, shadows, and contrast. These cells die YEARS before you notice "tunnel vision."
+                  </p>
+                  <p className="mt-2">
+                    This test detects <strong>arcuate scotomas</strong> (curved blind spots) typical of early glaucoma by stressing your neural system with:
+                  </p>
+                  <ul className="ml-4 mt-2 space-y-1">
+                    <li>• <strong>Low-contrast letters</strong> in paracentral regions (10-15° off-center)</li>
+                    <li>• <strong>Central vs. peripheral comparison</strong> to detect subtle deficits</li>
+                    <li>• <strong>Quadrant analysis</strong> for arcuate scotoma patterns</li>
+                  </ul>
+                </div>
+              </div>
+
+              <div>
+                <h3 className="font-semibold text-gray-900 mb-3">How It Works:</h3>
+                <ol className="space-y-3 text-gray-700">
+                  <li className="flex">
+                    <span className="font-semibold mr-3">1.</span>
+                    <span>Letters will appear in different screen locations (center and edges)</span>
+                  </li>
+                  <li className="flex">
+                    <span className="font-semibold mr-3">2.</span>
+                    <span><strong>Keep your eyes on the CENTER marker</strong> - use peripheral vision to see edge letters</span>
+                  </li>
+                  <li className="flex">
+                    <span className="font-semibold mr-3">3.</span>
+                    <span><strong>Speak the letter you see</strong> - voice recognition so you don't break fixation</span>
+                  </li>
+                  <li className="flex">
+                    <span className="font-semibold mr-3">4.</span>
+                    <span>Contrast will vary from medium to very low (testing neural sensitivity)</span>
+                  </li>
+                  <li className="flex">
+                    <span className="font-semibold mr-3">5.</span>
+                    <span>24 trials total (~4-5 minutes)</span>
+                  </li>
+                </ol>
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-6">
+                <h3 className="font-semibold text-blue-900 mb-3">What We're Looking For:</h3>
+                <div className="text-sm text-blue-800 space-y-2">
+                  <p><strong>Normal Eye:</strong> Can see low-contrast letters equally well in center and periphery</p>
+                  <p><strong>Early Glaucoma:</strong> Central vision good, but paracentral low-contrast letters disappear (neural loss)</p>
+                  <p><strong>Arcuate Pattern:</strong> Superior or inferior nasal deficits (classic glaucoma pattern)</p>
+                </div>
+              </div>
+
+              <div className="bg-gray-50 rounded-xl p-6 border border-gray-200">
+                <h3 className="font-semibold text-gray-900 mb-3">Important:</h3>
+                <ul className="space-y-2 text-sm text-gray-700">
+                  <li className="flex items-start">
+                    <svg className="w-5 h-5 mr-2 text-green-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                    </svg>
+                    <span><strong>Keep your gaze on the center marker</strong> - don't move your eyes to the letters</span>
+                  </li>
+                  <li className="flex items-start">
+                    <svg className="w-5 h-5 mr-2 text-green-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                    </svg>
+                    <span>Use peripheral vision to detect letters in corners</span>
+                  </li>
+                  <li className="flex items-start">
+                    <svg className="w-5 h-5 mr-2 text-green-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                    </svg>
+                    <span><strong>Allow microphone access</strong> - needed for voice input</span>
+                  </li>
+                  <li className="flex items-start">
+                    <svg className="w-5 h-5 mr-2 text-green-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                    </svg>
+                    <span>Good lighting, no screen glare, quiet environment</span>
+                  </li>
+                  <li className="flex items-start">
+                    <svg className="w-5 h-5 mr-2 text-green-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                    </svg>
+                    <span>Sit about 50cm from screen</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="mt-8 flex gap-4">
+              <button
+                onClick={() => navigate('/vision-tests')}
+                className="flex-1 px-6 py-3 border-2 border-gray-300 rounded-full font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                Back
+              </button>
+              <button
+                onClick={startTest}
+                className="flex-1 px-6 py-3 bg-red-600 hover:bg-red-700 text-white rounded-full font-semibold transition-colors"
+              >
+                Start Test
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Testing Phase */}
+        {testState === 'testing' && currentStimulus && (
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+            {/* Progress */}
+            <div className="mb-8">
+              <div className="flex justify-between text-sm text-gray-600 mb-2">
+                <span>Progress</span>
+                <span>{currentTrial + 1} of {TOTAL_TRIALS}</span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-2">
+                <div
+                  className="bg-red-600 h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${((currentTrial + 1) / TOTAL_TRIALS) * 100}%` }}
+                />
+              </div>
+            </div>
+
+            {/* Important reminder */}
+            <div className="text-center mb-6">
+              <p className="text-sm font-semibold text-red-600">Keep your eyes on the CENTER marker</p>
+              <p className="text-xs text-gray-500 mt-1">Use peripheral vision to detect letters</p>
+            </div>
+
+            {/* Stimulus Display with positioned letter */}
+            <div
+              className="relative mb-12 rounded-2xl border-4 border-gray-300"
+              style={{ 
+                backgroundColor: '#f5f5f5',
+                height: '500px'
+              }}
+            >
+              {/* Center fixation marker */}
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="w-4 h-4 rounded-full bg-red-500 ring-4 ring-red-200"></div>
+              </div>
+
+              {/* Letter at specific position */}
+              <div
+                className="absolute transform -translate-x-1/2 -translate-y-1/2"
+                style={{
+                  left: `${currentStimulus.position.x}%`,
+                  top: `${currentStimulus.position.y}%`
+                }}
+              >
+                <div
+                  className="text-8xl font-bold tracking-wider"
+                  style={{
+                    color: getTextColor(currentStimulus.contrast),
+                    fontFamily: 'monospace',
+                    userSelect: 'none'
+                  }}
+                >
+                  {currentStimulus.letter}
+                </div>
+              </div>
+
+              {/* Position indicator (for reference) */}
+              <div className="absolute bottom-4 left-4 text-xs text-gray-400">
+                Position: {currentStimulus.position.name} | Contrast: {currentStimulus.contrastLevel}
+              </div>
+            </div>
+
+            {/* Voice Response UI */}
+            <div className="text-center">
+              <div className="mb-6">
+                <div className={`inline-flex items-center gap-3 px-6 py-4 rounded-2xl ${
+                  isListening ? 'bg-red-100 border-2 border-red-400' : 'bg-gray-100 border-2 border-gray-300'
+                }`}>
+                  <div className={`w-4 h-4 rounded-full ${isListening ? 'bg-red-600 animate-pulse' : 'bg-gray-400'}`} />
+                  <span className="font-semibold text-gray-800">
+                    {isListening ? 'Listening... Say the letter' : 'Voice Recognition Ready'}
+                  </span>
+                </div>
+              </div>
+
+              {transcript && (
+                <div className="mb-4 text-lg font-semibold text-red-700">
+                  You said: "{transcript}"
+                </div>
+              )}
+
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 max-w-2xl mx-auto">
+                <p className="text-sm text-blue-800 mb-2">
+                  <strong>KEEP YOUR EYES ON THE CENTER DOT</strong>
+                </p>
+                <p className="text-sm text-blue-700">
+                  Speak the letter you see: {letters.join(', ')}
+                </p>
+              </div>
+
+              {!isListening && (
+                <button
+                  onClick={startListening}
+                  className="mt-4 px-6 py-3 bg-red-600 hover:bg-red-700 text-white rounded-full font-semibold transition-colors"
+                >
+                  Start Speaking
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Results */}
+        {testState === 'results' && (
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+            <div className="text-center mb-8">
+              <div className={`w-20 h-20 bg-${getRiskInterpretation().color}-100 rounded-full flex items-center justify-center mx-auto mb-4`}>
+                <span className="text-4xl">{getRiskInterpretation().icon}</span>
+              </div>
+              <h2 className="text-3xl font-serif font-bold text-gray-900 mb-2">
+                Test Complete!
+              </h2>
+              <p className="text-gray-600">Glaucoma Neural Screening Results</p>
+            </div>
+
+            {/* Score Display */}
+            <div className="bg-gradient-to-br from-red-50 to-orange-50 rounded-2xl p-8 mb-8">
+              <div className="text-center">
+                <div className="text-6xl font-bold text-red-700 mb-2">
+                  {score}
+                </div>
+                <div className="text-sm text-gray-600 mb-4">Neural Sensitivity Score</div>
+                <div className={`inline-block px-4 py-2 bg-${getRiskInterpretation().color}-100 text-${getRiskInterpretation().color}-800 rounded-full font-semibold`}>
+                  {getRiskInterpretation().status}
+                </div>
+              </div>
+            </div>
+
+            {/* Risk Interpretation */}
+            <div className={`bg-${getRiskInterpretation().color}-50 border border-${getRiskInterpretation().color}-200 rounded-xl p-6 mb-8`}>
+              <h3 className={`font-semibold text-${getRiskInterpretation().color}-900 mb-2`}>
+                What This Means
+              </h3>
+              <p className={`text-sm text-${getRiskInterpretation().color}-800`}>
+                {getRiskInterpretation().message}
+              </p>
+            </div>
+
+            {/* Performance Analysis */}
+            <div className="grid grid-cols-2 gap-4 mb-8">
+              <div className="bg-gray-50 rounded-xl p-6">
+                <div className="text-sm text-gray-600 mb-1">Total Accuracy</div>
+                <div className="text-3xl font-bold text-gray-900">
+                  {Math.round((responses.filter(r => r.correct).length / responses.length) * 100)}%
+                </div>
+              </div>
+              <div className="bg-gray-50 rounded-xl p-6">
+                <div className="text-sm text-gray-600 mb-1">Paracentral Performance</div>
+                <div className="text-3xl font-bold text-gray-900">
+                  {Math.round((responses.filter(r => r.position.region === 'paracentral' && r.correct).length / 
+                    responses.filter(r => r.position.region === 'paracentral').length) * 100)}%
+                </div>
+              </div>
+            </div>
+
+            {/* Educational Info */}
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-6 mb-8">
+              <h3 className="font-semibold text-blue-900 mb-3">Understanding Glaucoma Detection</h3>
+              <div className="text-sm text-blue-800 space-y-2">
+                <p>
+                  Glaucoma typically creates <strong>arcuate scotomas</strong> - curved blind spots that follow the nerve fiber layer pattern. These appear as deficits in the superior or inferior nasal visual field.
+                </p>
+                <p className="mt-3">
+                  <strong>Key Insight:</strong> Retinal ganglion cells process contrast and edges. When these cells die (from elevated IOP or other factors), your ability to see low-contrast objects in specific regions drops - often 5-10 years before obvious vision loss.
+                </p>
+                <p className="mt-3">
+                  <strong>Next Steps:</strong> If this test suggests risk, ask your eye doctor for:
+                </p>
+                <ul className="ml-4 mt-2 space-y-1">
+                  <li>• IOP (intraocular pressure) measurement</li>
+                  <li>• OCT (optical coherence tomography) scan</li>
+                  <li>• Visual field test (Humphrey or Goldmann)</li>
+                  <li>• Optic nerve head examination</li>
+                </ul>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex gap-4">
+              <button
+                onClick={() => navigate('/vision-tests')}
+                className="flex-1 px-6 py-3 border-2 border-gray-300 rounded-full font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                Back to Tests
+              </button>
+              <button
+                onClick={() => {
+                  setTestState('instructions')
+                  setResponses([])
+                  setCurrentTrial(0)
+                  setScore(0)
+                }}
+                className="flex-1 px-6 py-3 bg-red-600 hover:bg-red-700 text-white rounded-full font-semibold transition-colors"
+              >
+                Take Again
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+export default GlaucomaTest

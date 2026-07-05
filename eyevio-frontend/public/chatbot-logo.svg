@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400">
+  <defs>
+    <radialGradient id="circle1" cx="50%" cy="50%">
+      <stop offset="0%" style="stop-color:#8B7FFF;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#6B5FEF;stop-opacity:1" />
+    </radialGradient>
+    <radialGradient id="circle2" cx="50%" cy="50%">
+      <stop offset="0%" style="stop-color:#7B6FEF;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#5B4FDF;stop-opacity:1" />
+    </radialGradient>
+    <radialGradient id="circle3" cx="50%" cy="50%">
+      <stop offset="0%" style="stop-color:#6B5FEF;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#4B3FCF;stop-opacity:1" />
+    </radialGradient>
+    <linearGradient id="aiGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#FF8B9E;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#E85D75;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Outer purple circle -->
+  <circle cx="200" cy="200" r="190" fill="url(#circle1)"/>
+  
+  <!-- Middle purple circle -->
+  <circle cx="200" cy="200" r="150" fill="url(#circle2)"/>
+  
+  <!-- Inner purple circle -->
+  <circle cx="200" cy="200" r="110" fill="url(#circle3)"/>
+  
+  <!-- Robot head -->
+  <ellipse cx="200" cy="210" rx="90" ry="100" fill="#E8E8F0" opacity="0.98"/>
+  
+  <!-- Robot face visor/screen -->
+  <rect x="130" y="205" width="140" height="60" rx="30" fill="#3B2FBF" opacity="0.9"/>
+  
+  <!-- Single eye on top -->
+  <ellipse cx="200" cy="175" rx="22" ry="25" fill="#5B8FFF"/>
+  <circle cx="200" cy="175" r="12" fill="#1E3A8A"/>
+  <circle cx="204" cy="171" r="5" fill="white"/>
+  
+  <!-- Left antenna -->
+  <rect x="100" y="200" width="18" height="55" rx="9" fill="#D0D0E0"/>
+  <circle cx="109" cy="188" r="10" fill="#B0B0C0"/>
+  <line x1="109" y1="188" x2="109" y2="175" stroke="#A0A0B0" stroke-width="3"/>
+  <circle cx="109" cy="175" r="5" fill="#A0A0B0"/>
+  
+  <!-- Right antenna -->
+  <rect x="282" y="200" width="18" height="55" rx="9" fill="#D0D0E0"/>
+  <circle cx="291" cy="188" r="10" fill="#B0B0C0"/>
+  <line x1="291" y1="188" x2="291" y2="175" stroke="#A0A0B0" stroke-width="3"/>
+  <circle cx="291" cy="175" r="5" fill="#A0A0B0"/>
+  
+  <!-- Circuit lines on face -->
+  <line x1="165" y1="190" x2="165" y2="205" stroke="#A0A0B0" stroke-width="2.5"/>
+  <circle cx="165" cy="190" r="3.5" fill="#A0A0B0"/>
+  
+  <line x1="235" y1="190" x2="235" y2="205" stroke="#A0A0B0" stroke-width="2.5"/>
+  <circle cx="235" cy="190" r="3.5" fill="#A0A0B0"/>
+  
+  <line x1="170" y1="265" x2="170" y2="280" stroke="#A0A0B0" stroke-width="2.5"/>
+  <circle cx="170" cy="280" r="3.5" fill="#A0A0B0"/>
+  
+  <line x1="230" y1="265" x2="230" y2="280" stroke="#A0A0B0" stroke-width="2.5"/>
+  <circle cx="230" cy="280" r="3.5" fill="#A0A0B0"/>
+  
+  <!-- Dashboard displays in visor -->
+  <g transform="translate(155, 230)">
+    <circle cx="0" cy="0" r="18" fill="#6B8FEF" opacity="0.8"/>
+    <path d="M 0,0 L 0,-18 A 18,18 0 0,1 12.7,-12.7 Z" fill="#4169E1"/>
+    <path d="M 0,0 L 12.7,-12.7 A 18,18 0 0,1 12.7,12.7 Z" fill="#2B5FD1"/>
+    <path d="M 0,0 L 12.7,12.7 A 18,18 0 0,1 -12.7,12.7 Z" fill="#1E4FB1"/>
+  </g>
+  
+  <g transform="translate(245, 230)">
+    <circle cx="0" cy="0" r="18" fill="#6B8FEF" opacity="0.8"/>
+    <path d="M 0,0 L 0,-18 A 18,18 0 0,1 12.7,-12.7 Z" fill="#4169E1"/>
+    <path d="M 0,0 L 12.7,-12.7 A 18,18 0 0,1 12.7,12.7 Z" fill="#2B5FD1"/>
+    <path d="M 0,0 L 12.7,12.7 A 18,18 0 0,1 -12.7,12.7 Z" fill="#1E4FB1"/>
+  </g>
+  
+  <!-- Smile -->
+  <path d="M 165,250 Q 200,263 235,250" stroke="white" stroke-width="4" fill="none" stroke-linecap="round"/>
+  
+  <!-- AI Badge -->
+  <circle cx="310" cy="90" r="60" fill="url(#aiGrad)"/>
+  <text x="310" y="115" font-family="Arial, sans-serif" font-size="52" font-weight="bold" fill="white" text-anchor="middle">AI</text>
+</svg>

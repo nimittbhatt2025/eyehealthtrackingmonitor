@@ -1,0 +1,186 @@
+/* Mobile Optimizations */
+
+/* Smooth scrolling for the entire app */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Ensure minimum touch target size (44x44px) for mobile */
+@media (max-width: 640px) {
+  button,
+  a,
+  input[type="button"],
+  input[type="submit"],
+  input[type="checkbox"],
+  input[type="radio"],
+  select {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* For inline buttons and links that shouldn't be full width */
+  button.inline-touch,
+  a.inline-touch {
+    min-width: 44px;
+    padding: 12px 16px;
+  }
+
+  /* Improved tap highlighting */
+  * {
+    -webkit-tap-highlight-color: rgba(125, 202, 185, 0.1);
+  }
+
+  /* Prevent zoom on input focus (iOS) */
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="number"],
+  input[type="tel"],
+  input[type="url"],
+  input[type="search"],
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}
+
+/* Improved scrollbars for webkit browsers */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f3f0e9;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #a39c85;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #7dcab9;
+}
+
+/* Better focus states for accessibility */
+*:focus-visible {
+  outline: 2px solid #7dcab9;
+  outline-offset: 2px;
+}
+
+/* Improved card hover states for touch devices */
+@media (hover: none) {
+  .hover\:shadow-md,
+  .hover\:shadow-lg {
+    transition: none;
+  }
+}
+
+/* Prevent horizontal scroll on mobile */
+body {
+  overflow-x: hidden;
+}
+
+/* Better spacing for mobile navigation */
+@media (max-width: 1024px) {
+  .lg\:pl-64 {
+    padding-left: 0;
+  }
+}
+
+/* Improved form inputs for mobile */
+@media (max-width: 640px) {
+  input,
+  textarea,
+  select {
+    padding: 12px 16px;
+  }
+
+  /* Better modal/dialog sizing on mobile */
+  [role="dialog"],
+  .modal {
+    max-width: calc(100vw - 2rem);
+    margin: 1rem;
+  }
+}
+
+/* Swipe gesture indicators */
+.swipeable {
+  touch-action: pan-x pan-y;
+  user-select: none;
+}
+
+/* Loading states optimized for mobile */
+@media (max-width: 640px) {
+  .animate-spin {
+    width: 40px;
+    height: 40px;
+  }
+}
+
+/* Better table responsiveness */
+@media (max-width: 640px) {
+  table {
+    font-size: 14px;
+  }
+
+  th,
+  td {
+    padding: 8px 12px;
+  }
+}
+
+/* Improved chart containers for mobile */
+@media (max-width: 640px) {
+  .recharts-wrapper {
+    margin: 0 auto;
+  }
+}
+
+/* Safe area insets for notched devices */
+@supports (padding: max(0px)) {
+  body {
+    padding-left: max(0px, env(safe-area-inset-left));
+    padding-right: max(0px, env(safe-area-inset-right));
+    padding-bottom: max(0px, env(safe-area-inset-bottom));
+  }
+}
+
+/* Improved readability on mobile */
+@media (max-width: 640px) {
+  body {
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  h1 {
+    font-size: 2rem;
+    line-height: 1.2;
+  }
+
+  h2 {
+    font-size: 1.5rem;
+    line-height: 1.3;
+  }
+
+  h3 {
+    font-size: 1.25rem;
+    line-height: 1.4;
+  }
+}
+
+/* Better active states for mobile */
+button:active,
+a:active {
+  transform: scale(0.98);
+  transition: transform 0.1s ease;
+}
+
+/* Improved grid spacing for mobile */
+@media (max-width: 640px) {
+  .grid {
+    gap: 1rem;
+  }
+}

@@ -1,0 +1,643 @@
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { visionTestAPI } from '../services/api'
+
+/**
+ * Contrast Sensitivity Test (Pelli-Robson Style)
+ * Early warning system for Glaucoma, Cataracts, and other vision conditions
+ * Tests functional vision beyond standard acuity
+ */
+
+const ContrastSensitivityTest = () => {
+  const navigate = useNavigate()
+  const [testState, setTestState] = useState('instructions') // instructions, calibration, testing, results
+  const [currentLevel, setCurrentLevel] = useState(0)
+  const [score, setScore] = useState(0)
+  const [responses, setResponses] = useState([])
+  const [startTime, setStartTime] = useState(null)
+  const [testStartTime, setTestStartTime] = useState(null)
+  const [currentStimulus, setCurrentStimulus] = useState(null)
+  const [userAnswer, setUserAnswer] = useState('')
+  const [correctAnswers, setCorrectAnswers] = useState(0)
+  const [totalQuestions, setTotalQuestions] = useState(0)
+  const [isListening, setIsListening] = useState(false)
+  const [transcript, setTranscript] = useState('')
+  const [recognition, setRecognition] = useState(null)
+  const handleResponseRef = useRef(null)
+
+  // Contrast levels - from easy (high contrast) to difficult (low contrast)
+  // Using Weber contrast formula: C = (L_max - L_min) / L_min
+  const contrastLevels = [
+    { level: 0, contrast: 1.0, description: 'Very High Contrast', logCS: 2.0 },
+    { level: 1, contrast: 0.8, description: 'High Contrast', logCS: 1.8 },
+    { level: 2, contrast: 0.6, description: 'Medium-High Contrast', logCS: 1.6 },
+    { level: 3, contrast: 0.4, description: 'Medium Contrast', logCS: 1.4 },
+    { level: 4, contrast: 0.25, description: 'Medium-Low Contrast', logCS: 1.2 },
+    { level: 5, contrast: 0.15, description: 'Low Contrast', logCS: 1.0 },
+    { level: 6, contrast: 0.10, description: 'Very Low Contrast', logCS: 0.8 },
+    { level: 7, contrast: 0.06, description: 'Extremely Low Contrast', logCS: 0.6 },
+    { level: 8, contrast: 0.03, description: 'Minimal Contrast', logCS: 0.4 },
+  ]
+
+  // Letter options for each trial
+  const letters = ['C', 'D', 'H', 'K', 'N', 'O', 'R', 'S', 'V', 'Z']
+
+  // Generate a random stimulus
+  const generateStimulus = useCallback((contrastLevel) => {
+    const letter = letters[Math.floor(Math.random() * letters.length)]
+    const levelData = contrastLevels[contrastLevel]
+    return {
+      letter,
+      contrast: levelData.contrast,
+      contrastLevel: contrastLevel,
+      logCS: levelData.logCS,
+      description: levelData.description
+    }
+  }, [])
+
+  // Calculate text color based on contrast level
+  const getTextColor = (contrast, bgColor = '#f5f5f5') => {
+    // Convert background to RGB
+    const bgRGB = 245 // assuming light gray background
+    
+    // Calculate foreground color to achieve desired contrast
+    // Using luminance-based contrast
+    const foregroundValue = Math.round(bgRGB - (bgRGB * contrast))
+    
+    return `rgb(${foregroundValue}, ${foregroundValue}, ${foregroundValue})`
+  }
+
+  // Initialize speech recognition
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+      if (SpeechRecognition) {
+        const recognitionInstance = new SpeechRecognition()
+        recognitionInstance.continuous = false
+        recognitionInstance.interimResults = false
+        recognitionInstance.lang = 'en-US'
+
+        recognitionInstance.onresult = (event) => {
+          const speechResult = event.results[0][0].transcript.toUpperCase()
+          setTranscript(speechResult)
+          
+          // Extract letter from speech
+          const spokenLetter = speechResult.trim()
+          
+          // Check if it's a valid letter or "skip"
+          if (speechResult.includes('SKIP') && handleResponseRef.current) {
+            handleResponseRef.current('SKIP')
+          } else if (letters.includes(spokenLetter) && handleResponseRef.current) {
+            handleResponseRef.current(spokenLetter)
+          } else {
+            // Try to find the letter in the transcript
+            for (const letter of letters) {
+              if (speechResult.includes(letter)) {
+                if (handleResponseRef.current) {
+                  handleResponseRef.current(letter)
+                }
+                return
+              }
+            }
+            // If no valid letter found, show error
+            setTranscript(`Not recognized. Say one letter: ${letters.join(', ')} or say "skip"`)
+            setTimeout(() => setTranscript(''), 2000)
+          }
+        }
+
+        recognitionInstance.onerror = (event) => {
+          console.error('Speech recognition error:', event.error)
+          setIsListening(false)
+          if (event.error !== 'no-speech') {
+            setTranscript('Error. Please try again.')
+            setTimeout(() => setTranscript(''), 2000)
+            setTimeout(() => startListening(), 2500)
+          }
+        }
+
+        recognitionInstance.onend = () => {
+          setIsListening(false)
+        }
+
+        setRecognition(recognitionInstance)
+      }
+    }
+  }, [])
+
+  // Start listening
+  const startListening = useCallback(() => {
+    if (recognition && testState === 'testing') {
+      setTranscript('')
+      setIsListening(true)
+      try {
+        recognition.start()
+      } catch (error) {
+        console.error('Error starting recognition:', error)
+        setIsListening(false)
+      }
+    }
+  }, [recognition, testState])
+
+  // Auto-start listening when stimulus appears
+  useEffect(() => {
+    if (testState === 'testing' && currentStimulus && !isListening) {
+      const timeout = setTimeout(() => {
+        startListening()
+      }, 300)
+      return () => clearTimeout(timeout)
+    }
+  }, [currentStimulus, testState, isListening, startListening])
+
+  // Start the test
+  const startTest = () => {
+    setTestState('testing')
+    setCurrentLevel(0)
+    setResponses([])
+    setCorrectAnswers(0)
+    setTotalQuestions(0)
+    setTestStartTime(Date.now())
+    const stimulus = generateStimulus(0)
+    setCurrentStimulus(stimulus)
+    setStartTime(Date.now())
+    setUserAnswer('')
+  }
+
+  // Handle user response
+  const handleResponse = useCallback((answer) => {
+    if (!currentStimulus || !startTime) return
+
+    // Stop current recognition
+    if (recognition) {
+      try {
+        recognition.stop()
+      } catch (e) {
+        // Already stopped
+      }
+    }
+    setIsListening(false)
+
+    const responseTime = Date.now() - startTime
+    const isCorrect = answer === currentStimulus.letter
+    
+    const response = {
+      level: currentLevel,
+      contrast: currentStimulus.contrast,
+      logCS: currentStimulus.logCS,
+      letter: currentStimulus.letter,
+      userAnswer: answer,
+      correct: isCorrect,
+      responseTime
+    }
+
+    setResponses(prev => [...prev, response])
+    setTotalQuestions(prev => prev + 1)
+    if (isCorrect) {
+      setCorrectAnswers(prev => prev + 1)
+    }
+
+    // Adaptive testing logic
+    let nextLevel = currentLevel
+    if (isCorrect && currentLevel < contrastLevels.length - 1) {
+      // Move to lower contrast (more difficult)
+      nextLevel = currentLevel + 1
+    } else if (!isCorrect && currentLevel > 0) {
+      // Move to higher contrast (easier) if they fail
+      nextLevel = Math.max(0, currentLevel - 1)
+    }
+
+    // Check if test should end
+    if (totalQuestions >= 17) { // Standard Pelli-Robson has 18 triplets, we'll use ~18 trials
+      finishTest([...responses, response])
+      return
+    }
+
+    // Continue test
+    setCurrentLevel(nextLevel)
+    const newStimulus = generateStimulus(nextLevel)
+    setCurrentStimulus(newStimulus)
+    setStartTime(Date.now())
+    setUserAnswer('')
+  }, [currentStimulus, startTime, recognition, currentLevel, totalQuestions, responses, generateStimulus])
+
+  // Update ref when handleResponse changes
+  useEffect(() => {
+    handleResponseRef.current = handleResponse
+  }, [handleResponse])
+
+  // Calculate final score and submit
+  const finishTest = async (finalResponses) => {
+    setTestState('results')
+
+    // Calculate Contrast Sensitivity Score (logarithmic scale)
+    // Based on the HIGHEST (most difficult) contrast level reached with success
+    const correctByLevel = {}
+    finalResponses.forEach(r => {
+      if (!correctByLevel[r.level]) {
+        correctByLevel[r.level] = { correct: 0, total: 0 }
+      }
+      correctByLevel[r.level].total++
+      if (r.correct) correctByLevel[r.level].correct++
+    })
+
+    // Find the highest (most difficult) level where user got at least 50% correct
+    let thresholdLogCS = 0
+    let maxSuccessLevel = 0
+    
+    for (let i = contrastLevels.length - 1; i >= 0; i--) {
+      const stats = correctByLevel[i]
+      if (stats && stats.correct / stats.total >= 0.5) {
+        thresholdLogCS = contrastLevels[i].logCS
+        maxSuccessLevel = i
+        break
+      }
+    }
+
+    // If no level reached 50%, use the best performing level
+    if (thresholdLogCS === 0) {
+      let bestLevel = 0
+      let bestAccuracy = 0
+      Object.keys(correctByLevel).forEach(level => {
+        const stats = correctByLevel[level]
+        const accuracy = stats.correct / stats.total
+        if (accuracy > bestAccuracy) {
+          bestAccuracy = accuracy
+          bestLevel = parseInt(level)
+        }
+      })
+      thresholdLogCS = contrastLevels[bestLevel].logCS
+      maxSuccessLevel = bestLevel
+    }
+
+    // Convert to 0-100 score for display
+    const finalScore = Math.round((thresholdLogCS / 2.0) * 100)
+    setScore(finalScore)
+
+    // Calculate average response time
+    const avgResponseTime = Math.round(
+      finalResponses.reduce((sum, r) => sum + r.responseTime, 0) / finalResponses.length
+    )
+
+    // Submit to backend
+    try {
+      await visionTestAPI.submit({
+        test_type: 'contrast_sensitivity',
+        score: finalScore,
+        response_time_ms: avgResponseTime,
+        errors: finalResponses.filter(r => !r.correct).length,
+        test_details: {
+          threshold_logCS: thresholdLogCS,
+          total_trials: finalResponses.length,
+          correct_answers: correctAnswers,
+          responses: finalResponses,
+          test_duration_ms: Date.now() - testStartTime
+        }
+      })
+    } catch (error) {
+      console.error('Failed to submit test:', error)
+    }
+  }
+
+  // Get health interpretation
+  const getHealthInterpretation = () => {
+    if (score >= 85) {
+      return {
+        status: 'Excellent',
+        color: 'green',
+        message: 'Your contrast sensitivity is excellent. This indicates healthy functional vision.',
+        icon: '✓'
+      }
+    } else if (score >= 70) {
+      return {
+        status: 'Good',
+        color: 'blue',
+        message: 'Your contrast sensitivity is good. Continue monitoring regularly.',
+        icon: '✓'
+      }
+    } else if (score >= 50) {
+      return {
+        status: 'Fair',
+        color: 'yellow',
+        message: 'Your contrast sensitivity shows some reduction. Consider scheduling an eye exam.',
+        icon: '!'
+      }
+    } else {
+      return {
+        status: 'Needs Attention',
+        color: 'red',
+        message: 'Your contrast sensitivity is below normal. We recommend consulting an eye care professional soon.',
+        icon: '!'
+      }
+    }
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50 py-8 px-4">
+      <div className="max-w-4xl mx-auto">
+        {/* Instructions */}
+        {testState === 'instructions' && (
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+            <div className="text-center mb-8">
+              <div className="w-16 h-16 bg-primary-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-8 h-8 text-primary-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+              </div>
+              <h1 className="text-3xl font-serif font-bold text-gray-900 mb-2">
+                Contrast Sensitivity Test
+              </h1>
+              <p className="text-sm text-primary-600 font-medium mb-4">
+                Functional Vision Assessment
+              </p>
+            </div>
+
+            <div className="space-y-6 text-left">
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-6">
+                <h3 className="font-semibold text-blue-900 mb-2 flex items-center">
+                  <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                  </svg>
+                  Why This Test Matters
+                </h3>
+                <p className="text-sm text-blue-800">
+                  Standard eye charts use high-contrast black letters on white backgrounds. However, real-world vision depends on your ability to see in <strong>low-contrast conditions</strong>. This test measures your <strong>functional vision</strong> and can detect early signs of:
+                </p>
+                <ul className="mt-3 space-y-2 text-sm text-blue-800">
+                  <li className="flex items-start">
+                    <span className="mr-2">•</span>
+                    <span><strong>Glaucoma</strong> - Early vision loss often affects contrast first</span>
+                  </li>
+                  <li className="flex items-start">
+                    <span className="mr-2">•</span>
+                    <span><strong>Cataracts</strong> - Clouding of the lens reduces contrast sensitivity</span>
+                  </li>
+                  <li className="flex items-start">
+                    <span className="mr-2">•</span>
+                    <span><strong>Macular Degeneration</strong> - Central vision contrast is affected</span>
+                  </li>
+                </ul>
+              </div>
+
+              <div>
+                <h3 className="font-semibold text-gray-900 mb-3">How It Works:</h3>
+                <ol className="space-y-3 text-gray-700">
+                  <li className="flex">
+                    <span className="font-semibold mr-3">1.</span>
+                    <span>You'll see letters that gradually fade into the background</span>
+                  </li>
+                  <li className="flex">
+                    <span className="font-semibold mr-3">2.</span>
+                    <span><strong>Speak the letter you see</strong> - voice recognition keeps test smooth</span>
+                  </li>
+                  <li className="flex">
+                    <span className="font-semibold mr-3">3.</span>
+                    <span>The test adapts based on your responses (18 trials total)</span>
+                  </li>
+                  <li className="flex">
+                    <span className="font-semibold mr-3">4.</span>
+                    <span>Try your best even when letters are very faint, or say "skip"</span>
+                  </li>
+                </ol>
+              </div>
+
+              <div className="bg-gray-50 rounded-xl p-6 border border-gray-200">
+                <h3 className="font-semibold text-gray-900 mb-3">Before You Start:</h3>
+                <ul className="space-y-2 text-sm text-gray-700">
+                  <li className="flex items-start">
+                    <svg className="w-5 h-5 mr-2 text-green-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                    </svg>
+                    <span><strong>Allow microphone access</strong> - needed for voice input</span>
+                  </li>
+                  <li className="flex items-start">
+                    <svg className="w-5 h-5 mr-2 text-green-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                    </svg>
+                    <span>Ensure good, consistent lighting (avoid glare on screen)</span>
+                  </li>
+                  <li className="flex items-start">
+                    <svg className="w-5 h-5 mr-2 text-green-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                    </svg>
+                    <span>Sit at a comfortable distance from your screen (about 40-60cm)</span>
+                  </li>
+                  <li className="flex items-start">
+                    <svg className="w-5 h-5 mr-2 text-green-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                    </svg>
+                    <span>Wear your glasses or contacts if you normally use them</span>
+                  </li>
+                  <li className="flex items-start">
+                    <svg className="w-5 h-5 mr-2 text-green-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                    </svg>
+                    <span>Test duration: approximately 3-4 minutes</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="mt-8 flex gap-4">
+              <button
+                onClick={() => navigate('/vision-tests')}
+                className="flex-1 px-6 py-3 border-2 border-gray-300 rounded-full font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                Back
+              </button>
+              <button
+                onClick={startTest}
+                className="flex-1 px-6 py-3 bg-primary-600 hover:bg-primary-700 text-white rounded-full font-semibold transition-colors"
+              >
+                Start Test
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Testing Phase */}
+        {testState === 'testing' && currentStimulus && (
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+            {/* Progress */}
+            <div className="mb-8">
+              <div className="flex justify-between text-sm text-gray-600 mb-2">
+                <span>Progress</span>
+                <span>{totalQuestions + 1} of 18</span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-2">
+                <div
+                  className="bg-primary-600 h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${((totalQuestions + 1) / 18) * 100}%` }}
+                />
+              </div>
+            </div>
+
+            {/* Contrast Level Indicator */}
+            <div className="text-center mb-6">
+              <p className="text-sm text-gray-500 mb-1">Current Level</p>
+              <p className="text-lg font-semibold text-primary-700">{currentStimulus.description}</p>
+            </div>
+
+            {/* Stimulus Display */}
+            <div
+              className="mb-12 py-24 rounded-2xl flex items-center justify-center"
+              style={{ backgroundColor: '#f5f5f5' }}
+            >
+              <div
+                className="text-9xl font-bold tracking-wider"
+                style={{
+                  color: getTextColor(currentStimulus.contrast),
+                  fontFamily: 'monospace',
+                  userSelect: 'none'
+                }}
+              >
+                {currentStimulus.letter}
+              </div>
+            </div>
+
+            {/* Voice Response UI */}
+            <div className="text-center">
+              <div className="mb-6">
+                <div className={`inline-flex items-center gap-3 px-6 py-4 rounded-2xl ${
+                  isListening ? 'bg-primary-100 border-2 border-primary-400' : 'bg-gray-100 border-2 border-gray-300'
+                }`}>
+                  <div className={`w-4 h-4 rounded-full ${isListening ? 'bg-primary-600 animate-pulse' : 'bg-gray-400'}`} />
+                  <span className="font-semibold text-gray-800">
+                    {isListening ? 'Listening... Say the letter' : 'Voice Recognition Ready'}
+                  </span>
+                </div>
+              </div>
+
+              {transcript && (
+                <div className="mb-4 text-lg font-semibold text-primary-700">
+                  You said: "{transcript}"
+                </div>
+              )}
+
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 max-w-2xl mx-auto">
+                <p className="text-sm text-blue-800 mb-2">
+                  <strong>Speak the letter you see clearly</strong>
+                </p>
+                <p className="text-sm text-blue-700">
+                  Valid letters: {letters.join(', ')}
+                </p>
+                <p className="text-xs text-gray-600 mt-2">
+                  Can't see it? Say "skip"
+                </p>
+              </div>
+
+              {!isListening && (
+                <button
+                  onClick={startListening}
+                  className="mt-4 px-6 py-3 bg-primary-600 hover:bg-primary-700 text-white rounded-full font-semibold transition-colors"
+                >
+                  Start Speaking
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Results */}
+        {testState === 'results' && (
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+            <div className="text-center mb-8">
+              <div className={`w-20 h-20 bg-${getHealthInterpretation().color}-100 rounded-full flex items-center justify-center mx-auto mb-4`}>
+                <span className="text-4xl">{getHealthInterpretation().icon}</span>
+              </div>
+              <h2 className="text-3xl font-serif font-bold text-gray-900 mb-2">
+                Test Complete!
+              </h2>
+              <p className="text-gray-600">Your Contrast Sensitivity Results</p>
+            </div>
+
+            {/* Score Display */}
+            <div className="bg-gradient-to-br from-primary-50 to-blue-50 rounded-2xl p-8 mb-8">
+              <div className="text-center">
+                <div className="text-6xl font-bold text-primary-700 mb-2">
+                  {score}
+                </div>
+                <div className="text-sm text-gray-600 mb-4">Functional Vision Score</div>
+                <div className={`inline-block px-4 py-2 bg-${getHealthInterpretation().color}-100 text-${getHealthInterpretation().color}-800 rounded-full font-semibold`}>
+                  {getHealthInterpretation().status}
+                </div>
+              </div>
+            </div>
+
+            {/* Interpretation */}
+            <div className={`bg-${getHealthInterpretation().color}-50 border border-${getHealthInterpretation().color}-200 rounded-xl p-6 mb-8`}>
+              <h3 className={`font-semibold text-${getHealthInterpretation().color}-900 mb-2`}>
+                What This Means
+              </h3>
+              <p className={`text-sm text-${getHealthInterpretation().color}-800`}>
+                {getHealthInterpretation().message}
+              </p>
+            </div>
+
+            {/* Test Statistics */}
+            <div className="grid grid-cols-2 gap-4 mb-8">
+              <div className="bg-gray-50 rounded-xl p-6 text-center">
+                <div className="text-3xl font-bold text-gray-900 mb-1">
+                  {correctAnswers}/{totalQuestions}
+                </div>
+                <div className="text-sm text-gray-600">Correct Answers</div>
+              </div>
+              <div className="bg-gray-50 rounded-xl p-6 text-center">
+                <div className="text-3xl font-bold text-gray-900 mb-1">
+                  {Math.round((correctAnswers / totalQuestions) * 100)}%
+                </div>
+                <div className="text-sm text-gray-600">Accuracy</div>
+              </div>
+            </div>
+
+            {/* Educational Info */}
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-6 mb-8">
+              <h3 className="font-semibold text-blue-900 mb-3 flex items-center">
+                <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                </svg>
+                Why Contrast Sensitivity Matters
+              </h3>
+              <div className="text-sm text-blue-800 space-y-2">
+                <p>
+                  You might have perfect 20/20 vision on a standard eye chart but still struggle with:
+                </p>
+                <ul className="ml-4 space-y-1">
+                  <li>• Driving at night or in fog</li>
+                  <li>• Reading in dim lighting</li>
+                  <li>• Seeing faces in shadows</li>
+                  <li>• Detecting steps and curbs</li>
+                </ul>
+                <p className="mt-3">
+                  Contrast sensitivity is often the <strong>first aspect of vision to decline</strong> in conditions like glaucoma and cataracts, sometimes years before standard acuity tests show problems.
+                </p>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex gap-4">
+              <button
+                onClick={() => navigate('/vision-tests')}
+                className="flex-1 px-6 py-3 border-2 border-gray-300 rounded-full font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                Back to Tests
+              </button>
+              <button
+                onClick={() => {
+                  setTestState('instructions')
+                  setScore(0)
+                  setResponses([])
+                  setCorrectAnswers(0)
+                  setTotalQuestions(0)
+                }}
+                className="flex-1 px-6 py-3 bg-primary-600 hover:bg-primary-700 text-white rounded-full font-semibold transition-colors"
+              >
+                Take Again
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+export default ContrastSensitivityTest

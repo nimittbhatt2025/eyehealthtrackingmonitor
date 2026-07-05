@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Backend Connection Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        .status { padding: 20px; margin: 10px 0; border-radius: 5px; }
+        .success { background: #d4edda; color: #155724; }
+        .error { background: #f8d7da; color: #721c24; }
+        .loading { background: #fff3cd; color: #856404; }
+        pre { background: #f4f4f4; padding: 15px; overflow: auto; }
+    </style>
+</head>
+<body>
+    <h1>🔧 Backend Connection Test</h1>
+    <div id="status" class="status loading">Testing connection...</div>
+    <div id="details"></div>
+
+    <script>
+        async function testBackend() {
+            const statusDiv = document.getElementById('status');
+            const detailsDiv = document.getElementById('details');
+            
+            try {
+                // Test 1: Health check
+                statusDiv.innerHTML = '⏳ Testing backend at http://localhost:5002...';
+                
+                const response = await fetch('http://localhost:5002/api/auth/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        email: 'test' + Date.now() + '@test.com',
+                        password: 'test123',
+                        name: 'Test User'
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    statusDiv.className = 'status success';
+                    statusDiv.innerHTML = '✅ Backend is working! Registration successful!';
+                    detailsDiv.innerHTML = `
+                        <h3>Response:</h3>
+                        <pre>${JSON.stringify(data, null, 2)}</pre>
+                        <p><strong>Backend URL:</strong> http://localhost:5002/api</p>
+                        <p><strong>Frontend should work if you:</strong></p>
+                        <ol>
+                            <li>Hard refresh the page (Cmd+Shift+R on Mac)</li>
+                            <li>Clear browser cache</li>
+                            <li>Open in incognito mode</li>
+                        </ol>
+                    `;
+                } else {
+                    throw new Error(`HTTP ${response.status}: ${JSON.stringify(data)}`);
+                }
+            } catch (error) {
+                statusDiv.className = 'status error';
+                statusDiv.innerHTML = '❌ Backend connection failed!';
+                detailsDiv.innerHTML = `
+                    <h3>Error:</h3>
+                    <pre>${error.message}</pre>
+                    <p><strong>Troubleshooting:</strong></p>
+                    <ul>
+                        <li>Make sure backend is running: <code>ps aux | grep python</code></li>
+                        <li>Check if port 5002 is listening: <code>lsof -i:5002</code></li>
+                        <li>Try starting backend: <code>cd eyevio && PORT=5002 ./venv/bin/python3.12 run.py</code></li>
+                    </ul>
+                `;
+            }
+        }
+        
+        testBackend();
+    </script>
+</body>
+</html>
