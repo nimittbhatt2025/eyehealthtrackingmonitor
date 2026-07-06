@@ -1,5 +1,17 @@
-// Register service worker for PWA functionality
+import { toast } from 'react-hot-toast'
+
+// Register service worker for PWA functionality (production only)
 export function registerServiceWorker() {
+  if (import.meta.env.DEV) {
+    // Service workers break Vite HMR in development
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then((registrations) => {
+        registrations.forEach((registration) => registration.unregister())
+      })
+    }
+    return
+  }
+
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
       navigator.serviceWorker
@@ -18,10 +30,17 @@ export function registerServiceWorker() {
             
             newWorker.addEventListener('statechange', () => {
               if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                // New service worker available
-                if (confirm('New version available! Reload to update?')) {
-                  window.location.reload()
-                }
+                // New version available — show a gentle, persistent in-app toast
+                // instead of a native confirm() dialog. The user refreshes when ready.
+                toast(
+                  'A new version of EyeVio is available. Refresh the page to update.',
+                  {
+                    duration: 10000,
+                    position: 'bottom-center',
+                    icon: '🔄',
+                    ariaProps: { role: 'status', 'aria-live': 'polite' },
+                  }
+                )
               }
             })
           })

@@ -42,6 +42,7 @@ function Register() {
       const { confirmPassword, name, age, ...rest } = formData
       const submitData = {
         ...rest,
+        email: rest.email.trim().toLowerCase(),
         full_name: name,
         age: parseInt(age),
       }

@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { toast } from 'react-hot-toast'
+import { useAuthStore } from '../store/authStore'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5002/api'
 
@@ -56,12 +57,16 @@ api.interceptors.response.use(
       status: error.response?.status,
       data: error.response?.data
     })
-    if (error.response?.status === 401) {
-      // Token expired or invalid
-      localStorage.removeItem('access_token')
-      localStorage.removeItem('user')
-      window.location.href = '/login'
-      toast.error('Session expired. Please login again.')
+    const isAuthRequest = error.config?.url?.includes('/auth/login') ||
+      error.config?.url?.includes('/auth/register')
+
+    if (error.response?.status === 401 && !isAuthRequest) {
+      // Token expired or invalid (not a failed login attempt)
+      useAuthStore.getState().clearAuth()
+      if (!window.location.pathname.startsWith('/login')) {
+        window.location.href = '/login'
+        toast.error('Session expired. Please login again.')
+      }
     } else if (error.response?.data?.error) {
       toast.error(error.response.data.error)
     } else {

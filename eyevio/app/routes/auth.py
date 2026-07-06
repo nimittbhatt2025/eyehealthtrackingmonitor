@@ -14,17 +14,20 @@ def register():
         data = request.get_json()
         
         # Validate required fields
-        if not data.get('email') or not data.get('password'):
+        email = data.get('email', '').strip().lower()
+        password = data.get('password')
+
+        if not email or not password:
             return jsonify({'error': 'Email and password are required'}), 400
         
         # Check if user already exists
-        if User.query.filter_by(email=data['email']).first():
+        if User.query.filter_by(email=email).first():
             return jsonify({'error': 'Email already registered'}), 409
         
         # Create new user
         user = User(
-            email=data['email'],
-            password_hash=hash_password(data['password']),
+            email=email,
+            password_hash=hash_password(password),
             full_name=data.get('full_name'),
             age=data.get('age'),
             gender=data.get('gender'),
@@ -65,14 +68,17 @@ def login():
     try:
         data = request.get_json()
         
-        if not data.get('email') or not data.get('password'):
+        email = data.get('email', '').strip().lower()
+        password = data.get('password')
+
+        if not email or not password:
             return jsonify({'error': 'Email and password are required'}), 400
         
-        user = User.query.filter_by(email=data['email']).first()
+        user = User.query.filter_by(email=email).first()
         
-        if not user or not verify_password(data['password'], user.password_hash):
+        if not user or not verify_password(password, user.password_hash):
             return jsonify({'error': 'Invalid credentials'}), 401
-        
+
         if not user.is_active:
             return jsonify({'error': 'Account is inactive'}), 403
         

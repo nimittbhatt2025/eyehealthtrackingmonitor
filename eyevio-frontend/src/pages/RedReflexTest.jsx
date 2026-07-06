@@ -391,15 +391,15 @@ const RedReflexTest = () => {
                 <path d="M12 2v4M12 18v4M2 12h4M18 12h4" strokeWidth="2"/>
               </svg>
             </div>
-            <h1 className="text-4xl font-bold text-gray-900 mb-2">Red Glow Analyzer</h1>
-            <p className="text-xl text-gray-600">Digital Bruckner Test - Smart Ophthalmoscope</p>
+            <h1 className="text-4xl font-bold text-gray-900 mb-2">Eye Glow Test</h1>
+            <p className="text-xl text-gray-600">Checks the glow from the back of your eyes</p>
           </div>
 
           <div className="bg-red-50 border-l-4 border-red-600 p-6 mb-8 rounded-r-xl">
             <h2 className="text-lg font-bold text-red-900 mb-2">What This Test Does</h2>
             <p className="text-red-800">
-              This advanced screening analyzes the red reflex from your retina to detect serious eye conditions:
-              <strong> cataracts, leukocoria, and refractive errors.</strong> Your smartphone becomes a clinical-grade screening tool.
+              Your camera looks at the glow that comes from the back of your eyes — the same red-eye you see in photos.
+              A healthy, even glow in both eyes is a good sign. An uneven or cloudy glow can be an early hint of an eye problem worth checking.
             </p>
           </div>
 
@@ -412,8 +412,8 @@ const RedReflexTest = () => {
                   <span className="text-red-600 font-bold text-xl">1</span>
                 </div>
                 <div>
-                  <h4 className="font-bold text-gray-900 mb-1">Maximum Screen Brightness</h4>
-                  <p className="text-gray-600">The app will use your screen as a light source to illuminate your retina</p>
+                  <h4 className="font-bold text-gray-900 mb-1">Turn Screen Brightness Up</h4>
+                  <p className="text-gray-600">The app uses your bright screen as a gentle light to see into your eyes</p>
                 </div>
               </div>
 
@@ -442,8 +442,8 @@ const RedReflexTest = () => {
                   <span className="text-red-600 font-bold text-xl">4</span>
                 </div>
                 <div>
-                  <h4 className="font-bold text-gray-900 mb-1">AI-Powered Analysis</h4>
-                  <p className="text-gray-600">Our algorithm analyzes red reflex intensity, symmetry, and opacity patterns</p>
+                  <h4 className="font-bold text-gray-900 mb-1">Automatic Analysis</h4>
+                  <p className="text-gray-600">We check how bright the glow is, whether both eyes match, and if anything looks cloudy</p>
                 </div>
               </div>
             </div>
@@ -474,7 +474,7 @@ const RedReflexTest = () => {
                 <svg className="w-5 h-5 text-orange-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                 </svg>
-                <span><strong>Allow camera access</strong> - Required for capturing the red reflex</span>
+                <span><strong>Allow camera access</strong> - Needed to see the glow in your eyes</span>
               </li>
             </ul>
           </div>
@@ -484,7 +484,7 @@ const RedReflexTest = () => {
               onClick={startTest}
               className="px-8 py-4 bg-gradient-to-r from-red-600 to-orange-600 text-white rounded-full text-xl font-bold hover:from-red-700 hover:to-orange-700 transition-all transform hover:scale-105 shadow-lg"
             >
-              Start Red Reflex Scan
+              Start Eye Glow Scan
             </button>
           </div>
         </div>
@@ -639,9 +639,9 @@ const RedReflexTest = () => {
           </div>
         </div>
 
-        <h2 className="text-2xl font-bold mb-4">Analyzing Red Reflex</h2>
+        <h2 className="text-2xl font-bold mb-4">Checking the glow in your eyes</h2>
         <p className="text-gray-400 mb-2">Keep your eyes on the center point</p>
-        <p className="text-gray-500 text-sm">Capturing 90 frames for analysis</p>
+        <p className="text-gray-500 text-sm">Taking a quick 3-second video</p>
 
         {/* Scanning animation bars */}
         <div className="mt-8 flex justify-center gap-2">
@@ -681,13 +681,13 @@ const RedReflexTest = () => {
         </div>
 
         <h2 className="text-3xl font-bold mb-4">Analyzing Results</h2>
-        <p className="text-gray-400 mb-6">Processing red reflex data...</p>
+        <p className="text-gray-400 mb-6">Looking at the glow in your eyes...</p>
 
         <div className="space-y-2 text-sm text-gray-500">
-          <p className="animate-pulse">✓ Measuring reflex intensity</p>
-          <p className="animate-pulse" style={{ animationDelay: '0.2s' }}>✓ Checking eye symmetry</p>
-          <p className="animate-pulse" style={{ animationDelay: '0.4s' }}>✓ Scanning for opacities</p>
-          <p className="animate-pulse" style={{ animationDelay: '0.6s' }}>✓ Detecting leukocoria</p>
+          <p className="animate-pulse">✓ Measuring how bright the glow is</p>
+          <p className="animate-pulse" style={{ animationDelay: '0.2s' }}>✓ Checking that both eyes match</p>
+          <p className="animate-pulse" style={{ animationDelay: '0.4s' }}>✓ Looking for cloudy areas</p>
+          <p className="animate-pulse" style={{ animationDelay: '0.6s' }}>✓ Checking for a white glow</p>
         </div>
       </div>
     </div>
@@ -722,8 +722,8 @@ const RedReflexTest = () => {
 
           <div className="bg-white rounded-3xl shadow-2xl p-8 md:p-12">
             <div className="text-center mb-8">
-              <h1 className="text-4xl font-bold text-gray-900 mb-2">Red Reflex Analysis Complete</h1>
-              <p className="text-gray-600">Your retinal health screening results</p>
+              <h1 className="text-4xl font-bold text-gray-900 mb-2">Eye Glow Test Complete</h1>
+              <p className="text-gray-600">Here's what the glow in your eyes looked like</p>
             </div>
 
             {/* Critical warnings */}
@@ -733,14 +733,14 @@ const RedReflexTest = () => {
                   <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                   </svg>
-                  URGENT: Medical Consultation Required
+                  Please see an eye doctor soon
                 </h3>
                 <p className="text-red-800 font-semibold mb-2">
-                  Abnormal findings detected. Please schedule an appointment with an eye care professional immediately.
+                  Something looked unusual in the glow. This isn't a diagnosis, but please book an appointment with an eye doctor soon to have it checked.
                 </p>
                 <ul className="text-red-700 space-y-1">
                   {criticalWarnings.map((warning, i) => (
-                    <li key={i}>• {warning.type === 'leukocoria' ? 'White pupil reflex detected (Leukocoria)' : warning.type}</li>
+                    <li key={i}>• {warning.type === 'leukocoria' ? 'A white glow was seen instead of the usual red' : warning.type}</li>
                   ))}
                 </ul>
               </div>
@@ -750,36 +750,36 @@ const RedReflexTest = () => {
             <div className="grid md:grid-cols-2 gap-6 mb-8">
               {/* Reflex Intensity Score */}
               <div className={`border-2 rounded-2xl p-6 ${getScoreBg(reflexIntensityScore)}`}>
-                <h3 className="text-sm font-semibold text-gray-700 mb-2">REFLEX INTENSITY SCORE</h3>
+                <h3 className="text-sm font-semibold text-gray-700 mb-2">GLOW BRIGHTNESS</h3>
                 <div className={`text-6xl font-bold ${getScoreColor(reflexIntensityScore)} mb-2`}>
                   {reflexIntensityScore}
                   <span className="text-3xl">/100</span>
                 </div>
                 <p className="text-sm text-gray-600">
-                  {reflexIntensityScore >= 80 ? 'Excellent red reflex vibrancy' :
-                   reflexIntensityScore >= 60 ? 'Moderate reflex quality' :
-                   'Low reflex intensity detected'}
+                  {reflexIntensityScore >= 80 ? 'Bright, healthy glow' :
+                   reflexIntensityScore >= 60 ? 'Medium glow' :
+                   'Faint glow'}
                 </p>
               </div>
 
               {/* Symmetry Score */}
               <div className={`border-2 rounded-2xl p-6 ${getScoreBg(symmetryScore)}`}>
-                <h3 className="text-sm font-semibold text-gray-700 mb-2">SYMMETRY BALANCE</h3>
+                <h3 className="text-sm font-semibold text-gray-700 mb-2">BOTH EYES MATCH</h3>
                 <div className={`text-6xl font-bold ${getScoreColor(symmetryScore)} mb-2`}>
                   {symmetryScore}
                   <span className="text-3xl">/100</span>
                 </div>
                 <p className="text-sm text-gray-600">
-                  {symmetryScore >= 85 ? 'Perfectly balanced eyes' :
-                   symmetryScore >= 70 ? 'Slight asymmetry detected' :
-                   'Significant refractive imbalance'}
+                  {symmetryScore >= 85 ? 'Both eyes look nicely balanced' :
+                   symmetryScore >= 70 ? 'Slight difference between eyes' :
+                   'Noticeable difference between eyes'}
                 </p>
               </div>
             </div>
 
             {/* Eye comparison */}
             <div className="bg-gray-50 rounded-2xl p-6 mb-8">
-              <h3 className="text-xl font-bold text-gray-900 mb-4">Individual Eye Analysis</h3>
+              <h3 className="text-xl font-bold text-gray-900 mb-4">Each eye on its own</h3>
               
               <div className="grid md:grid-cols-2 gap-6">
                 {/* Left eye */}
@@ -787,7 +787,7 @@ const RedReflexTest = () => {
                   <h4 className="font-bold text-gray-700 mb-3">Left Eye</h4>
                   <div className="space-y-2">
                     <div className="flex justify-between items-center">
-                      <span className="text-sm text-gray-600">Reflex Intensity:</span>
+                      <span className="text-sm text-gray-600">Glow brightness:</span>
                       <span className="font-semibold">{leftEyeData?.percentage}%</span>
                     </div>
                     <div className="w-full bg-gray-200 rounded-full h-2">
@@ -804,7 +804,7 @@ const RedReflexTest = () => {
                   <h4 className="font-bold text-gray-700 mb-3">Right Eye</h4>
                   <div className="space-y-2">
                     <div className="flex justify-between items-center">
-                      <span className="text-sm text-gray-600">Reflex Intensity:</span>
+                      <span className="text-sm text-gray-600">Glow brightness:</span>
                       <span className="font-semibold">{rightEyeData?.percentage}%</span>
                     </div>
                     <div className="w-full bg-gray-200 rounded-full h-2">
@@ -821,12 +821,12 @@ const RedReflexTest = () => {
             {/* Normal warnings */}
             {normalWarnings.length > 0 && (
               <div className="bg-yellow-50 border-l-4 border-yellow-600 p-6 mb-8 rounded-r-xl">
-                <h3 className="text-lg font-bold text-yellow-900 mb-2">Findings to Monitor</h3>
+                <h3 className="text-lg font-bold text-yellow-900 mb-2">Things worth keeping an eye on</h3>
                 <ul className="text-yellow-800 space-y-1">
                   {normalWarnings.map((warning, i) => (
                     <li key={i}>
-                      • {warning.type === 'opacity' ? 'Minor opacity detected - possible early cataract development' :
-                         warning.type === 'asymmetry' ? 'Refractive asymmetry - consider eye exam for prescription update' :
+                      • {warning.type === 'opacity' ? 'A small cloudy area was seen — this can be an early sign of a cataract' :
+                         warning.type === 'asymmetry' ? 'Your eyes looked a little different — an eye exam can check if your glasses need updating' :
                          warning.type}
                     </li>
                   ))}

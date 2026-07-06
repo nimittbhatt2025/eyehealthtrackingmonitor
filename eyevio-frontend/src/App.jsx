@@ -1,4 +1,5 @@
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
+import { useEffect } from 'react'
 import { Toaster } from 'react-hot-toast'
 import { useAuthStore } from './store/authStore'
 import PWAInstallPrompt from './components/PWAInstallPrompt'
@@ -50,8 +51,20 @@ import AmslerGridTest from './pages/AmslerGridTest'
 
 // Protected Route Component
 function ProtectedRoute({ children }) {
-  const { isAuthenticated } = useAuthStore()
-  return isAuthenticated ? children : <Navigate to="/login" />
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
+  const hydrate = useAuthStore((state) => state.hydrate)
+
+  useEffect(() => {
+    hydrate()
+  }, [hydrate])
+
+  const hasToken = !!localStorage.getItem('access_token')
+
+  if (!isAuthenticated && !hasToken) {
+    return <Navigate to="/login" replace />
+  }
+
+  return children
 }
 
 // Calibration Wrapper to handle returnTo parameter
@@ -122,7 +135,10 @@ function App() {
               }>
                 <Route path="/dashboard" element={<Dashboard />} />
                 <Route path="/vision-tests" element={<VisionTests />} />
-                <Route path="/vision-tests/:testType" element={<VisionTestRunner />} />
+                {/* Specific test pages must come before the :testType catch-all */}
+                <Route path="/vision-tests/visual_acuity" element={<VisualAcuityTest />} />
+                <Route path="/vision-tests/color_vision" element={<ColorVisionTest />} />
+                <Route path="/vision-tests/amsler_grid" element={<AmslerGridTest />} />
                 <Route path="/vision-tests/contrast_sensitivity" element={<ContrastSensitivityTest />} />
                 <Route path="/vision-tests/glaucoma_neural" element={<GlaucomaTest />} />
                 <Route path="/vision-tests/cataract_glare" element={<CataractTest />} />
@@ -130,9 +146,7 @@ function App() {
                 <Route path="/vision-tests/accommodative_lag" element={<AccommodativeLagTest />} />
                 <Route path="/vision-tests/peripheral_awareness" element={<PeripheralAwarenessTest />} />
                 <Route path="/vision-tests/ocular_ergonomics" element={<OcularErgonomicsMonitor />} />
-                <Route path="/vision-tests/visual_acuity" element={<VisualAcuityTest />} />
-                <Route path="/vision-tests/color_vision" element={<ColorVisionTest />} />
-                <Route path="/vision-tests/amsler_grid" element={<AmslerGridTest />} />
+                <Route path="/vision-tests/:testType" element={<VisionTestRunner />} />
                 <Route path="/test-details/:testId" element={<TestDetails />} />
                 <Route path="/trends" element={<Trends />} />
                 

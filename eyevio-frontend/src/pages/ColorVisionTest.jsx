@@ -674,7 +674,7 @@ const ColorVisionTest = () => {
                 <ul className="space-y-1 text-xs text-gray-700">
                   <li className="flex gap-2"><span className="text-red-500">•</span><span><strong>Screen inconsistency:</strong> Monitor brightness and color settings alter results</span></li>
                   <li className="flex gap-2"><span className="text-red-500">•</span><span><strong>Lighting variation:</strong> Clinical tests use standardized daylight in controlled environments</span></li>
-                  <li className="flex gap-2"><span className="text-red-500">•</span><span><strong>Limited scope:</strong> Cannot detect blue-yellow (Tritan) deficiencies</span></li>
+                  <li className="flex gap-2"><span className="text-red-500">•</span><span><strong>Limited scope:</strong> Cannot check for rarer blue-yellow color trouble</span></li>
                   <li className="flex gap-2"><span className="text-red-500">•</span><span><strong>No severity measurement:</strong> Cannot determine mild vs severe accurately</span></li>
                 </ul>
               </div>
@@ -959,7 +959,7 @@ const ColorVisionTest = () => {
               <ul className="space-y-2 text-sm text-red-800">
                 <li className="flex gap-2">
                   <span className="font-bold">✗</span>
-                  <span>Blue-yellow deficiencies (Tritan)</span>
+                  <span>Rarer blue-yellow color trouble</span>
                 </li>
                 <li className="flex gap-2">
                   <span className="font-bold">✗</span>
@@ -1039,10 +1039,10 @@ const ColorVisionTest = () => {
                     <circle cx="10" cy="10" r="7" />
                   </svg>
                 </div>
-                <h4 className="font-bold text-xl text-red-900">Protan</h4>
+                <h4 className="font-bold text-xl text-red-900">Trouble seeing red</h4>
               </div>
-              <p className="text-gray-700 mb-2">Red deficiency - difficulty distinguishing red from green</p>
-              <p className="text-sm text-gray-600">Affects ~1% of males</p>
+              <p className="text-gray-700 mb-2">Reds can look dull or hard to tell apart from green. (Doctors call this "protan".)</p>
+              <p className="text-sm text-gray-600">Affects about 1 in 100 boys/men</p>
             </div>
 
             <div className="bg-gradient-to-br from-green-50 to-green-100 border-2 border-green-200 rounded-xl p-6">
@@ -1052,17 +1052,17 @@ const ColorVisionTest = () => {
                     <circle cx="10" cy="10" r="7" />
                   </svg>
                 </div>
-                <h4 className="font-bold text-xl text-green-900">Deutan</h4>
+                <h4 className="font-bold text-xl text-green-900">Trouble seeing green</h4>
               </div>
-              <p className="text-gray-700 mb-2">Green deficiency - difficulty distinguishing green from red</p>
-              <p className="text-sm text-gray-600">Affects ~5% of males</p>
+              <p className="text-gray-700 mb-2">Greens can look dull or hard to tell apart from red. (Doctors call this "deutan".)</p>
+              <p className="text-sm text-gray-600">Affects about 5 in 100 boys/men</p>
             </div>
           </div>
 
           <div className="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
             <p className="text-sm text-gray-700">
-              <strong>Note:</strong> This test screens for red-green deficiencies, the most common type. 
-              Blue-yellow deficiencies (Tritan) are rare and require specialized testing.
+              <strong>Note:</strong> This test checks for red-green color trouble, which is the most common kind.
+              Blue-yellow trouble is rare and needs a special test at the eye doctor.
             </p>
           </div>
         </div>
@@ -1511,9 +1511,9 @@ const ColorVisionTest = () => {
               <h3 className="font-bold text-xl text-gray-900 mb-2">Result</h3>
               <p className="text-2xl font-bold text-purple-600">
                 {analysis.deficiencyType === 'normal' ? 'Normal Color Vision' :
-                 analysis.deficiencyType === 'protan' ? 'Protan (Red) Deficiency' :
-                 analysis.deficiencyType === 'deutan' ? 'Deutan (Green) Deficiency' :
-                 'Red-Green Deficiency'}
+                 analysis.deficiencyType === 'protan' ? 'Some trouble seeing red' :
+                 analysis.deficiencyType === 'deutan' ? 'Some trouble seeing green' :
+                 'Some red-green color trouble'}
               </p>
               {analysis.severity !== 'none' && (
                 <p className="text-gray-600 mt-2">Severity: {analysis.severity}</p>

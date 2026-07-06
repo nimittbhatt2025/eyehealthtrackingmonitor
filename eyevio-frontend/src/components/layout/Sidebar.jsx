@@ -56,7 +56,8 @@ function Sidebar({ isOpen, onClose }) {
       >
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 p-2 text-gray-500 rounded-lg lg:hidden hover:bg-gray-100"
+          aria-label="Close navigation menu"
+          className="absolute top-4 right-4 p-3 min-h-[44px] min-w-[44px] flex items-center justify-center text-gray-600 rounded-lg lg:hidden hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-400"
         >
           <FaTimes className="w-5 h-5" />
         </button>
@@ -68,9 +69,10 @@ function Sidebar({ isOpen, onClose }) {
                 <Link
                   to={item.path}
                   onClick={onClose}
-                  className={`flex items-center p-2 rounded-lg hover:bg-gray-100 group transition-colors ${
+                  aria-current={isActive(item.path) ? 'page' : undefined}
+                  className={`flex items-center p-3 min-h-[44px] rounded-lg hover:bg-gray-100 group transition-colors focus:outline-none focus:ring-2 focus:ring-primary-400 ${
                     isActive(item.path)
-                      ? 'bg-primary-50 text-primary-700'
+                      ? 'bg-primary-50 text-primary-700 font-semibold border-l-4 border-primary-600 pl-2'
                       : 'text-gray-900'
                   }`}
                 >
@@ -80,6 +82,7 @@ function Sidebar({ isOpen, onClose }) {
                         ? 'text-primary-700'
                         : 'text-gray-500 group-hover:text-gray-900'
                     }`}
+                    aria-hidden="true"
                   />
                   <span className="ml-3">{item.label}</span>
                 </Link>

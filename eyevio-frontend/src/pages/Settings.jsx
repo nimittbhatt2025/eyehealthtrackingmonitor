@@ -9,6 +9,8 @@ function Settings() {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(false)
   const [activeTab, setActiveTab] = useState('notifications')
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [deleteConfirmText, setDeleteConfirmText] = useState('')
   
   const [settings, setSettings] = useState({
     // Notifications
@@ -71,19 +73,15 @@ function Settings() {
   }
 
   const handleDeleteAccount = async () => {
-    if (!confirm('Are you sure you want to delete your account? This action cannot be undone.')) {
-      return
-    }
-    
-    const confirmation = prompt('Type "DELETE" to confirm account deletion:')
-    if (confirmation !== 'DELETE') {
-      toast.error('Account deletion cancelled')
+    if (deleteConfirmText !== 'DELETE') {
+      toast.error('Please type DELETE to confirm')
       return
     }
 
     try {
       // In production, would call API to delete account
       toast.success('Account deleted successfully')
+      setShowDeleteModal(false)
       // Logout and redirect
       setTimeout(() => {
         localStorage.clear()
@@ -169,13 +167,16 @@ function Settings() {
                 </div>
                 <button
                   onClick={() => handleToggle(item.key)}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                    settings[item.key] ? 'bg-primary-600' : 'bg-gray-300'
+                  role="switch"
+                  aria-checked={settings[item.key]}
+                  aria-label={`${item.label}: ${settings[item.key] ? 'on' : 'off'}`}
+                  className={`relative inline-flex h-7 w-14 flex-shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary-400 focus:ring-offset-2 ${
+                    settings[item.key] ? 'bg-primary-600' : 'bg-gray-400'
                   }`}
                 >
                   <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                      settings[item.key] ? 'translate-x-6' : 'translate-x-1'
+                    className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
+                      settings[item.key] ? 'translate-x-8' : 'translate-x-1'
                     }`}
                   />
                 </button>
@@ -241,13 +242,16 @@ function Settings() {
                 </div>
                 <button
                   onClick={() => handleToggle(item.key)}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                    settings[item.key] ? 'bg-primary-600' : 'bg-gray-300'
+                  role="switch"
+                  aria-checked={settings[item.key]}
+                  aria-label={`${item.label}: ${settings[item.key] ? 'on' : 'off'}`}
+                  className={`relative inline-flex h-7 w-14 flex-shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary-400 focus:ring-offset-2 ${
+                    settings[item.key] ? 'bg-primary-600' : 'bg-gray-400'
                   }`}
                 >
                   <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                      settings[item.key] ? 'translate-x-6' : 'translate-x-1'
+                    className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
+                      settings[item.key] ? 'translate-x-8' : 'translate-x-1'
                     }`}
                   />
                 </button>
@@ -280,8 +284,8 @@ function Settings() {
                   Export My Data
                 </button>
                 <button
-                  onClick={handleDeleteAccount}
-                  className="w-full px-6 py-3 bg-red-600 text-white rounded-xl font-semibold hover:bg-red-700 transition-colors"
+                  onClick={() => { setDeleteConfirmText(''); setShowDeleteModal(true) }}
+                  className="w-full px-6 py-3 bg-red-600 text-white rounded-xl font-semibold hover:bg-red-700 transition-colors focus:outline-none focus:ring-2 focus:ring-red-400"
                 >
                   Delete Account
                 </button>
@@ -357,13 +361,16 @@ function Settings() {
                 </div>
                 <button
                   onClick={() => handleToggle(item.key)}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                    settings[item.key] ? 'bg-primary-600' : 'bg-gray-300'
+                  role="switch"
+                  aria-checked={settings[item.key]}
+                  aria-label={`${item.label}: ${settings[item.key] ? 'on' : 'off'}`}
+                  className={`relative inline-flex h-7 w-14 flex-shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary-400 focus:ring-offset-2 ${
+                    settings[item.key] ? 'bg-primary-600' : 'bg-gray-400'
                   }`}
                 >
                   <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                      settings[item.key] ? 'translate-x-6' : 'translate-x-1'
+                    className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
+                      settings[item.key] ? 'translate-x-8' : 'translate-x-1'
                     }`}
                   />
                 </button>
@@ -377,12 +384,63 @@ function Settings() {
           <button
             onClick={saveSettings}
             disabled={loading}
-            className="px-8 py-3 bg-primary-600 text-white rounded-full font-semibold hover:bg-primary-700 transition-colors disabled:opacity-50"
+            className="px-8 py-3 bg-primary-600 text-white rounded-full font-semibold hover:bg-primary-700 transition-colors disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-primary-400"
           >
             {loading ? 'Saving...' : 'Save Changes'}
           </button>
         </div>
       </div>
+
+      {/* Delete Account Confirmation Modal */}
+      {showDeleteModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-modal-title"
+          onClick={() => setShowDeleteModal(false)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 sm:p-8"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="delete-modal-title" className="text-2xl font-serif font-bold text-gray-900 mb-3">
+              Delete your account?
+            </h2>
+            <p className="text-gray-700 mb-4">
+              This permanently deletes your account and all of your vision test
+              history. This <span className="font-semibold">cannot be undone</span>.
+            </p>
+            <label htmlFor="delete-confirm" className="block text-base font-medium text-gray-800 mb-2">
+              Type <span className="font-bold">DELETE</span> to confirm
+            </label>
+            <input
+              id="delete-confirm"
+              type="text"
+              value={deleteConfirmText}
+              onChange={(e) => setDeleteConfirmText(e.target.value)}
+              autoComplete="off"
+              className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl mb-6 focus:outline-none focus:ring-2 focus:ring-red-400 focus:border-transparent"
+              placeholder="DELETE"
+            />
+            <div className="flex flex-col sm:flex-row gap-3 sm:justify-end">
+              <button
+                onClick={() => setShowDeleteModal(false)}
+                className="px-6 py-3 min-h-[44px] bg-gray-100 text-gray-800 rounded-xl font-semibold hover:bg-gray-200 transition-colors focus:outline-none focus:ring-2 focus:ring-gray-400"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteAccount}
+                disabled={deleteConfirmText !== 'DELETE'}
+                className="px-6 py-3 min-h-[44px] bg-red-600 text-white rounded-xl font-semibold hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-red-400"
+              >
+                Delete Account
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -25,94 +25,94 @@ function VisionTests() {
   const testTypes = [
     {
       type: 'visual_acuity',
-      title: 'Visual Acuity Test',
-      subtitle: 'LogMAR & Snellen Scoring',
-      description: 'Professional eye chart test measuring how clearly you see. Tests each eye separately with randomized letters. Get your 20/20 vision score with clinical LogMAR precision.',
+      title: 'Clear Vision Test',
+      subtitle: 'How clearly you can see (Visual Acuity)',
+      description: 'A letter chart test, like the one at the eye doctor. See how clearly you can read letters from far away. Each eye is checked on its own.',
       duration: '3-4 minutes',
-      features: ['LogMAR Scoring', 'Snellen Conversion', 'Monocular Testing', 'Asymmetry Detection'],
-      badge: 'Clinical Grade'
+      features: ['Clear-vision score', '20/20 style result', 'Each eye checked', 'Left vs right compare'],
+      badge: 'Doctor-style'
     },
     {
       type: 'color_vision',
       title: 'Color Vision Test',
-      subtitle: 'Ishihara-Inspired Screening',
-      description: 'Detect red-green color deficiencies using Ishihara-inspired pseudoisochromatic plates. Identifies Protan (red) and Deutan (green) deficiencies with severity classification.',
+      subtitle: 'How well you tell colors apart',
+      description: 'Find the hidden number in a circle of colored dots. This checks how well you see colors, especially telling red and green apart.',
       duration: '2-3 minutes',
-      features: ['Protan Detection', 'Deutan Detection', 'Severity Classification', '10 Test Plates'],
-      badge: 'Professional'
+      features: ['Red-green check', 'Color strength', '10 picture cards'],
+      badge: 'Popular'
     },
     {
       type: 'amsler_grid',
-      title: 'Amsler Grid Test',
-      subtitle: 'Macular Health Screening',
-      description: 'Critical screening for macular degeneration and central vision distortion. Stare at the red dot and mark any wavy lines or blind spots. Early detection saves vision!',
+      title: 'Straight-Line Test',
+      subtitle: 'Check the center of your vision (Amsler grid)',
+      description: 'Look at a grid of straight lines and tell us if any look wavy, blurry, or missing. This checks the middle of your vision. Quick and important.',
       duration: '2-3 minutes',
-      features: ['Distortion Mapping', 'Monocular Testing', 'AMD Screening', 'Interactive Marking'],
-      badge: 'Safety Critical'
+      features: ['Wavy-line check', 'Each eye checked', 'Center-vision check'],
+      badge: 'Important'
     },
     {
       type: 'contrast_sensitivity',
-      title: 'Contrast Sensitivity Test',
-      subtitle: 'Functional Vision',
-      description: 'Pelli-Robson style assessment. Tests your ability to see in low-contrast conditions - often the first thing to decline.',
+      title: 'Faint Shapes Test',
+      subtitle: 'Seeing in dim light (Contrast)',
+      description: 'Spot shapes that are only a little different from the background. This shows how well you see in low light or fog — often the first thing to change.',
       duration: '3-4 minutes',
-      features: ['Early Disease Detection', 'Functional Vision Assessment', 'Adaptive Testing'],
+      features: ['Low-light vision', 'Early change detection', 'Adjusts to you'],
       badge: 'Advanced'
     },
     {
       type: 'glaucoma_neural',
-      title: 'Peripheral Field Screen',
-      subtitle: 'Glaucoma & Neural Health',
-      description: 'Detects peripheral vision loss and arcuate scotomas using low-contrast testing. Catches neural damage YEARS before tunnel vision appears.',
+      title: 'Side Vision Test',
+      subtitle: 'The edges of what you see (Glaucoma screen)',
+      description: 'Look straight ahead and notice faint dots near the center and edges of your view. This checks your side vision, which can change slowly and quietly over time.',
       duration: '4-5 minutes',
-      features: ['Early Glaucoma Detection', 'Paracentral Testing', 'Neural Sensitivity Analysis'],
-      badge: 'Clinical Grade'
+      features: ['Side-vision check', 'Early warning', 'Sensitivity map'],
+      badge: 'Doctor-style'
     },
     {
       type: 'cataract_glare',
-      title: 'Glare Sensitivity Assessment',
-      subtitle: 'Lens Clarity & Light Scatter',
-      description: 'Sine-wave grating test with glare simulation. Detects lens clouding by measuring light scatter - catches cataracts before slit-lamp exam.',
+      title: 'Glare Sensitivity Test',
+      subtitle: 'How much bright light bothers you',
+      description: 'See how bright light and glare affect your vision. Cloudy lenses can scatter light and make it harder to see clearly.',
       duration: '4-5 minutes',
-      features: ['Glare Sensitivity', 'Light Scatter Detection', 'Functional Vision'],
-      badge: 'Clinical Grade'
+      features: ['Glare check', 'Light-scatter check', 'Everyday vision'],
+      badge: 'Doctor-style'
     },
     {
       type: 'red_reflex',
-      title: 'Red Glow Analyzer',
-      subtitle: 'Digital Bruckner Test',
-      description: 'Smartphone ophthalmoscope analyzing red reflex from your retina. Detects cataracts, leukocoria, and refractive errors. Quantitative "Reflex Integrity Score" in minutes.',
+      title: 'Eye Glow Test',
+      subtitle: 'The glow from the back of your eye (Red reflex)',
+      description: 'Uses your camera to look at the glow from the back of your eyes — like the red-eye you see in photos. A healthy, even glow is a good sign.',
       duration: '3-4 minutes',
-      features: ['Retinal Health Screening', 'Symmetry Analysis', 'Opacity Detection'],
+      features: ['Back-of-eye check', 'Left vs right compare', 'Cloudiness check'],
       badge: 'Advanced'
     },
     {
       type: 'accommodative_lag',
-      title: 'Eye Burnout Meter',
-      subtitle: 'Near-Work Stress Tracker',
-      description: 'Measures ciliary muscle fatigue from screen time by tracking pupillary miosis. Get your "focusing capacity" score and personalized break recommendations before headaches start.',
+      title: 'Eye Tiredness Meter',
+      subtitle: 'Strain from screens and close-up work',
+      description: 'Measures how tired your eyes get from close-up screen time and tells you when to take a break — before headaches start.',
       duration: '30 seconds',
-      features: ['Pupil Tracking', 'Fatigue Prediction', 'Break Timer Recommendations'],
+      features: ['Eye-strain score', 'Tiredness check', 'Break reminders'],
       badge: 'New',
       webcam: true
     },
     {
       type: 'peripheral_awareness',
-      title: 'Peripheral Vision Trainer',
-      subtitle: 'Visual Field Assessment',
-      description: 'Gamified "Whack-a-Mole" test that checks peripheral vision while ensuring eyes stay centered. Detects field deficits from glaucoma. Perfect for elderly (fall prevention) and athletes (reaction time).',
+      title: 'Side Vision Game',
+      subtitle: 'A fun way to test side vision',
+      description: 'A quick tap game: keep your eyes on the center and tap the targets that pop up around the edges. Checks your side vision and reaction speed. Fun for all ages.',
       duration: '60 seconds',
-      features: ['Field Deficit Detection', 'Reaction Time', 'Eye Tracking Validation'],
-      badge: 'Gamified',
+      features: ['Side-vision check', 'Reaction speed', 'Camera-guided'],
+      badge: 'Game',
       webcam: true
     },
     {
       type: 'ocular_ergonomics',
-      title: 'Ocular Ergonomics AI',
-      subtitle: 'Posture & Lighting Monitor',
-      description: 'Real-time ambient monitoring of screen-to-room glare, viewing distance, and posture. Prevents myopia progression with live alerts when conditions become harmful to your eyes.',
+      title: 'Posture & Lighting Check',
+      subtitle: 'Your screen setup and room light',
+      description: 'Uses your camera to check your room lighting, how far you sit from the screen, and your posture — then gives live tips to keep your eyes comfortable.',
       duration: 'Continuous',
-      features: ['Glare Detection', 'Distance Tracking', 'Real-Time Alerts'],
+      features: ['Glare check', 'Distance check', 'Live tips'],
       badge: 'Monitor',
       webcam: true
     }

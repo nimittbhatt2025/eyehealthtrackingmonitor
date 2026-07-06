@@ -287,14 +287,14 @@ const GlaucomaTest = () => {
     const scotomaPairs = Object.entries(qd).filter(([,d]) => d.deficit > 0.3)
     let riskLevel, riskLabel, riskColor, riskMessage
     if (maxD <= 0.15 && oa >= 0.75) {
-      riskLevel='low'; riskLabel='Within Normal Limits'; riskColor='#22c55e'
-      riskMessage='Your peripheral contrast sensitivity is symmetrical and within expected range. No relative scotomas detected.'
+      riskLevel='low'; riskLabel='Looks healthy'; riskColor='#22c55e'
+      riskMessage='Your side vision looks even and healthy in all four corners. No weak spots were found.'
     } else if (maxD <= 0.3 || (scotomaPairs.length === 0 && oa >= 0.6)) {
-      riskLevel='moderate'; riskLabel='Borderline'; riskColor='#f59e0b'
-      riskMessage='Mild asymmetry detected between quadrants. This may reflect normal variation or early neural change. Recommend re-testing in 3 months and consulting an eye care professional.'
+      riskLevel='moderate'; riskLabel='Slightly uneven'; riskColor='#f59e0b'
+      riskMessage='One corner was a little weaker than the others. This is often normal, but it can be an early change. We suggest testing again in 3 months and mentioning it at your next eye appointment.'
     } else {
-      riskLevel='high'; riskLabel='Relative Scotoma Detected'; riskColor='#ef4444'
-      riskMessage=`Significant contrast sensitivity deficit in: ${scotomaPairs.map(([id]) => qd[id].label).join(', ')}. This pattern is consistent with early paracentral field loss. Please consult an eye care professional for a Humphrey Visual Field test and optic nerve OCT.`
+      riskLevel='high'; riskLabel='Weak spot found'; riskColor='#ef4444'
+      riskMessage=`Your side vision was noticeably weaker here: ${scotomaPairs.map(([id]) => qd[id].label).join(', ')}. This can be an early sign of a side-vision problem. Please see an eye doctor for a full check-up.`
     }
     return { qd, oa, maxD, scotomaPairs, riskLevel, riskLabel, riskColor, riskMessage, cl }
   }
@@ -315,25 +315,35 @@ const GlaucomaTest = () => {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                 </svg>
               </div>
-              <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-1">Peripheral Field Screen</h1>
-              <p className="text-sm text-violet-600 dark:text-violet-400 font-medium">4-Quadrant Paracentral Sensitivity — Digital Goldmann Perimetry</p>
+              <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-1">Side Vision Test</h1>
+              <p className="text-sm text-violet-600 dark:text-violet-400 font-medium">Checks the edges of what you can see (glaucoma screen)</p>
+            </div>
+
+            <div className="bg-violet-600 text-white rounded-2xl p-6 mb-6">
+              <h3 className="font-bold text-lg mb-3">In short</h3>
+              <ol className="space-y-2 text-violet-50">
+                <li><span className="font-bold">1.</span> Keep your eyes on the "+" in the center the whole time.</li>
+                <li><span className="font-bold">2.</span> Say any faint letter you catch flashing in a corner.</li>
+                <li><span className="font-bold">3.</span> Say "nothing" if you didn't see one. Takes about 4 minutes.</li>
+              </ol>
+              <p className="text-sm text-violet-100 mt-3">Want more detail? Keep reading below.</p>
             </div>
 
             <div className="bg-violet-50 dark:bg-violet-900/30 border-l-4 border-violet-500 rounded-r-xl p-5 mb-6">
-              <h3 className="font-semibold text-violet-900 dark:text-violet-200 mb-2">What This Test Measures</h3>
+              <h3 className="font-semibold text-violet-900 dark:text-violet-200 mb-2">What This Test Checks</h3>
               <p className="text-sm text-violet-800 dark:text-violet-300">
-                Your <strong>peripheral contrast sensitivity</strong> — the ability of your paracentral retina to detect faint letters 15° off-centre.
-                Glaucoma kills the <em>Magnocellular neurons</em> that handle this task, often <strong>5–10 years before tunnel vision</strong> is noticed.
+                Your <strong>side vision</strong> — how well you notice faint letters near the edges of your view while looking straight ahead.
+                Glaucoma can quietly weaken side vision <strong>years before you'd ever notice it</strong>, so catching it early really matters.
               </p>
             </div>
 
             <div className="space-y-4 text-sm text-gray-700 dark:text-gray-300 mb-6">
               {[
-                ['1', <><strong>Fix your gaze on the "+" in the centre</strong> — do <em>not</em> move your eyes toward the letter.</>],
-                ['2', <>A faint letter will <strong>flash briefly (200–400 ms)</strong> in one of the four corners. Use peripheral vision only.</>],
-                ['3', <><strong>Say the letter out loud</strong>. If you saw nothing, say <strong>"nothing"</strong>.</>],
-                ['4', <>Occasionally a <strong>bright letter appears at the centre</strong> — say it. This checks you aren't looking at the corners.</>],
-                ['5', <>~24 trials, about <strong>4–5 minutes</strong>. Sit ~50 cm from your screen in a quiet, well-lit room.</>],
+                ['1', <><strong>Keep your eyes on the "+" in the center</strong> — do <em>not</em> look toward the letters.</>],
+                ['2', <>A faint letter will <strong>flash quickly</strong> in one of the four corners. Try to catch it with your side vision only.</>],
+                ['3', <><strong>Say the letter out loud</strong>. If you didn't see one, say <strong>"nothing"</strong>.</>],
+                ['4', <>Now and then a <strong>bright letter appears in the center</strong> — say it too. This just checks that you're still looking straight ahead.</>],
+                ['5', <>About 24 rounds, roughly <strong>4–5 minutes</strong>. Sit about an arm's length from your screen in a quiet, well-lit room.</>],
               ].map(([n, text]) => (
                 <div key={n} className="flex gap-3">
                   <span className="flex-shrink-0 w-7 h-7 bg-violet-100 dark:bg-violet-900 text-violet-700 dark:text-violet-300 rounded-full flex items-center justify-center font-bold text-xs">{n}</span>
@@ -360,7 +370,7 @@ const GlaucomaTest = () => {
             </div>
 
             <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-xl p-4 mb-8 text-xs text-amber-800 dark:text-amber-300">
-              <strong>Allow microphone access</strong> when prompted — voice input lets you answer without breaking fixation.
+              <strong>Allow microphone access</strong> when prompted — answering by voice lets you keep looking straight ahead.
             </div>
 
             <div className="flex gap-4">
@@ -374,7 +384,7 @@ const GlaucomaTest = () => {
         {phase === 'testing' && (
           <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
-              <span className="text-sm text-gray-500 dark:text-gray-400 font-medium">Peripheral Field Screen</span>
+              <span className="text-sm text-gray-500 dark:text-gray-400 font-medium">Side Vision Test</span>
               <div className="flex items-center gap-3">
                 <div className={`flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded-full ${isListening ? 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300' : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400'}`}>
                   <div className={`w-2 h-2 rounded-full ${isListening ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`} />
@@ -450,7 +460,7 @@ const GlaucomaTest = () => {
                   {riskLevel === 'low' ? '✓' : riskLevel === 'moderate' ? '~' : '!'}
                 </div>
                 <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-1">Test Complete</h2>
-                <p className="text-gray-500 dark:text-gray-400 text-sm">Peripheral Field Screen Results</p>
+                <p className="text-gray-500 dark:text-gray-400 text-sm">Side Vision Test Results</p>
               </div>
 
               <div className="rounded-2xl p-6 mb-6 border" style={{ borderColor: riskColor, backgroundColor: `${riskColor}22` }}>
@@ -468,17 +478,17 @@ const GlaucomaTest = () => {
                 </div>
                 <div className="bg-gray-50 dark:bg-gray-700 rounded-xl p-4 text-center">
                   <div className="text-2xl font-bold text-gray-900 dark:text-white">{cl.toFixed(2)}</div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">Central LogCS (ref)</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">Center vision (reference)</div>
                 </div>
                 <div className="bg-gray-50 dark:bg-gray-700 rounded-xl p-4 text-center">
                   <div className="text-2xl font-bold" style={{ color: maxD > 0.3 ? '#ef4444' : maxD > 0.15 ? '#f59e0b' : '#22c55e' }}>
                     {maxD > 0 ? `−${maxD.toFixed(2)}` : `+${Math.abs(maxD).toFixed(2)}`}
                   </div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">Max Deficit (LogCS)</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">Biggest weak spot</div>
                 </div>
               </div>
 
-              <h3 className="font-semibold text-gray-900 dark:text-white mb-3">4-Quadrant Analysis</h3>
+              <h3 className="font-semibold text-gray-900 dark:text-white mb-3">Your four corners</h3>
               <div className="grid grid-cols-2 gap-3 mb-8">
                 {QUADRANTS.map(q => {
                   const d = qd[q.id]
@@ -488,12 +498,11 @@ const GlaucomaTest = () => {
                     <div key={q.id} className="rounded-xl p-4 border-2" style={{ borderColor: bc }}>
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-xs font-bold text-gray-500 dark:text-gray-400">{q.id}</span>
-                        {d.deficit > 0.3 && <span className="text-xs font-bold text-red-600 dark:text-red-400">SCOTOMA</span>}
+                        {d.deficit > 0.3 && <span className="text-xs font-bold text-red-600 dark:text-red-400">WEAK SPOT</span>}
                       </div>
                       <div className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">{q.label}</div>
                       <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400">
-                        <span>Accuracy: <strong>{accPct !== null ? `${accPct}%` : 'N/A'}</strong></span>
-                        <span>Threshold: <strong>LogCS {d.finalLogCS.toFixed(2)}</strong></span>
+                        <span>You caught: <strong>{accPct !== null ? `${accPct}%` : 'N/A'}</strong></span>
                       </div>
                       <div className="mt-2 h-1.5 bg-gray-200 dark:bg-gray-600 rounded-full overflow-hidden">
                         <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, Math.max(0, accPct ?? 0))}%`, backgroundColor: bc }} />
@@ -504,9 +513,8 @@ const GlaucomaTest = () => {
               </div>
 
               <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-xl p-4 mb-8 text-xs text-amber-800 dark:text-amber-300">
-                <strong>Clinical Note:</strong> This test checks the paracentral field (inner ~20°). It does not replace a full 180° clinical visual
-                field exam (Humphrey perimetry). Use this as an early-warning tool only. If abnormalities are found, consult an eye care professional
-                for IOP measurement, optic nerve OCT, and a formal visual field test.
+                <strong>Good to know:</strong> This test checks the inner part of your side vision. It's an early-warning tool, not a full eye exam.
+                If it finds a weak spot, see an eye doctor for a complete check-up and a proper side-vision test.
               </div>
 
               <div className="flex gap-4">

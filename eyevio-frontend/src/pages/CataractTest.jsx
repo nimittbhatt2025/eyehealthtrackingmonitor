@@ -385,7 +385,7 @@ const CataractTest = () => {
       return {
         status: 'Moderate Risk',
         color: 'yellow',
-        message: 'Some difficulty with glare conditions detected. This could indicate early lens changes. Consider an eye exam.',
+        message: 'Bright glare gave you some trouble. This can be an early sign of lens changes. It is worth booking an eye exam.',
         icon: '!',
         risk: 'moderate'
       }
@@ -393,7 +393,7 @@ const CataractTest = () => {
       return {
         status: 'Higher Risk',
         color: 'red',
-        message: 'Significant glare sensitivity detected. This pattern is consistent with lens clouding (cataracts). Please schedule a comprehensive eye exam including slit-lamp examination.',
+        message: 'Bright glare made it much harder for you to see. This can be a sign that the lens in your eye is getting cloudy (cataracts). Please book a full eye exam.',
         icon: '!',
         risk: 'high'
       }
@@ -413,10 +413,10 @@ const CataractTest = () => {
                 </svg>
               </div>
               <h1 className="text-3xl font-serif font-bold text-gray-900 mb-2">
-                Cataract Glare & Scatter Test
+                Glare Sensitivity Test
               </h1>
               <p className="text-sm text-orange-600 font-medium mb-4">
-                Early Detection of Lens Clouding
+                See how much bright light and glare bother your eyes
               </p>
             </div>
 
@@ -433,15 +433,15 @@ const CataractTest = () => {
                     <strong>Cataracts cloud your lens</strong>, causing light to scatter inside your eye. This is why people with cataracts struggle with night driving - oncoming headlights create "halos" that wash out everything.
                   </p>
                   <p className="mt-2">
-                    This test simulates that experience using:
+                    This test copies that experience using:
                   </p>
                   <ul className="ml-4 mt-2 space-y-1">
-                    <li>• <strong>Sine-wave gratings</strong> (fuzzy parallel bars) at different thicknesses</li>
-                    <li>• <strong>Bright glare simulation</strong> that mimics headlight scatter</li>
-                    <li>• <strong>Glare recovery measurement</strong> - key indicator of lens clarity</li>
+                    <li>• <strong>Fuzzy striped patterns</strong> at different sizes</li>
+                    <li>• <strong>A bright glare</strong> that acts like headlights at night</li>
+                    <li>• <strong>How you cope with the glare</strong> — the key sign of a clear lens</li>
                   </ul>
                   <p className="mt-2">
-                    <strong>Critical insight:</strong> A healthy lens lets you see the bars through glare. A cloudy lens scatters the glare, making the bars disappear.
+                    <strong>The idea:</strong> A clear lens lets you still see the stripes through the glare. A cloudy lens scatters the glare, making the stripes disappear.
                   </p>
                 </div>
               </div>
@@ -451,7 +451,7 @@ const CataractTest = () => {
                 <ol className="space-y-3 text-gray-700">
                   <li className="flex">
                     <span className="font-semibold mr-3">1.</span>
-                    <span>You'll see fuzzy parallel bars (sine-wave gratings) in different orientations</span>
+                    <span>You'll see fuzzy striped patterns tilted in different directions</span>
                   </li>
                   <li className="flex">
                     <span className="font-semibold mr-3">2.</span>
@@ -473,11 +473,11 @@ const CataractTest = () => {
               </div>
 
               <div className="bg-blue-50 border border-blue-200 rounded-xl p-6">
-                <h3 className="font-semibold text-blue-900 mb-3">What We're Testing:</h3>
+                <h3 className="font-semibold text-blue-900 mb-3">What the results can show:</h3>
                 <div className="text-sm text-blue-800 space-y-2">
-                  <p><strong>Healthy Lens:</strong> Can see gratings clearly even with bright glare present</p>
-                  <p><strong>Early Cataract:</strong> Performance drops significantly when glare appears (light scatter effect)</p>
-                  <p><strong>Advanced Cataract:</strong> May struggle even without glare due to reduced contrast sensitivity</p>
+                  <p><strong>Clear lens:</strong> You can still see the stripes even when the glare is on</p>
+                  <p><strong>Early cloudiness:</strong> The stripes get much harder to see once the glare appears</p>
+                  <p><strong>More cloudiness:</strong> The stripes are hard to see even without glare</p>
                 </div>
               </div>
 
@@ -643,7 +643,7 @@ const CataractTest = () => {
               <h2 className="text-3xl font-serif font-bold text-gray-900 mb-2">
                 Test Complete!
               </h2>
-              <p className="text-gray-600">Cataract Screening Results</p>
+              <p className="text-gray-600">Glare Sensitivity Results</p>
             </div>
 
             {/* Score Display */}
@@ -689,25 +689,22 @@ const CataractTest = () => {
 
             {/* Educational Info */}
             <div className="bg-blue-50 border border-blue-200 rounded-xl p-6 mb-8">
-              <h3 className="font-semibold text-blue-900 mb-3">Understanding Cataracts & Light Scatter</h3>
+              <h3 className="font-semibold text-blue-900 mb-3">About cataracts and glare</h3>
               <div className="text-sm text-blue-800 space-y-2">
                 <p>
-                  Cataracts occur when proteins in your lens clump together, creating cloudy areas. These areas act like tiny mirrors, scattering light inside your eye instead of letting it pass through cleanly.
+                  A cataract is when the clear lens inside your eye slowly turns cloudy. The cloudy areas scatter light inside the eye instead of letting it pass through cleanly.
                 </p>
                 <p className="mt-3">
-                  <strong>Why Glare Matters:</strong> When bright light (like headlights) enters a cataractous eye, it scatters and creates a "veil" over your vision. This makes it impossible to see low-contrast objects like road signs or pedestrians.
+                  <strong>Why glare matters:</strong> When bright light (like headlights) hits a cloudy lens, it scatters and puts a "veil" over your vision. That makes it hard to see things like road signs or people at night.
                 </p>
                 <p className="mt-3">
-                  <strong>The Science:</strong> Sine-wave gratings test your <em>contrast sensitivity function (CSF)</em> across different spatial frequencies. Cataracts reduce CSF, especially at medium-to-high frequencies, and this loss is dramatically worse under glare conditions.
-                </p>
-                <p className="mt-3">
-                  <strong>Next Steps if at risk:</strong>
+                  <strong>What you can do if this test flags a concern:</strong>
                 </p>
                 <ul className="ml-4 mt-2 space-y-1">
-                  <li>• Slit-lamp examination by eye doctor</li>
-                  <li>• Discuss symptoms (night driving difficulty, glare, halos)</li>
-                  <li>• Consider cataract surgery if vision impacts daily life</li>
-                  <li>• UV protection and antioxidants may slow progression</li>
+                  <li>• Get a full eye exam with an eye doctor</li>
+                  <li>• Mention any trouble with night driving, glare, or halos</li>
+                  <li>• Cataracts can be fixed with a common, safe surgery if they affect daily life</li>
+                  <li>• Wearing sunglasses outdoors may help slow them down</li>
                 </ul>
               </div>
             </div>

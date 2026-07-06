@@ -8,10 +8,13 @@ function MainLayout() {
 
   return (
     <div className="min-h-screen bg-gray-50 transition-colors">
+      <a href="#main-content" className="skip-to-content">
+        Skip to main content
+      </a>
       <Navbar toggleSidebar={() => setSidebarOpen(!sidebarOpen)} />
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       
-      <main className="lg:pl-64 pt-16">
+      <main id="main-content" className="lg:pl-64 pt-16">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <Outlet />
         </div>

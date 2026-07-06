@@ -1,16 +1,22 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, Navigate } from 'react-router-dom'
 import { useAuthStore } from '../../store/authStore'
 import { toast } from 'react-hot-toast'
 
 function Login() {
   const navigate = useNavigate()
   const login = useAuthStore((state) => state.login)
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
   const [loading, setLoading] = useState(false)
   const [formData, setFormData] = useState({
     email: '',
     password: '',
   })
+
+  // Already logged in — skip login page
+  if (isAuthenticated || localStorage.getItem('access_token')) {
+    return <Navigate to="/dashboard" replace />
+  }
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value })
@@ -21,8 +27,10 @@ function Login() {
     setLoading(true)
     
     try {
-      await login(formData)
-      toast.success('Welcome back!')
+      await login({
+        email: formData.email.trim().toLowerCase(),
+        password: formData.password,
+      })
       navigate('/dashboard')
     } catch (error) {
       console.error('Login error:', error)

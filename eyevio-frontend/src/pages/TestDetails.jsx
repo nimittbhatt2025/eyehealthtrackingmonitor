@@ -111,6 +111,14 @@ function TestDetails() {
     return 'text-red-600 bg-red-50 border-red-200'
   }
 
+  // Text label so the score isn't judged by color alone
+  const getScoreLabel = (score) => {
+    if (score >= 90) return 'Excellent'
+    if (score >= 75) return 'Good'
+    if (score >= 60) return 'Fair'
+    return 'Needs attention'
+  }
+
   const getPerformanceInsight = () => {
     if (testData.score >= 90) return { 
       icon: '✓', 
@@ -166,8 +174,9 @@ function TestDetails() {
             })}
           </p>
         </div>
-        <div className={`text-5xl font-bold ${getScoreColor(testData.score)} px-8 py-4 rounded-2xl border-2`}>
-          {testData.score}
+        <div className={`${getScoreColor(testData.score)} px-8 py-4 rounded-2xl border-2 text-center`}>
+          <div className="text-5xl font-bold leading-none">{testData.score}</div>
+          <div className="text-sm font-semibold mt-1">{getScoreLabel(testData.score)}</div>
         </div>
       </div>
 

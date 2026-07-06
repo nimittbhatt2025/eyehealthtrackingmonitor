@@ -199,8 +199,8 @@ const ContrastSensitivityTest = () => {
       'Z': 'Z', 'ZEE': 'Z', 'ZED': 'Z', 'ZI': 'Z', 'ZULU': 'Z',
       // NATO / phonetic alphabet extras relevant to Sloan set
       'CHARLIE': 'C', 'DELTA': 'D', 'HOTEL': 'H', 'KILO': 'K',
-      'NOVEMBER': 'N', 'ROMEO': 'R', 'SIERRA': 'S', 'VICTOR': 'V', 'ZULU': 'Z',
-    }
+        'NOVEMBER': 'N',
+      }
 
     // ── 3. Whole phrase match ───────────────────────────────────────────────
     if (wordMap[upper]) return wordMap[upper]
@@ -1058,7 +1058,7 @@ const ContrastSensitivityTest = () => {
             <ol className="text-gray-300 space-y-3">
               <li className="flex gap-3">
                 <span className="font-bold text-blue-400">1.</span>
-                <span><span className="font-semibold">Look away for 3 seconds</span> - Let your retinas adapt to low light (neural adaptation)</span>
+                <span><span className="font-semibold">Look away for 3 seconds</span> - Let your eyes adjust to the dark screen</span>
               </li>
               <li className="flex gap-3">
                 <span className="font-bold text-blue-400">2.</span>
@@ -1081,10 +1081,9 @@ const ContrastSensitivityTest = () => {
 
           <div className="bg-blue-900 border border-blue-700 rounded-xl p-5 mb-6">
             <p className="text-blue-200 text-sm">
-              <span className="font-bold text-base">Why This Matters:</span> Box A is RGB(10,10,10) following the standard 2.2 gamma curve. 
-              A MacBook's Liquid Retina display and a budget TN panel handle blacks very differently. By establishing your 
-              screen's "black point threshold," we ensure that a 10% gray letter truly represents 10% contrast on YOUR display. 
-              Without this, your LogCS score would just be a guess.
+              <span className="font-bold text-base">Why This Matters:</span> Every screen shows dark shades a little differently.
+              This quick step sets up your screen so the faint letters look the same for you as they would for anyone else —
+              which keeps your score accurate.
             </p>
           </div>
 
@@ -1130,13 +1129,21 @@ const ContrastSensitivityTest = () => {
     <div className="min-h-screen bg-gradient-to-br from-purple-50 to-blue-50 py-8 px-4">
       <div className="max-w-4xl mx-auto space-y-6">
         <div className="bg-white rounded-2xl shadow-xl p-8 border-2 border-purple-100">
-          <h1 className="text-4xl font-bold text-gray-900 mb-4 text-center">Contrast Sensitivity Test</h1>
-          <p className="text-lg text-gray-600 text-center mb-2">
-            "It's not just how small you see, but how clearly you see in the shadows"
+          <h1 className="text-4xl font-bold text-gray-900 mb-4 text-center">Faint Shapes Test</h1>
+          <p className="text-lg text-gray-600 text-center mb-8">
+            See how well you spot faint shapes in dim light
           </p>
-          <p className="text-center text-purple-600 font-semibold mb-8">
-            The "Safety Check" - More Important Than 20/20 Vision
-          </p>
+
+          {/* Quick-start summary so users can begin without reading everything */}
+          <div className="bg-purple-600 text-white rounded-2xl p-6 mb-8">
+            <h2 className="font-bold text-lg mb-3">In short</h2>
+            <ol className="space-y-2 text-purple-50">
+              <li><span className="font-bold">1.</span> Faint letters appear one eye at a time — say each one you see.</li>
+              <li><span className="font-bold">2.</span> They slowly fade until you can't read them.</li>
+              <li><span className="font-bold">3.</span> That's it — about a minute per eye.</li>
+            </ol>
+            <p className="text-sm text-purple-100 mt-3">Want more detail? Keep reading below.</p>
+          </div>
 
           <div className="space-y-6">
             <div className="bg-blue-50 border-2 border-blue-200 rounded-xl p-6">
@@ -1159,13 +1166,12 @@ const ContrastSensitivityTest = () => {
                 How It Works:
               </h3>
               <ol className="space-y-2 text-purple-800">
-                <li>1. You'll see <span className="font-bold">Sloan letters</span> (C, D, H, K, N, O, R, S, V, Z) - medical-grade optotypes</li>
-                <li>2. Each trial shows 3 letters - say each out loud</li>
-                <li>3. Need 2 out of 3 correct to pass each level</li>
-                <li>4. <span className="font-bold">Bayesian adaptive</span> - big jumps first, then fine-tuning</li>
-                <li>5. Starts at moderate difficulty - finds threshold in <span className="font-bold">8-12 trials</span> (60 seconds)</li>
-                <li>6. Each eye tested separately (monocular testing)</li>
-                <li>7. No letter repeats within same triplet or consecutive triplets</li>
+                <li>1. You'll see faint letters (from the set C, D, H, K, N, O, R, S, V, Z)</li>
+                <li>2. Each round shows 3 letters - say each one out loud</li>
+                <li>3. Get 2 out of 3 right to pass a level</li>
+                <li>4. The letters get fainter or clearer to find your limit — big steps first, then small ones</li>
+                <li>5. Starts easy and finds your level in about <span className="font-bold">8-12 rounds</span> (about a minute)</li>
+                <li>6. Each eye is checked on its own</li>
               </ol>
             </div>
             
@@ -1239,24 +1245,24 @@ const ContrastSensitivityTest = () => {
             <div className="bg-green-50 border-2 border-green-200 rounded-xl p-6">
               <h3 className="font-bold text-green-900 mb-3 text-lg flex items-center gap-2">
                 <span className="text-2xl"></span>
-                LogCS Scoring Guide:
+                What your score means:
               </h3>
               <div className="space-y-2 text-sm text-green-800">
                 <div className="flex justify-between p-2 bg-white rounded">
-                  <span className="font-bold">2.0+ LogCS:</span>
-                  <span className="text-green-600 font-semibold">Excellent (Perfect all conditions)</span>
+                  <span className="font-bold">Excellent</span>
+                  <span className="text-green-600 font-semibold">Great vision in all lighting</span>
                 </div>
                 <div className="flex justify-between p-2 bg-white rounded">
-                  <span className="font-bold">1.5-1.9 LogCS:</span>
-                  <span className="text-blue-600 font-semibold">Normal (Average healthy adult)</span>
+                  <span className="font-bold">Normal</span>
+                  <span className="text-blue-600 font-semibold">Typical for a healthy adult</span>
                 </div>
                 <div className="flex justify-between p-2 bg-white rounded">
-                  <span className="font-bold">1.0-1.4 LogCS:</span>
-                  <span className="text-yellow-600 font-semibold">Sub-Normal (Night driving difficulty)</span>
+                  <span className="font-bold">A little low</span>
+                  <span className="text-yellow-600 font-semibold">May struggle driving at night</span>
                 </div>
                 <div className="flex justify-between p-2 bg-white rounded">
-                  <span className="font-bold">Below 1.0:</span>
-                  <span className="text-red-600 font-semibold">Impaired (High fall risk, see doctor)</span>
+                  <span className="font-bold">Low</span>
+                  <span className="text-red-600 font-semibold">Worth an eye exam</span>
                 </div>
               </div>
             </div>
@@ -1315,10 +1321,10 @@ const ContrastSensitivityTest = () => {
               Clean testing environment. Best for baseline screening.
             </p>
             <ul className="text-xs text-gray-600 space-y-1">
-              <li>• Pelli-Robson style letters</li>
-              <li>• Adaptive difficulty (smart algorithm)</li>
+              <li>• Faint letters that fade into the background</li>
+              <li>• Difficulty adjusts to you automatically</li>
               <li>• 3-5 minutes per eye</li>
-              <li>• Clinical gold standard</li>
+              <li>• Based on the method eye doctors use</li>
             </ul>
             <div className="mt-4 text-center">
               <span className="inline-block bg-blue-100 text-blue-700 text-xs font-semibold px-3 py-1 rounded-full">
@@ -1562,7 +1568,7 @@ const ContrastSensitivityTest = () => {
             <div className="flex justify-center items-center gap-4 text-sm text-gray-600">
               <span>Trial {trialNumber}</span>
               <span>•</span>
-              <span>LogCS {levelData.logCS.toFixed(2)} ({contrastPercent}%)</span>
+              <span>Faintness {contrastPercent}%</span>
               <span>•</span>
               <span>Reversals: {reversals}/3</span>
               <span>•</span>
@@ -1726,7 +1732,7 @@ const ContrastSensitivityTest = () => {
           {/* Instructions */}
           <div className="bg-blue-50 border-2 border-blue-200 rounded-xl p-6 text-center">
             <p className="text-blue-900 font-semibold mb-2">
-              [target] Sloan Letters: C, D, H, K, N, O, R, S, V, Z
+              Letters used: C, D, H, K, N, O, R, S, V, Z
             </p>
             <p className="text-sm text-blue-700 mb-2">
               <span className="font-bold">Just say:</span> "C" or "K" or "Z" • <span className="font-bold">Don't say:</span> "The letter C" or full sentences
@@ -1813,7 +1819,7 @@ const ContrastSensitivityTest = () => {
         </div>
         <h2 className="text-3xl font-bold text-gray-900 mb-4">Left Eye Complete!</h2>
         <p className="text-lg text-gray-600 mb-2">
-          Your left eye LogCS score: <span className="font-bold text-purple-600">{leftEyeScore?.toFixed(2)}</span>
+          Your left eye score: <span className="font-bold text-purple-600">{leftEyeScore?.toFixed(2)}</span>
         </p>
         <p className="text-sm text-gray-500 mb-8">
           Now let's test your right eye using the same procedure
@@ -1849,7 +1855,7 @@ const ContrastSensitivityTest = () => {
         bgGradient: 'from-emerald-500 to-green-500',
         status: 'Excellent - Top 1%', 
         emoji: '🦅',
-        description: 'Your contrast sensitivity is exceptional. You can detect sub-0.5% contrast - elite visual performance.'
+        description: 'Your ability to see faint shapes is exceptional — top-tier vision. You can spot even the faintest differences.'
       }
       if (score >= 2.0) return {  // LogCS 2.0 = 1% contrast = Clinical normal limit
         level: 'Excellent Vision', 
@@ -1858,7 +1864,7 @@ const ContrastSensitivityTest = () => {
         bgGradient: 'from-green-500 to-emerald-500',
         status: 'Above Average - Top 10%', 
         emoji: '✓',
-        description: 'Your vision exceeds the clinical standard (LogCS 2.0). Excellent performance in all lighting conditions.'
+        description: 'Your vision is better than the normal healthy standard. You should see well in all kinds of lighting.'
       }
       if (score >= 1.5) return {  // LogCS 1.5 = 3% contrast = Normal range
         level: 'Normal Vision', 
@@ -1867,7 +1873,7 @@ const ContrastSensitivityTest = () => {
         bgGradient: 'from-blue-500 to-cyan-500',
         status: 'Healthy', 
         emoji: '👁️',
-        description: 'Your contrast sensitivity is in the normal range for healthy adults (LogCS 1.5-2.0).'
+        description: 'Your ability to see faint shapes is in the normal, healthy range for adults.'
       }
       if (score >= 1.0) return {  // LogCS 1.0 = 10% contrast = Borderline
         level: 'Borderline', 
@@ -1876,7 +1882,7 @@ const ContrastSensitivityTest = () => {
         bgGradient: 'from-yellow-500 to-amber-500',
         status: 'Monitor Closely', 
         emoji: '[WARNING]',
-        description: 'You may have difficulty in low-light conditions (LogCS 1.0-1.5). Consider additional lighting for night activities.'
+        description: 'You may find it harder to see in dim light. Add more light for reading or activities at night, and consider an eye check.'
       }
       return {  // LogCS <1.0 = >10% contrast needed = Impaired
         level: 'Low Contrast', 
@@ -1885,7 +1891,7 @@ const ContrastSensitivityTest = () => {
         bgGradient: 'from-red-500 to-orange-500',
         status: 'Consult Eye Doctor', 
         emoji: '[ALERT]',
-        description: 'Your contrast sensitivity is significantly reduced (LogCS <1.0). Schedule an eye exam to rule out cataracts, glaucoma, or other conditions.'
+        description: 'You find it much harder to see faint shapes than most people. Please book an eye exam so a doctor can check for common causes like cataracts or glaucoma.'
       }
     }
     
@@ -1919,7 +1925,7 @@ const ContrastSensitivityTest = () => {
               
               <div className="bg-white/10 backdrop-blur-md rounded-2xl p-6 mb-6 border border-white/20">
                 <p className="text-white text-lg text-center leading-relaxed">
-                  Congratulations! Your contrast sensitivity of <span className="font-black text-yellow-300 text-2xl">{avgScore.toFixed(2)} LogCS</span> places you in the <span className="font-bold text-yellow-300">Top 10%</span> of the population.
+                  Congratulations! Your score of <span className="font-black text-yellow-300 text-2xl">{avgScore.toFixed(2)}</span> places you in the <span className="font-bold text-yellow-300">Top 10%</span> of people.
                 </p>
               </div>
               
@@ -1927,12 +1933,12 @@ const ContrastSensitivityTest = () => {
                 <div className="bg-white/10 backdrop-blur-md rounded-xl p-4 border border-white/20">
                   <div className="text-blue-300 text-sm font-semibold mb-1">LEFT EYE</div>
                   <div className="text-white text-3xl font-black">{leftEyeScore.toFixed(2)}</div>
-                  <div className="text-yellow-300 text-xs">LogCS</div>
+                  <div className="text-yellow-300 text-xs">SCORE</div>
                 </div>
                 <div className="bg-white/10 backdrop-blur-md rounded-xl p-4 border border-white/20">
                   <div className="text-purple-300 text-sm font-semibold mb-1">RIGHT EYE</div>
                   <div className="text-white text-3xl font-black">{rightEyeScore.toFixed(2)}</div>
-                  <div className="text-yellow-300 text-xs">LogCS</div>
+                  <div className="text-yellow-300 text-xs">SCORE</div>
                 </div>
               </div>
               
@@ -1974,7 +1980,7 @@ const ContrastSensitivityTest = () => {
                     <div className="text-7xl font-black text-white mb-1">
                       {avgScore.toFixed(2)}
                     </div>
-                    <div className="text-sm text-gray-400 uppercase tracking-wider">LogCS</div>
+                    <div className="text-sm text-gray-400 uppercase tracking-wider">Score</div>
                   </div>
                 </div>
               </div>
@@ -1992,7 +1998,7 @@ const ContrastSensitivityTest = () => {
 
             {/* Age-Normative Context */}
             <div className="bg-gray-800 border border-gray-700 rounded-xl p-6 mb-6">
-              <h3 className="text-white font-bold mb-3 text-center">Normal Range for Age {userAge}: {(ageNorm - 0.15).toFixed(2)} – {(ageNorm + 0.15).toFixed(2)} LogCS</h3>
+              <h3 className="text-white font-bold mb-3 text-center">Normal Range for Age {userAge}: {(ageNorm - 0.15).toFixed(2)} – {(ageNorm + 0.15).toFixed(2)}</h3>
               <div className="relative h-3 bg-gray-700 rounded-full overflow-hidden">
                 <div className="absolute left-0 h-full bg-gradient-to-r from-red-500 via-yellow-500 via-green-500 to-emerald-500" style={{width: '100%'}}></div>
                 <div 
@@ -2149,7 +2155,7 @@ const ContrastSensitivityTest = () => {
             </div>
 
             <p className="text-gray-400 text-sm text-center mt-6">
-              At your LogCS of <span className="font-bold text-white">{avgScore.toFixed(2)}</span>, objects with low contrast are{' '}
+              At your score of <span className="font-bold text-white">{avgScore.toFixed(2)}</span>, objects with low contrast are{' '}
               <span className="font-bold text-yellow-400">
                 {avgScore >= 1.5 ? '10-20%' : avgScore >= 1.0 ? '40-60%' : '70-90%'}
               </span>

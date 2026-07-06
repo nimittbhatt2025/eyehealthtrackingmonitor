@@ -405,20 +405,27 @@ const AmslerGridTest = () => {
       <div className="bg-white rounded-2xl shadow-xl p-8 border-2 border-purple-100">
         <h1 className="text-4xl font-bold text-gray-900 mb-4 text-center">Amsler Grid Test</h1>
         <p className="text-lg text-gray-600 text-center mb-8">
-          Screening for macular health and central vision distortions
+          Look at a grid of straight lines to check the center of your vision
         </p>
-        
+
+        {/* Quick-start summary so users can begin without reading everything */}
+        <div className="bg-purple-600 text-white rounded-2xl p-6 mb-8">
+          <h2 className="font-bold text-lg mb-3">In short</h2>
+          <ol className="space-y-2 text-purple-50">
+            <li><span className="font-bold">1.</span> Cover one eye and stare at the dot in the center.</li>
+            <li><span className="font-bold">2.</span> Tell us if any lines look wavy, blurry, or missing.</li>
+            <li><span className="font-bold">3.</span> Switch eyes and repeat. Takes about 2 minutes.</li>
+          </ol>
+          <p className="text-sm text-purple-100 mt-3">Want more detail and examples? Keep reading below.</p>
+        </div>
+
         {/* Corrective lens guidance */}
         <div className="bg-green-50 border-2 border-green-200 rounded-xl p-6 mb-8">
           <h3 className="text-xl font-bold text-green-900 mb-3"> Glasses/Contacts: YES, Wear Them</h3>
           <div className="text-sm text-green-800 space-y-2">
             <p className="font-semibold"> DO wear your reading glasses or contacts</p>
             <p className="text-green-700 ml-4">
-              This test examines your retina (back of eye), not your lens clarity. We need sharp focus to isolate macular issues from refractive blur.
-            </p>
-            <p className="font-semibold mt-4">Clinical Note:</p>
-            <p className="text-green-700 ml-4">
-              Testing WITH correction helps detect subtle distortions that might be masked by blur. Optometrists recommend corrected vision for Amsler grid screening.
+              This test looks at the back of your eye, not how strong your glasses are. Wearing them keeps the lines sharp so it's easier to spot any that look wavy or missing.
             </p>
           </div>
         </div>
@@ -427,10 +434,10 @@ const AmslerGridTest = () => {
           <div className="bg-blue-50 border-2 border-blue-200 rounded-xl p-6">
             <h3 className="font-bold text-blue-900 mb-3 text-lg"> What This Test Does:</h3>
             <ul className="space-y-2 text-blue-800">
-              <li>• Screens for macular health (central retina area)</li>
-              <li>• Detects distortions, wavy lines, or blind spots</li>
-              <li>• Monitors changes in central vision over time</li>
-              <li>• Each eye tested separately with other eye covered</li>
+              <li>• Checks the center of your vision (the part you use to read and see faces)</li>
+              <li>• Helps you notice wavy lines, blurry spots, or missing areas</li>
+              <li>• Lets you track changes over time</li>
+              <li>• Each eye is checked on its own, with the other eye covered</li>
             </ul>
           </div>
           
@@ -455,12 +462,12 @@ const AmslerGridTest = () => {
                 <div className="flex items-start gap-4">
                   <div className="bg-yellow-500 text-white rounded-full w-10 h-10 flex items-center justify-center font-bold text-lg flex-shrink-0">1</div>
                   <div className="flex-1">
-                    <h4 className="font-bold text-yellow-900 text-lg mb-2">Wavy or Curved Lines (Metamorphopsia)</h4>
+                    <h4 className="font-bold text-yellow-900 text-lg mb-2">Wavy or Curved Lines</h4>
                     <p className="text-yellow-800 text-sm mb-3">
                       <span className="font-semibold">What it looks like:</span> The grid appears bent, wavy, rippled, or distorted - like looking at a reflection in water or a wrinkled cloth.
                     </p>
                     <p className="text-yellow-800 text-sm mb-3">
-                      <span className="font-semibold">What causes it:</span> Fluid buildup or swelling in the macula (central retina). Common in wet AMD, diabetic macular edema, or central serous retinopathy.
+                      <span className="font-semibold">Why it matters:</span> Wavy lines can be an early sign of swelling at the back of the eye. It's worth getting checked by an eye doctor.
                     </p>
                     <div className="bg-yellow-100 border border-yellow-400 rounded-lg p-3">
                       <p className="text-yellow-900 font-bold text-sm"> Action: Use the WAVY brush (yellow marker) to circle these areas</p>
@@ -474,12 +481,12 @@ const AmslerGridTest = () => {
                 <div className="flex items-start gap-4">
                   <div className="bg-red-500 text-white rounded-full w-10 h-10 flex items-center justify-center font-bold text-lg flex-shrink-0">2</div>
                   <div className="flex-1">
-                    <h4 className="font-bold text-red-900 text-lg mb-2">Blind Spots or Missing Parts (Scotoma)</h4>
+                    <h4 className="font-bold text-red-900 text-lg mb-2">Blind Spots or Missing Parts</h4>
                     <p className="text-red-800 text-sm mb-3">
                       <span className="font-semibold">What it looks like:</span> A section of the grid completely disappears, looks like a dark/gray hole, or the lines simply vanish into the background.
                     </p>
                     <p className="text-red-800 text-sm mb-3">
-                      <span className="font-semibold">What causes it:</span> Retinal cell damage, scarring, or geographic atrophy (dry AMD). Can also indicate retinal detachment or macular hole.
+                      <span className="font-semibold">Why it matters:</span> A missing or dark area can be a sign of damage at the back of the eye. Please have an eye doctor take a look.
                     </p>
                     <div className="bg-red-100 border border-red-400 rounded-lg p-3">
                       <p className="text-red-900 font-bold text-sm"> Action: Use the BLACKOUT brush (red marker) to mark these areas</p>
@@ -523,12 +530,12 @@ const AmslerGridTest = () => {
                   <tbody className="divide-y divide-gray-200">
                     <tr className="bg-yellow-50">
                       <td className="p-2 font-semibold text-yellow-900">Wavy / Bent / Rippled</td>
-                      <td className="p-2 text-yellow-800">Metamorphopsia (Fluid/Swelling)</td>
+                      <td className="p-2 text-yellow-800">Possible swelling at back of eye</td>
                       <td className="p-2 font-bold text-yellow-600">YES - Use Wavy Brush</td>
                     </tr>
                     <tr className="bg-red-50">
                       <td className="p-2 font-semibold text-red-900">Missing / Dark Hole / Gone</td>
-                      <td className="p-2 text-red-800">Scotoma (Cell Damage/Scarring)</td>
+                      <td className="p-2 text-red-800">Possible damage at back of eye</td>
                       <td className="p-2 font-bold text-red-600">YES - Use Blackout Brush</td>
                     </tr>
                     <tr className="bg-green-50">
@@ -543,10 +550,10 @@ const AmslerGridTest = () => {
           </div>
           
           <div className="bg-red-50 border-2 border-red-200 rounded-xl p-6">
-            <h3 className="font-bold text-red-900 mb-2"> Clinical Importance:</h3>
+            <h3 className="font-bold text-red-900 mb-2"> Why this matters:</h3>
             <p className="text-red-800 text-sm">
-              Changes in the Amsler grid may indicate macular degeneration, diabetic retinopathy, or other retinal conditions. 
-              Regular testing helps detect changes early. If you notice new distortions, consult an eye care professional immediately.
+              Changes in these lines can be an early sign of an eye problem at the back of the eye.
+              Checking regularly helps you catch changes early. If you suddenly notice new wavy or missing areas, see an eye doctor right away.
             </p>
           </div>
         </div>
@@ -721,7 +728,7 @@ const AmslerGridTest = () => {
                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
             }`}
           >
-            <span className="mr-2"></span> Wavy Lines (Metamorphopsia)
+            <span className="mr-2"></span> Wavy Lines
           </button>
           <button
             onClick={() => setAnnotationMode('blackout')}
@@ -731,7 +738,7 @@ const AmslerGridTest = () => {
                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
             }`}
           >
-            <span className="mr-2"></span> Blind Spots (Scotoma)
+            <span className="mr-2"></span> Blind Spots
           </button>
         </div>
         

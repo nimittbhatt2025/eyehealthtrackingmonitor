@@ -73,6 +73,20 @@ function Alerts() {
     }
   }
 
+  // Text label so severity is never communicated by color alone
+  const getSeverityBadge = (severity) => {
+    switch (severity) {
+      case 'critical':
+        return { label: 'Needs attention', className: 'bg-red-100 text-red-800' }
+      case 'warning':
+        return { label: 'Heads-up', className: 'bg-yellow-100 text-yellow-900' }
+      case 'info':
+        return { label: 'Info', className: 'bg-blue-100 text-blue-800' }
+      default:
+        return { label: 'Reminder', className: 'bg-gray-100 text-gray-700' }
+    }
+  }
+
   const getSeverityIcon = (severity) => {
     switch (severity) {
       case 'critical':
@@ -84,7 +98,7 @@ function Alerts() {
       case 'warning':
         return (
           <svg className="w-6 h-6 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
         )
       case 'info':
@@ -189,16 +203,19 @@ function Alerts() {
               <div className="flex items-start justify-between">
                 <div className="flex items-start space-x-4 flex-1">
                   {/* Icon */}
-                  <div className="flex-shrink-0">
+                  <div className="flex-shrink-0" aria-hidden="true">
                     {getSeverityIcon(alert.severity)}
                   </div>
 
                   {/* Content */}
                   <div className="flex-1">
-                    <div className="flex items-center space-x-3 mb-2">
+                    <div className="flex flex-wrap items-center gap-2 mb-2">
+                      <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${getSeverityBadge(alert.severity).className}`}>
+                        {getSeverityBadge(alert.severity).label}
+                      </span>
                       <h3 className="text-lg font-semibold text-gray-900">{alert.title}</h3>
                       {!alert.read && (
-                        <span className="w-2 h-2 bg-blue-600 rounded-full"></span>
+                        <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">New</span>
                       )}
                       <span className="text-sm text-gray-500">{formatDate(alert.created_at)}</span>
                     </div>
@@ -224,20 +241,22 @@ function Alerts() {
                   {!alert.read && (
                     <button
                       onClick={() => handleMarkRead(alert.id)}
-                      className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+                      className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
                       title="Mark as read"
+                      aria-label={`Mark "${alert.title}" as read`}
                     >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                       </svg>
                     </button>
                   )}
                   <button
                     onClick={() => handleDismiss(alert.id)}
-                    className="p-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                    className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                     title="Dismiss"
+                    aria-label={`Dismiss "${alert.title}"`}
                   >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                     </svg>
                   </button>

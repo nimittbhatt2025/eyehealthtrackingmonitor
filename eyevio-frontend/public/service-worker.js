@@ -48,7 +48,15 @@ self.addEventListener('fetch', (event) => {
   const { request } = event
   const url = new URL(request.url)
 
-  // Skip non-GET requests
+  // Never intercept Vite dev server or WebSocket upgrade requests
+  if (
+    url.searchParams.has('token') ||
+    url.pathname.startsWith('/@') ||
+    url.pathname.includes('/node_modules/') ||
+    url.pathname.includes('/src/')
+  ) {
+    return
+  }
   if (request.method !== 'GET') {
     return
   }

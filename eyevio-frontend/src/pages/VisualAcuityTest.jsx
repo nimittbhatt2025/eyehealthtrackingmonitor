@@ -357,7 +357,7 @@ const VisualAcuityTest = () => {
             <span className="w-10 h-10 bg-blue-600 text-white rounded-full flex items-center justify-center font-bold flex-shrink-0">4</span>
             <div>
               <h3 className="font-bold text-lg text-gray-900">Get Your Results</h3>
-              <p className="text-gray-700">Receive Snellen (20/20) and LogMAR scores for each eye.</p>
+              <p className="text-gray-700">See a simple score for each eye — like the familiar "20/20" from the eye doctor.</p>
             </div>
           </div>
         </div>
@@ -439,25 +439,13 @@ const VisualAcuityTest = () => {
       )}
 
       <div className="bg-white border-2 border-gray-200 rounded-xl p-6">
-        <h3 className="font-bold text-gray-900 mb-3">Understanding Your Results:</h3>
-        <div className="grid md:grid-cols-2 gap-4 text-sm">
-          <div>
-            <h4 className="font-semibold text-gray-900 mb-2">Snellen (Traditional)</h4>
-            <ul className="space-y-1 text-gray-700">
-              <li><strong>20/20:</strong> Normal vision</li>
-              <li><strong>20/40:</strong> Half as sharp (may need glasses)</li>
-              <li><strong>20/200:</strong> Legally blind threshold</li>
-            </ul>
-          </div>
-          <div>
-            <h4 className="font-semibold text-gray-900 mb-2">LogMAR (Clinical)</h4>
-            <ul className="space-y-1 text-gray-700">
-              <li><strong>0.0:</strong> 20/20 vision</li>
-              <li><strong>0.3:</strong> 20/40 vision</li>
-              <li><strong>Negative values:</strong> Better than 20/20</li>
-            </ul>
-          </div>
-        </div>
+        <h3 className="font-bold text-gray-900 mb-3">What your score means:</h3>
+        <ul className="space-y-2 text-gray-700">
+          <li><strong>20/20:</strong> Normal, healthy sharpness.</li>
+          <li><strong>20/40:</strong> A bit blurry — you might need glasses.</li>
+          <li><strong>20/200:</strong> Very blurry — worth seeing an eye doctor.</li>
+          <li className="text-gray-600">The smaller the second number, the sharper you see. Doctors also use a matching score called <span className="font-medium">LogMAR</span>, which we show next to your result.</li>
+        </ul>
       </div>
 
       <div className="flex gap-4">

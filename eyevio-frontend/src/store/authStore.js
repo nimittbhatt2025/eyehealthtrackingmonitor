@@ -2,11 +2,41 @@ import { create } from 'zustand'
 import { authAPI } from '../services/api'
 import { toast } from 'react-hot-toast'
 
+const readStoredUser = () => {
+  try {
+    const user = localStorage.getItem('user')
+    return user ? JSON.parse(user) : null
+  } catch {
+    return null
+  }
+}
+
 export const useAuthStore = create((set) => ({
-  user: JSON.parse(localStorage.getItem('user')) || null,
+  user: readStoredUser(),
   token: localStorage.getItem('access_token') || null,
   isAuthenticated: !!localStorage.getItem('access_token'),
   loading: false,
+
+  hydrate: () => {
+    const token = localStorage.getItem('access_token')
+    if (token) {
+      set({
+        token,
+        user: readStoredUser(),
+        isAuthenticated: true,
+      })
+    }
+  },
+
+  clearAuth: () => {
+    localStorage.removeItem('access_token')
+    localStorage.removeItem('user')
+    set({
+      user: null,
+      token: null,
+      isAuthenticated: false,
+    })
+  },
 
   login: async (credentials) => {
     set({ loading: true })
@@ -28,7 +58,7 @@ export const useAuthStore = create((set) => ({
       return true
     } catch (error) {
       set({ loading: false })
-      return false
+      throw error
     }
   },
 
@@ -64,7 +94,7 @@ export const useAuthStore = create((set) => ({
         toast.error('Registration failed. Please try again.')
       }
       
-      return false
+      throw error
     }
   },
 

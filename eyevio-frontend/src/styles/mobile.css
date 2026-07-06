@@ -123,12 +123,12 @@ body {
 /* Better table responsiveness */
 @media (max-width: 640px) {
   table {
-    font-size: 14px;
+    font-size: 15px;
   }
 
   th,
   td {
-    padding: 8px 12px;
+    padding: 10px 12px;
   }
 }
 
@@ -148,11 +148,12 @@ body {
   }
 }
 
-/* Improved readability on mobile */
+/* Improved readability on mobile — keep body text at a comfortable 16px
+   minimum so it stays legible for children and older adults. */
 @media (max-width: 640px) {
   body {
-    font-size: 14px;
-    line-height: 1.5;
+    font-size: 16px;
+    line-height: 1.6;
   }
 
   h1 {

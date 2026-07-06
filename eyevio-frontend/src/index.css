@@ -10,11 +10,38 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /* Age-inclusive base size: comfortable default for children and older adults.
+     Uses % so it respects the user's browser font-size preference. */
+  font-size: 106.25%; /* ~17px base */
 }
 
 body {
   margin: 0;
   min-height: 100vh;
+  font-size: 1rem;
+  line-height: 1.6;
+  color: #2d2a23;
+}
+
+/* Age-inclusive readability: raise the floor on the smallest text so nothing
+   important renders below ~14px. text-xs -> ~14px, text-sm -> ~15px. */
+.text-xs {
+  font-size: 0.875rem !important;
+  line-height: 1.4 !important;
+}
+
+.text-sm {
+  font-size: 0.9375rem !important;
+  line-height: 1.5 !important;
+}
+
+/* Darken low-contrast helper text so it meets WCAG AA on light backgrounds. */
+.text-gray-400 {
+  color: #6b7280 !important; /* gray-500 tone */
+}
+
+.text-gray-500 {
+  color: #4b5563 !important; /* gray-600 tone */
 }
 
 h1, h2, h3, h4, h5, h6 {
@@ -198,6 +225,53 @@ html {
   transition-property: background-color, border-color, color, fill, stroke, opacity, box-shadow, transform;
   transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
   transition-duration: 200ms;
+}
+
+/* Respect users who prefer reduced motion (motion sensitivity, vestibular
+   disorders, many older adults). Disables animations and smooth scrolling. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+/* High-visibility keyboard focus for all interactive elements. */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+  outline: 3px solid #205f52;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Skip-to-content link: hidden until focused by keyboard users. */
+.skip-to-content {
+  position: absolute;
+  left: 1rem;
+  top: -100px;
+  z-index: 100;
+  background: #205f52;
+  color: #ffffff;
+  padding: 0.75rem 1.25rem;
+  border-radius: 0.5rem;
+  font-weight: 600;
+  transition: top 0.2s ease;
+}
+
+.skip-to-content:focus {
+  top: 1rem;
 }
 
 @layer components {

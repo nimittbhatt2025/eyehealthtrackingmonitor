@@ -207,7 +207,7 @@ const AccommodativeLagTest = () => {
       
       if (capacity < 40) {
         fatigue = 'severe'
-        recommendation = 'URGENT: Take a 20-minute break NOW. Your ciliary muscles are severely fatigued. Risk of headache and eyestrain is very high.'
+        recommendation = 'Please take a 20-minute break now. Your eyes are very tired, and pushing on could bring on a headache or eye strain.'
       } else if (capacity < 60) {
         fatigue = 'moderate'
         recommendation = 'Take a 10-minute break within the next hour. Your focusing muscles are getting tired. Look at distant objects (20+ feet away).'
@@ -286,16 +286,16 @@ const AccommodativeLagTest = () => {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
               </svg>
             </div>
-            <h1 className="text-4xl font-bold text-gray-900 mb-2">Eye Burnout Meter</h1>
-            <p className="text-xl text-gray-600">Accommodative Lag Tracker</p>
+            <h1 className="text-4xl font-bold text-gray-900 mb-2">Eye Tiredness Meter</h1>
+            <p className="text-xl text-gray-600">Strain from screens and close-up work</p>
           </div>
 
           <div className="bg-purple-50 border-l-4 border-purple-600 p-6 mb-8 rounded-r-xl">
             <h2 className="text-lg font-bold text-purple-900 mb-2">What This Measures</h2>
             <p className="text-purple-800">
-              Your <strong>ciliary muscles</strong> control your eye's focus. After hours of screen time, they can get "locked," 
-              causing headaches and blurred distance vision. This 30-second test measures your <strong>focusing capacity</strong> 
-              to predict eye fatigue before it becomes a problem.
+              Tiny muscles inside your eyes do the work of focusing. After hours of screen time they can get tired and "stuck,"
+              which leads to headaches and blurry distance vision. This 30-second test checks how tired your focusing muscles are,
+              so you know when to take a break — before the aches start.
             </p>
           </div>
 
@@ -339,7 +339,7 @@ const AccommodativeLagTest = () => {
                 </div>
                 <div>
                   <h4 className="font-bold text-gray-900 mb-1">Pupil Tracking</h4>
-                  <p className="text-gray-600">Camera measures your pupil's miosis response (natural constriction during focus)</p>
+                  <p className="text-gray-600">Your camera watches how your pupils gently shrink as your eyes focus — a natural sign of focusing effort</p>
                 </div>
               </div>
             </div>
@@ -352,7 +352,7 @@ const AccommodativeLagTest = () => {
                 <svg className="w-5 h-5 text-indigo-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                 </svg>
-                <span><strong>Focusing Capacity %</strong> - How well your ciliary muscles are working</span>
+                <span><strong>Focusing Power %</strong> - How well your eyes are still focusing</span>
               </li>
               <li className="flex items-start gap-2">
                 <svg className="w-5 h-5 text-indigo-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
@@ -377,7 +377,7 @@ const AccommodativeLagTest = () => {
               }}
               className="px-8 py-4 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-full text-xl font-bold hover:from-purple-700 hover:to-indigo-700 transition-all transform hover:scale-105 shadow-lg"
             >
-              Start Eye Burnout Test
+              Start Eye Tiredness Test
             </button>
           </div>
         </div>
@@ -504,14 +504,14 @@ const AccommodativeLagTest = () => {
           </div>
         </div>
 
-        <h2 className="text-3xl font-bold mb-4">Analyzing Your Eye Fatigue</h2>
-        <p className="text-gray-400 mb-6">Processing pupil response data...</p>
+        <h2 className="text-3xl font-bold mb-4">Checking How Tired Your Eyes Are</h2>
+        <p className="text-gray-400 mb-6">Looking at how your pupils responded...</p>
 
         <div className="space-y-2 text-sm text-gray-500">
-          <p className="animate-pulse">• Measuring pupillary miosis</p>
-          <p className="animate-pulse" style={{ animationDelay: '0.2s' }}>• Calculating accommodative lag</p>
-          <p className="animate-pulse" style={{ animationDelay: '0.4s' }}>• Determining focusing capacity</p>
-          <p className="animate-pulse" style={{ animationDelay: '0.6s' }}>• Predicting fatigue level</p>
+          <p className="animate-pulse">• Watching how your pupils moved</p>
+          <p className="animate-pulse" style={{ animationDelay: '0.2s' }}>• Measuring your focusing effort</p>
+          <p className="animate-pulse" style={{ animationDelay: '0.4s' }}>• Working out your focusing power</p>
+          <p className="animate-pulse" style={{ animationDelay: '0.6s' }}>• Rating your eye tiredness</p>
         </div>
       </div>
     </div>
@@ -553,13 +553,13 @@ const AccommodativeLagTest = () => {
           <div className="bg-white rounded-3xl shadow-2xl p-8 md:p-12">
             <div className="text-center mb-8">
               <div className="text-4xl font-bold mb-4 text-gray-700">{getFatigueIcon()}</div>
-              <h1 className="text-4xl font-bold text-gray-900 mb-2">Eye Burnout Analysis</h1>
-              <p className="text-gray-600">Your ciliary muscle status</p>
+              <h1 className="text-4xl font-bold text-gray-900 mb-2">Eye Tiredness Results</h1>
+              <p className="text-gray-600">How tired your focusing muscles are</p>
             </div>
 
             {/* Main score */}
             <div className={`border-2 rounded-2xl p-8 mb-8 text-center ${getCapacityBg(focusingCapacity)}`}>
-              <h3 className="text-sm font-semibold text-gray-700 mb-2">FOCUSING CAPACITY</h3>
+              <h3 className="text-sm font-semibold text-gray-700 mb-2">FOCUSING POWER</h3>
               <div className={`text-7xl font-bold ${getCapacityColor(focusingCapacity)} mb-4`}>
                 {focusingCapacity}%
               </div>
@@ -570,7 +570,7 @@ const AccommodativeLagTest = () => {
                  'Severely Fatigued - URGENT BREAK NEEDED'}
               </p>
               <p className="text-sm text-gray-600">
-                Accommodative Lag: {accommodativeLag}%
+                Eye tiredness: {accommodativeLag}%
               </p>
             </div>
 

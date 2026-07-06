@@ -190,77 +190,77 @@ function Home() {
           <div className="grid md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 animate-fadeInUp stagger-1">
             {[
               { 
-                name: 'Visual Acuity Test', 
+                name: 'Clear Vision Test', 
                 time: '3-4 minutes',
-                description: 'Professional eye chart with LogMAR & Snellen scoring',
+                description: 'Read letters on a chart to see how clearly you see',
                 color: 'from-blue-500 to-indigo-600',
                 icon: 'M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z'
               },
               { 
                 name: 'Color Vision Test', 
                 time: '2-3 minutes',
-                description: 'Ishihara plates for red-green color deficiencies',
+                description: 'Find hidden numbers in colored dots',
                 color: 'from-pink-500 to-rose-600',
                 icon: 'M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01'
               },
               { 
-                name: 'Amsler Grid Test', 
+                name: 'Straight-Line Test', 
                 time: '2-3 minutes',
-                description: 'Macular degeneration & distortion screening',
+                description: 'Spot wavy or missing lines to check center vision',
                 color: 'from-purple-500 to-violet-600',
                 icon: 'M4 5a1 1 0 011-1h4a1 1 0 011 1v7a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM14 5a1 1 0 011-1h4a1 1 0 011 1v7a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1v-4zM14 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z'
               },
               { 
-                name: 'Contrast Sensitivity', 
+                name: 'Faint Shapes Test', 
                 time: '3-4 minutes',
-                description: 'Pelli-Robson functional vision assessment',
+                description: 'See how well you spot faint shapes in dim light',
                 color: 'from-gray-500 to-slate-600',
                 icon: 'M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z'
               },
               { 
-                name: 'Peripheral Field Screen', 
+                name: 'Side Vision Test', 
                 time: '4-5 minutes',
-                description: 'Glaucoma detection & neural health',
+                description: 'Check the edges of what you can see',
                 color: 'from-teal-500 to-cyan-600',
                 icon: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z'
               },
               { 
                 name: 'Glare Sensitivity', 
                 time: '4-5 minutes',
-                description: 'Cataract screening with light scatter detection',
+                description: 'See how much bright light and glare affect you',
                 color: 'from-yellow-500 to-orange-600',
                 icon: 'M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z'
               },
               { 
-                name: 'Red Glow Analyzer', 
+                name: 'Eye Glow Test', 
                 time: '3-4 minutes',
-                description: 'Digital Bruckner test for retinal health',
+                description: 'Camera check of the glow from the back of your eye',
                 color: 'from-red-500 to-pink-600',
                 icon: 'M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z'
               },
               { 
-                name: 'Eye Burnout Meter', 
+                name: 'Eye Tiredness Meter', 
                 time: '30 seconds',
-                description: 'Ciliary muscle fatigue from screen time',
+                description: 'Measure eye strain from screens and close-up work',
                 color: 'from-amber-500 to-yellow-600',
                 icon: 'M13 10V3L4 14h7v7l9-11h-7z',
-                badge: 'AI Camera'
+                badge: 'Camera'
               },
               { 
-                name: 'Peripheral Vision Trainer', 
+                name: 'Side Vision Game', 
                 time: '60 seconds',
-                description: 'Gamified visual field assessment',
+                description: 'A fun tap game to check your side vision',
                 color: 'from-green-500 to-emerald-600',
                 icon: 'M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
                 badge: 'Game'
               },
               { 
-                name: 'Ocular Ergonomics AI', 
+                name: 'Posture & Lighting Check', 
                 time: 'Continuous',
-                description: 'Real-time posture & lighting monitor',
+                description: 'Live tips on your lighting, distance, and posture',
                 color: 'from-indigo-500 to-blue-600',
                 icon: 'M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z',
-                badge: 'AI Camera'
+                badge: 'Camera'
               },
             ].map((test, idx) => (
               <div key={idx} className="group bg-white rounded-2xl p-6 shadow-md hover:shadow-2xl transition-all duration-500 border-2 border-gray-100 hover:border-gray-300 hover:-translate-y-2">
