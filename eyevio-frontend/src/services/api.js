@@ -141,4 +141,14 @@ export const reportsAPI = {
   getJSON: (params) => api.get('/report/', { params }),
 }
 
+// Calibration API
+export const calibrationAPI = {
+  start: () => api.post('/calibration/start'),
+  submitBaseline: (data) => api.post('/calibration/baseline', data),
+  submitBlink: (data) => api.post('/calibration/blink', data),
+  finalize: () => api.post('/calibration/finalize'),
+  getStatus: () => api.get('/calibration/status'),
+  test: (data) => api.post('/calibration/test', data),
+}
+
 export default api

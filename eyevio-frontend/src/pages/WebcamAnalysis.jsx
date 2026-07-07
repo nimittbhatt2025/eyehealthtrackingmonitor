@@ -1,11 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { webcamAPI } from '../services/api'
+import { webcamAPI, calibrationAPI } from '../services/api'
 import { toast } from 'react-hot-toast'
-import axios from 'axios'
 import cameraManager from '../utils/cameraManager.js'
-
-const API_URL = import.meta.env.VITE_API_URL
 
 function WebcamAnalysis() {
   const navigate = useNavigate()
@@ -44,10 +41,7 @@ function WebcamAnalysis() {
 
   const checkCalibration = async () => {
     try {
-      const token = localStorage.getItem('access_token')
-      const response = await axios.get(`${API_URL}/calibration/status`, {
-        headers: { Authorization: `Bearer ${token}` }
-      })
+      const response = await calibrationAPI.getStatus()
       
       // Check if calibrated from backend
       const calibrated = response.data.calibrated || false
@@ -222,11 +216,7 @@ function WebcamAnalysis() {
       
       try {
         // Use the test endpoint for real-time detection
-        const response = await axios.post(
-          `${API_URL}/calibration/test`,
-          { frame },
-          { headers: { Authorization: `Bearer ${token}` } }
-        )
+        const response = await calibrationAPI.test({ frame })
         
         const ear = response.data?.ear
         const serverThreshold = response.data?.threshold

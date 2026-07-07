@@ -11,14 +11,22 @@ This module contains AI models for:
 
 import cv2
 import numpy as np
+import os
+import urllib.request
 from typing import Dict, Any, Tuple, Optional, List
 from collections import deque
 
-# Placeholder for MediaPipe - will be initialized when needed
-_face_mesh = None
-_mp_face_mesh = None
+# Face Landmarker model (MediaPipe Tasks API)
+MODEL_DIR = os.path.join(os.path.dirname(__file__), 'models')
+MODEL_PATH = os.path.join(MODEL_DIR, 'face_landmarker.task')
+MODEL_URL = (
+    'https://storage.googleapis.com/mediapipe-models/face_landmarker/'
+    'face_landmarker/float16/1/face_landmarker.task'
+)
 
-# Eye landmarks for MediaPipe Face Mesh
+_face_landmarker = None
+
+# Eye landmarks for MediaPipe Face Mesh / Face Landmarker
 LEFT_EYE_LANDMARKS = [362, 385, 387, 263, 373, 380]
 RIGHT_EYE_LANDMARKS = [33, 160, 158, 133, 153, 144]
 
@@ -29,23 +37,37 @@ RIGHT_EYE_LANDMARKS = [33, 160, 158, 133, 153, 144]
 EAR_THRESHOLD = 0.15  # Much stricter - only clear eye closures
 CONSEC_FRAMES = 4     # Require 4 consecutive frames (was 3)
 
-def get_face_mesh():
-    """Lazy load MediaPipe Face Mesh"""
-    global _face_mesh, _mp_face_mesh
-    if _face_mesh is None:
+def _ensure_model() -> str:
+    """Download face landmarker model on first use if missing."""
+    if os.path.exists(MODEL_PATH):
+        return MODEL_PATH
+    os.makedirs(MODEL_DIR, exist_ok=True)
+    print(f'Downloading face landmarker model to {MODEL_PATH}...')
+    urllib.request.urlretrieve(MODEL_URL, MODEL_PATH)
+    return MODEL_PATH
+
+
+def get_face_landmarker():
+    """Lazy load MediaPipe Face Landmarker (Tasks API)."""
+    global _face_landmarker
+    if _face_landmarker is None:
         try:
-            import mediapipe as mp
-            _mp_face_mesh = mp.solutions.face_mesh
-            _face_mesh = _mp_face_mesh.FaceMesh(
-                static_image_mode=False,
-                max_num_faces=1,
-                refine_landmarks=True,
-                min_detection_confidence=0.5,
-                min_tracking_confidence=0.5
+            from mediapipe.tasks import python
+            from mediapipe.tasks.python import vision
+
+            model_path = _ensure_model()
+            base_options = python.BaseOptions(model_asset_path=model_path)
+            options = vision.FaceLandmarkerOptions(
+                base_options=base_options,
+                num_faces=1,
+                running_mode=vision.RunningMode.IMAGE,
             )
+            _face_landmarker = vision.FaceLandmarker.create_from_options(options)
         except ImportError:
-            print("Warning: MediaPipe not installed. Install with: pip install mediapipe")
-    return _face_mesh
+            print('Warning: MediaPipe not installed. Install with: pip install mediapipe')
+        except Exception as exc:
+            print(f'Warning: Failed to initialize Face Landmarker: {exc}')
+    return _face_landmarker
 
 
 def calculate_ear(eye_landmarks: np.ndarray) -> float:
@@ -82,32 +104,35 @@ def detect_eyes(frame: np.ndarray) -> Dict[str, Any]:
     Returns:
         Dictionary containing eye detection results and EAR values
     """
-    mesh = get_face_mesh()
+    detector = get_face_landmarker()
     
-    if mesh is None:
-        return {'detected': False, 'error': 'Face mesh not available'}
+    if detector is None:
+        return {'detected': False, 'error': 'Face landmarker not available'}
     
     try:
+        import mediapipe as mp
+
         # Convert BGR to RGB for MediaPipe
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        results = mesh.process(rgb_frame)
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
+        results = detector.detect(mp_image)
         
-        if not results.multi_face_landmarks:
+        if not results.face_landmarks:
             return {'detected': False}
         
         # Get first face landmarks
-        face_landmarks = results.multi_face_landmarks[0]
+        face_landmarks = results.face_landmarks[0]
         h, w = frame.shape[:2]
         
         # Extract left eye landmarks
         left_eye = np.array([
-            (face_landmarks.landmark[idx].x * w, face_landmarks.landmark[idx].y * h)
+            (face_landmarks[idx].x * w, face_landmarks[idx].y * h)
             for idx in LEFT_EYE_LANDMARKS
         ])
         
         # Extract right eye landmarks
         right_eye = np.array([
-            (face_landmarks.landmark[idx].x * w, face_landmarks.landmark[idx].y * h)
+            (face_landmarks[idx].x * w, face_landmarks[idx].y * h)
             for idx in RIGHT_EYE_LANDMARKS
         ])
         

@@ -81,27 +81,41 @@ function Profile() {
     }
   }
 
+  const sanitizePrescription = (rx) => ({
+    od: {
+      sph: rx.od.sph === '' ? null : rx.od.sph,
+      cyl: rx.od.cyl === '' ? null : rx.od.cyl,
+      axis: rx.od.axis === '' ? null : rx.od.axis,
+    },
+    os: {
+      sph: rx.os.sph === '' ? null : rx.os.sph,
+      cyl: rx.os.cyl === '' ? null : rx.os.cyl,
+      axis: rx.os.axis === '' ? null : rx.os.axis,
+    },
+  })
+
   const handleSaveProfile = async () => {
     setSaving(true)
     try {
       await authAPI.updateProfile({
         full_name: personalInfo.full_name,
         age: parseInt(personalInfo.age) || null,
-        gender: personalInfo.gender,
-        current_prescription: prescription,
-        lens_type: lensInfo.lens_type,
-        lens_brand: lensInfo.lens_brand,
+        gender: personalInfo.gender || null,
+        current_prescription: sanitizePrescription(prescription),
+        lens_type: lensInfo.lens_type || null,
+        lens_brand: lensInfo.lens_brand || null,
         lens_purchase_date: lensInfo.lens_purchase_date || null,
         avg_screen_time_hours: parseFloat(lifestyle.avg_screen_time_hours) || null,
         avg_sleep_hours: parseFloat(lifestyle.avg_sleep_hours) || null,
-        lighting_condition: lifestyle.lighting_condition,
-        activity_level: lifestyle.activity_level
+        lighting_condition: lifestyle.lighting_condition || null,
+        activity_level: lifestyle.activity_level || null
       })
       
       toast.success('Profile updated successfully')
     } catch (error) {
       console.error('Failed to update profile:', error)
-      toast.error('Failed to update profile')
+      const message = error.response?.data?.error || 'Failed to update profile'
+      toast.error(message)
     } finally {
       setSaving(false)
     }

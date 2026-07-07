@@ -26,6 +26,11 @@ const CataractTest = () => {
   const [isListening, setIsListening] = useState(false)
   const [transcript, setTranscript] = useState('')
   const [recognition, setRecognition] = useState(null)
+  const [speechAvailable, setSpeechAvailable] = useState(false)
+  const [useVoice, setUseVoice] = useState(false)
+  const speechRetryCountRef = useRef(0)
+  const recognitionRef = useRef(null)
+  const useVoiceRef = useRef(false)
   const canvasRef = useRef(null)
   const handleResponseRef = useRef(null)
 
@@ -47,6 +52,13 @@ const CataractTest = () => {
     { angle: 45, name: 'Diagonal Right', direction: 'diagonal-right' },
     { angle: 90, name: 'Vertical', direction: 'vertical' },
     { angle: 135, name: 'Diagonal Left', direction: 'diagonal-left' }
+  ]
+
+  const directionButtons = [
+    { direction: 'horizontal', label: 'Horizontal' },
+    { direction: 'vertical', label: 'Vertical' },
+    { direction: 'diagonal-right', label: 'Diagonal Right' },
+    { direction: 'diagonal-left', label: 'Diagonal Left' },
   ]
 
   // Draw sine-wave grating on canvas
@@ -161,12 +173,47 @@ const CataractTest = () => {
         }
 
         recognitionInstance.onerror = (event) => {
-          console.error('Speech recognition error:', event.error)
           setIsListening(false)
-          if (event.error !== 'no-speech') {
-            setTranscript('Error. Please try again.')
+
+          // Fatal errors: stop voice and fall back to buttons (no retry loop)
+          const fatalErrors = ['network', 'not-allowed', 'service-not-allowed', 'audio-capture', 'aborted']
+          if (fatalErrors.includes(event.error)) {
+            setSpeechAvailable(false)
+            setUseVoice(false)
+            const messages = {
+              network: 'Voice needs internet. Tap a direction button below.',
+              'not-allowed': 'Microphone blocked. Tap a direction button below.',
+              'service-not-allowed': 'Voice not available. Tap a direction button below.',
+              'audio-capture': 'No microphone found. Tap a direction button below.',
+              aborted: '',
+            }
+            const msg = messages[event.error]
+            if (msg) {
+              setTranscript(msg)
+              setTimeout(() => setTranscript(''), 4000)
+            }
+            return
+          }
+
+          if (event.error === 'no-speech') {
+            return
+          }
+
+          // Transient errors: retry at most twice
+          if (speechRetryCountRef.current < 2 && useVoiceRef.current) {
+            speechRetryCountRef.current += 1
+            setTranscript('Didn\'t catch that. Try again or tap a button.')
             setTimeout(() => setTranscript(''), 2000)
-            setTimeout(() => startListening(), 2500)
+            setTimeout(() => {
+              const rec = recognitionRef.current
+              if (!rec || !useVoiceRef.current) return
+              setIsListening(true)
+              try {
+                rec.start()
+              } catch {
+                setIsListening(false)
+              }
+            }, 1500)
           }
         }
 
@@ -174,36 +221,39 @@ const CataractTest = () => {
           setIsListening(false)
         }
 
+        recognitionRef.current = recognitionInstance
         setRecognition(recognitionInstance)
+        setSpeechAvailable(true)
       }
     }
   }, [])
 
-  // Start listening
-  const startListening = useCallback(() => {
-    if (recognition && testState === 'testing') {
-      setTranscript('')
-      setIsListening(true)
-      try {
-        recognition.start()
-      } catch (error) {
-        console.error('Error starting recognition:', error)
-        setIsListening(false)
-      }
-    }
-  }, [recognition, testState])
-
-  // Auto-start listening when stimulus appears (after glare if applicable)
   useEffect(() => {
-    if (testState === 'testing' && currentStimulus && !isListening) {
-      // Delay longer if glare is active to let user see through it first
+    useVoiceRef.current = useVoice
+  }, [useVoice])
+
+  // Start listening (voice mode only)
+  const startListening = useCallback(() => {
+    if (!useVoice || !recognition || testState !== 'testing') return
+    setTranscript('')
+    setIsListening(true)
+    try {
+      recognition.start()
+    } catch (error) {
+      setIsListening(false)
+    }
+  }, [recognition, testState, useVoice])
+
+  // Auto-start listening when stimulus appears (voice mode only)
+  useEffect(() => {
+    if (useVoice && testState === 'testing' && currentStimulus && !isListening) {
       const delay = currentStimulus.withGlare ? 1500 : 800
       const timeout = setTimeout(() => {
         startListening()
       }, delay)
       return () => clearTimeout(timeout)
     }
-  }, [currentStimulus, testState, isListening, startListening])
+  }, [currentStimulus, testState, isListening, startListening, useVoice])
 
   // Start the test
   const startTest = () => {
@@ -211,6 +261,8 @@ const CataractTest = () => {
     setResponses([])
     setCurrentTrial(0)
     setTestStartTime(Date.now())
+    setUseVoice(false)
+    speechRetryCountRef.current = 0
     const stimulus = generateStimulus(0)
     setCurrentStimulus(stimulus)
     setStartTime(Date.now())
@@ -455,7 +507,7 @@ const CataractTest = () => {
                   </li>
                   <li className="flex">
                     <span className="font-semibold mr-3">2.</span>
-                    <span><strong>Speak the direction you see</strong>: Horizontal, Vertical, or Diagonal Right/Left</span>
+                    <span><strong>Tap the direction you see</strong>: Horizontal, Vertical, or Diagonal Right/Left</span>
                   </li>
                   <li className="flex">
                     <span className="font-semibold mr-3">3.</span>
@@ -488,7 +540,7 @@ const CataractTest = () => {
                     <svg className="w-5 h-5 mr-2 text-green-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
                       <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                     </svg>
-                    <span><strong>Allow microphone access</strong> - needed for voice input</span>
+                    <span>You can also use voice if your browser supports it (optional)</span>
                   </li>
                   <li className="flex items-start">
                     <svg className="w-5 h-5 mr-2 text-green-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
@@ -507,12 +559,6 @@ const CataractTest = () => {
                       <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                     </svg>
                     <span>The bright flash is intentional - don't be alarmed!</span>
-                  </li>
-                  <li className="flex items-start">
-                    <svg className="w-5 h-5 mr-2 text-green-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                    </svg>
-                    <span>Quiet environment for best voice recognition</span>
                   </li>
                 </ul>
               </div>
@@ -588,46 +634,89 @@ const CataractTest = () => {
               </div>
             </div>
 
-            {/* Voice Response UI */}
+            {/* Direction buttons — primary input */}
             <div className="text-center">
-              <div className="mb-6">
-                <div className={`inline-flex items-center gap-3 px-6 py-4 rounded-2xl ${
-                  isListening ? 'bg-orange-100 border-2 border-orange-400' : 'bg-gray-100 border-2 border-gray-300'
-                }`}>
-                  <div className={`w-4 h-4 rounded-full ${isListening ? 'bg-orange-600 animate-pulse' : 'bg-gray-400'}`} />
-                  <span className="font-semibold text-gray-800">
-                    {isListening ? 'Listening... Say the direction' : 'Voice Recognition Ready'}
-                  </span>
-                </div>
+              <p className="text-sm font-semibold text-gray-700 mb-4">
+                Which way do the stripes run?
+              </p>
+              <div className="grid grid-cols-2 gap-3 max-w-lg mx-auto mb-6">
+                {directionButtons.map(({ direction, label }) => (
+                  <button
+                    key={direction}
+                    type="button"
+                    onClick={() => handleResponse(direction)}
+                    className="px-4 py-4 bg-orange-600 hover:bg-orange-700 text-white rounded-xl font-semibold text-sm transition-colors"
+                  >
+                    {label}
+                  </button>
+                ))}
               </div>
 
+              {currentStimulus.withGlare && (
+                <p className="text-sm text-orange-600 font-medium mb-4">
+                  Try to see the bars through the glare
+                </p>
+              )}
+
               {transcript && (
-                <div className="mb-4 text-lg font-semibold text-orange-700">
-                  You said: "{transcript}"
+                <div className="mb-4 text-sm font-medium text-orange-700">
+                  {transcript}
                 </div>
               )}
 
-              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 max-w-2xl mx-auto">
-                <p className="text-sm text-blue-800 mb-2">
-                  <strong>Say one of these directions:</strong>
-                </p>
-                <p className="text-sm text-blue-700 font-medium">
-                  "Horizontal" | "Vertical" | "Diagonal Right" | "Diagonal Left"
-                </p>
-                {currentStimulus.withGlare && (
-                  <p className="text-sm text-orange-600 font-medium mt-2">
-                    Try to see the bars through the glare
-                  </p>
-                )}
-              </div>
-
-              {!isListening && (
-                <button
-                  onClick={startListening}
-                  className="mt-4 px-6 py-3 bg-orange-600 hover:bg-orange-700 text-white rounded-full font-semibold transition-colors"
-                >
-                  Start Speaking
-                </button>
+              {/* Optional voice input */}
+              {speechAvailable && (
+                <div className="border-t border-gray-200 pt-6 mt-2">
+                  <p className="text-xs text-gray-500 mb-3">Or use your voice (needs internet)</p>
+                  {!useVoice ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUseVoice(true)
+                        speechRetryCountRef.current = 0
+                        startListening()
+                      }}
+                      className="px-5 py-2 border-2 border-gray-300 rounded-full text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+                    >
+                      Switch to voice
+                    </button>
+                  ) : (
+                    <div>
+                      <div className={`inline-flex items-center gap-3 px-5 py-3 rounded-2xl ${
+                        isListening ? 'bg-orange-100 border-2 border-orange-400' : 'bg-gray-100 border-2 border-gray-300'
+                      }`}>
+                        <div className={`w-3 h-3 rounded-full ${isListening ? 'bg-orange-600 animate-pulse' : 'bg-gray-400'}`} />
+                        <span className="text-sm font-semibold text-gray-800">
+                          {isListening ? 'Listening… say the direction' : 'Voice ready'}
+                        </span>
+                      </div>
+                      <div className="flex gap-3 justify-center mt-3">
+                        {!isListening && (
+                          <button
+                            type="button"
+                            onClick={startListening}
+                            className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-full text-sm font-semibold transition-colors"
+                          >
+                            Start speaking
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setUseVoice(false)
+                            setIsListening(false)
+                            if (recognition) {
+                              try { recognition.stop() } catch { /* already stopped */ }
+                            }
+                          }}
+                          className="px-4 py-2 border-2 border-gray-300 rounded-full text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+                        >
+                          Use buttons instead
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           </div>

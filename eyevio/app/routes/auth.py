@@ -7,6 +7,27 @@ from datetime import datetime
 auth_bp = Blueprint('auth', __name__)
 
 
+def _optional_float(value):
+    """Coerce profile numeric fields; empty strings must become NULL for Postgres."""
+    if value is None or value == '':
+        return None
+    return float(value)
+
+
+def _optional_int(value):
+    if value is None or value == '':
+        return None
+    return int(value)
+
+
+def _optional_date(value):
+    if value is None or value == '':
+        return None
+    if isinstance(value, str):
+        return datetime.fromisoformat(value).date()
+    return value
+
+
 @auth_bp.route('/register', methods=['POST'])
 def register():
     """Register a new user"""
@@ -173,7 +194,7 @@ def update_profile():
         if 'lens_brand' in data:
             user.lens_brand = data['lens_brand']
         if 'lens_purchase_date' in data:
-            user.lens_purchase_date = datetime.fromisoformat(data['lens_purchase_date'])
+            user.lens_purchase_date = _optional_date(data['lens_purchase_date'])
         if 'avg_screen_time_hours' in data:
             user.avg_screen_time_hours = data['avg_screen_time_hours']
         if 'avg_sleep_hours' in data:
@@ -187,13 +208,15 @@ def update_profile():
         if 'current_prescription' in data:
             prescription = data['current_prescription']
             if 'od' in prescription:
-                user.current_prescription_od_sph = prescription['od'].get('sph')
-                user.current_prescription_od_cyl = prescription['od'].get('cyl')
-                user.current_prescription_od_axis = prescription['od'].get('axis')
+                od = prescription['od']
+                user.current_prescription_od_sph = _optional_float(od.get('sph'))
+                user.current_prescription_od_cyl = _optional_float(od.get('cyl'))
+                user.current_prescription_od_axis = _optional_int(od.get('axis'))
             if 'os' in prescription:
-                user.current_prescription_os_sph = prescription['os'].get('sph')
-                user.current_prescription_os_cyl = prescription['os'].get('cyl')
-                user.current_prescription_os_axis = prescription['os'].get('axis')
+                os_data = prescription['os']
+                user.current_prescription_os_sph = _optional_float(os_data.get('sph'))
+                user.current_prescription_os_cyl = _optional_float(os_data.get('cyl'))
+                user.current_prescription_os_axis = _optional_int(os_data.get('axis'))
         
         user.updated_at = datetime.utcnow()
         db.session.commit()

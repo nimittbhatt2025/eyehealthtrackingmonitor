@@ -154,6 +154,7 @@ function App() {
                 <Route path="/eye-tracking-analysis" element={<EyeTrackingAnalysis />} />
                 <Route path="/webcam" element={<Navigate to="/eye-tracking-analysis" replace />} /> {/* Redirect old route */}
                 <Route path="/calibrate-blink" element={<BlinkCalibration />} />
+                <Route path="/blink-calibration" element={<Navigate to="/calibrate-blink" replace />} />
                 
                 <Route path="/eye-conditions" element={<EyeConditions />} />
                 <Route path="/lifestyle" element={<Lifestyle />} />

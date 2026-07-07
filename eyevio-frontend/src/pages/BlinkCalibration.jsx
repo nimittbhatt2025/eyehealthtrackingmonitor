@@ -4,9 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Camera, Eye, Check, AlertCircle, RefreshCw } from 'lucide-react'
 import { toast } from 'react-hot-toast'
-import axios from 'axios'
-
-const API_URL = import.meta.env.VITE_API_URL
+import { calibrationAPI } from '../services/api'
 
 const CalibrationSteps = {
   WELCOME: 'welcome',
@@ -136,15 +134,12 @@ export default function BlinkCalibration() {
   // Start calibration
   const handleStartCalibration = async () => {
     try {
-      const token = localStorage.getItem('access_token')
       console.log('=== Starting calibration session ===')
       
       // Reset finalization flag
       isFinalizingRef.current = false
       
-      const response = await axios.post(`${API_URL}/calibration/start`, {}, {
-        headers: { Authorization: `Bearer ${token}` }
-      })
+      const response = await calibrationAPI.start()
       
       console.log('Calibration session started:', response.data)
       
@@ -265,7 +260,6 @@ export default function BlinkCalibration() {
   // Baseline collection (eyes open)
   const startBaselineCollection = () => {
     setIsCapturing(true)
-    const token = localStorage.getItem('access_token')
     let sampleCount = 0
     const maxSamples = 150 // 5 seconds at 30fps
     
@@ -282,11 +276,7 @@ export default function BlinkCalibration() {
       }
       
       try {
-        const response = await axios.post(
-          `${API_URL}/calibration/baseline`,
-          { frame },
-          { headers: { Authorization: `Bearer ${token}` } }
-        )
+        const response = await calibrationAPI.submitBaseline({ frame })
         
         sampleCount = response.data.samples_collected
         setBaselineSamples(sampleCount)
@@ -319,7 +309,6 @@ export default function BlinkCalibration() {
   // Blink collection - count complete blinks, not frames
   const startBlinkCollection = () => {
     setIsCapturing(true)
-    const token = localStorage.getItem('access_token')
     
     // Track blink state
     let blinkState = {
@@ -347,11 +336,7 @@ export default function BlinkCalibration() {
       }
       
       try {
-        const response = await axios.post(
-          `${API_URL}/calibration/blink`,
-          { frame },
-          { headers: { Authorization: `Bearer ${token}` } }
-        )
+        const response = await calibrationAPI.submitBlink({ frame })
         
         const ear = response.data.avg_ear
         const eyesClosed = ear < 0.20
@@ -413,16 +398,8 @@ export default function BlinkCalibration() {
     setCurrentStep(CalibrationSteps.PROCESSING)
     
     try {
-      const token = localStorage.getItem('access_token')
-      console.log('Token available:', !!token)
-      console.log('API_URL:', API_URL)
-      
       console.log('Calling finalize endpoint...')
-      const response = await axios.post(
-        `${API_URL}/calibration/finalize`,
-        {},
-        { headers: { Authorization: `Bearer ${token}` } }
-      )
+      const response = await calibrationAPI.finalize()
       
       console.log('Finalize response:', response.data)
       
@@ -482,7 +459,6 @@ export default function BlinkCalibration() {
 
   // Test blink detection - simple approach using frame analysis
   const startTestBlinkDetection = () => {
-    const token = localStorage.getItem('access_token')
     // Reset state
     testBlinkStateRef.current = { previousEyesClosed: false, blinkInProgress: false }
     
@@ -509,11 +485,7 @@ export default function BlinkCalibration() {
       
       try {
         // Send frame to test endpoint
-        const response = await axios.post(
-          `${API_URL}/calibration/test`,
-          { frame },
-          { headers: { Authorization: `Bearer ${token}` } }
-        )
+        const response = await calibrationAPI.test({ frame })
         
         // Check if eyes are closed based on EAR
         const ear = response.data?.ear

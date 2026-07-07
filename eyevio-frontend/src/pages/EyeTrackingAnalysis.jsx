@@ -5,9 +5,7 @@ import { Eye, Activity, Zap, TrendingUp, Clock, AlertCircle, Brain, ThumbsUp, Al
 import MediaEyeTracker from '../utils/mediaEyeTracker'
 import { generatePersonalizedFeedback, assessDoctorVisit } from '../utils/eyeHealthAI'
 import { useAuthStore } from '../store/authStore'
-import axios from 'axios'
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5002'
+import { authAPI, visionTestAPI, calibrationAPI } from '../services/api'
 
 /**
  * Enhanced Eye Tracking Analysis Component
@@ -52,10 +50,7 @@ export default function EyeTrackingAnalysis() {
 
   const checkCalibration = async () => {
     try {
-      const token = localStorage.getItem('access_token')
-      const response = await axios.get(`${API_URL}/calibration/status`, {
-        headers: { Authorization: `Bearer ${token}` }
-      })
+      const response = await calibrationAPI.getStatus()
       
       const calibrated = response.data.calibrated || false
       setIsCalibrated(calibrated)
@@ -77,10 +72,7 @@ export default function EyeTrackingAnalysis() {
 
   const loadUserProfile = async () => {
     try {
-      const token = localStorage.getItem('access_token')
-      const response = await axios.get(`${API_URL}/api/auth/profile`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
+      const response = await authAPI.getProfile()
       setUserProfile(response.data)
     } catch (error) {
       console.error('Failed to load user profile:', error)
@@ -226,24 +218,19 @@ export default function EyeTrackingAnalysis() {
 
     // Save to backend
     try {
-      const token = localStorage.getItem('access_token')
-      const response = await axios.post(
-        `${API_URL}/api/vision-tests`,
-        {
-          test_type: 'eye_tracking',
-          score: Math.max(0, 100 - sessionSummary.fatigueScore),
-          notes: `Eye Tracking Analysis - Blink Rate: ${sessionSummary.blinkRate}/min, Fatigue Score: ${sessionSummary.fatigueScore}`,
-          metadata: {
-            blinkRate: sessionSummary.blinkRate,
-            totalBlinks: sessionSummary.totalBlinks,
-            avgBlinkDuration: sessionSummary.avgBlinkDuration,
-            fatigueScore: sessionSummary.fatigueScore,
-            status: sessionSummary.status,
-            recommendation: sessionSummary.recommendation,
-          },
+      const response = await visionTestAPI.submit({
+        test_type: 'eye_tracking',
+        score: Math.max(0, 100 - sessionSummary.fatigueScore),
+        notes: `Eye Tracking Analysis - Blink Rate: ${sessionSummary.blinkRate}/min, Fatigue Score: ${sessionSummary.fatigueScore}`,
+        test_details: {
+          blinkRate: sessionSummary.blinkRate,
+          totalBlinks: sessionSummary.totalBlinks,
+          avgBlinkDuration: sessionSummary.avgBlinkDuration,
+          fatigueScore: sessionSummary.fatigueScore,
+          status: sessionSummary.status,
+          recommendation: sessionSummary.recommendation,
         },
-        { headers: { Authorization: `Bearer ${token}` } }
-      )
+      })
 
       console.log(' Session saved:', response.data)
       toast.success('Session saved successfully!')
@@ -393,7 +380,7 @@ export default function EyeTrackingAnalysis() {
                     </p>
                     <div className="flex space-x-3">
                       <button
-                        onClick={() => navigate('/blink-calibration')}
+                        onClick={() => navigate('/calibrate-blink')}
                         className="bg-orange-600 hover:bg-orange-700 text-white px-6 py-2 rounded-lg font-semibold transition-colors"
                       >
                         Calibrate Now (2 min)
