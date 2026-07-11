@@ -689,6 +689,13 @@ class TestRecommendationEngine {
         duration: '5 min',
         relevantFor: ['eye strain', 'dry eyes', 'fatigue', 'digital eye strain'],
       },
+      dry_eye: {
+        name: 'Dry Eye Screening',
+        description: 'Symptom questionnaire plus photo analysis',
+        icon: '',
+        duration: '3 min',
+        relevantFor: ['dry eyes', 'gritty', 'burning', 'dry eye', 'irritation', 'tearing'],
+      },
     };
   }
 
@@ -730,11 +737,14 @@ class TestRecommendationEngine {
 
   getTestRoute(testId) {
     const routes = {
-      visual_acuity: '/vision-tests',
-      amsler_grid: '/vision-tests',
-      color_vision: '/vision-tests',
+      visual_acuity: '/vision-tests/visual_acuity',
+      amsler_grid: '/vision-tests/amsler_grid',
+      color_vision: '/vision-tests/color_vision',
       astigmatism: '/vision-tests',
-      contrast_sensitivity: '/vision-tests',
+      contrast_sensitivity: '/vision-tests/contrast_sensitivity',
+      dry_eye: '/vision-tests/dry_eye',
+      dry_eye_assessment: '/vision-tests/dry_eye',
+      dry_eye_test: '/vision-tests/dry_eye',
       eye_tracking: '/eye-tracking-analysis',
     };
     return routes[testId] || '/vision-tests';

@@ -269,7 +269,7 @@ const AccommodativeLagTest = () => {
 
   // Render instructions
   const renderInstructions = () => (
-    <div className="min-h-screen bg-gradient-to-br from-purple-50 to-indigo-50 p-8">
+    <div className="test-shell">
       <div className="max-w-4xl mx-auto">
         <button
           onClick={() => navigate('/vision-tests')}
@@ -278,7 +278,7 @@ const AccommodativeLagTest = () => {
           ← Back to Tests
         </button>
 
-        <div className="bg-white rounded-3xl shadow-2xl p-8 md:p-12">
+        <div className="test-panel p-8 md:p-12">
           <div className="text-center mb-8">
             <div className="w-20 h-20 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
               <svg className="w-10 h-10 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -286,7 +286,7 @@ const AccommodativeLagTest = () => {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
               </svg>
             </div>
-            <h1 className="text-4xl font-bold text-gray-900 mb-2">Eye Tiredness Meter</h1>
+            <h1 className="page-title mb-2">Eye Tiredness Meter</h1>
             <p className="text-xl text-gray-600">Strain from screens and close-up work</p>
           </div>
 
@@ -375,7 +375,7 @@ const AccommodativeLagTest = () => {
                 setTestState('setup')
                 initializeCamera()
               }}
-              className="px-8 py-4 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-full text-xl font-bold hover:from-purple-700 hover:to-indigo-700 transition-all transform hover:scale-105 shadow-lg"
+              className="btn-primary px-8 py-4 text-xl"
             >
               Start Eye Tiredness Test
             </button>
@@ -541,7 +541,7 @@ const AccommodativeLagTest = () => {
     }
 
     return (
-      <div className="min-h-screen bg-gradient-to-br from-purple-50 to-indigo-50 p-8">
+      <div className="test-shell">
         <div className="max-w-4xl mx-auto">
           <button
             onClick={() => navigate('/vision-tests')}
@@ -550,10 +550,10 @@ const AccommodativeLagTest = () => {
             ← Back to Tests
           </button>
 
-          <div className="bg-white rounded-3xl shadow-2xl p-8 md:p-12">
+          <div className="test-panel p-8 md:p-12">
             <div className="text-center mb-8">
               <div className="text-4xl font-bold mb-4 text-gray-700">{getFatigueIcon()}</div>
-              <h1 className="text-4xl font-bold text-gray-900 mb-2">Eye Tiredness Results</h1>
+              <h1 className="page-title mb-2">Eye Tiredness Results</h1>
               <p className="text-gray-600">How tired your focusing muscles are</p>
             </div>
 

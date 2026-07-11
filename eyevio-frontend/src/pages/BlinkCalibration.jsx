@@ -549,19 +549,19 @@ export default function BlinkCalibration() {
   }, [])
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-teal-50 to-blue-50 p-4">
+    <div className="min-h-screen bg-brand-soft p-4">
       <div className="max-w-4xl mx-auto">
         {/* Header */}
-        <div className="text-center mb-8">
+        <div className="text-center mb-8 animate-fade-in-up">
           <div className="flex items-center justify-center gap-3 mb-4">
-            <Eye className="w-10 h-10 text-teal-600" />
-            <h1 className="text-4xl font-bold text-gray-800">Blink Calibration</h1>
+            <Eye className="w-10 h-10 text-accent-600" />
+            <h1 className="page-title">Blink Calibration</h1>
           </div>
-          <p className="text-gray-600">Personalize blink detection for accurate results</p>
+          <p className="page-subtitle">Personalize blink detection for accurate results</p>
         </div>
 
         {/* Main Content */}
-        <div className="bg-white rounded-2xl shadow-xl p-8">
+        <div className="card shadow-elevated p-8">
           {/* Persistent video - positioned to show in video feed areas */}
           <video 
             ref={videoRef} 
@@ -592,25 +592,25 @@ export default function BlinkCalibration() {
                 exit={{ opacity: 0, y: -20 }}
                 className="text-center space-y-6"
               >
-                <Camera className="w-24 h-24 mx-auto text-teal-500" />
-                <h2 className="text-2xl font-bold text-gray-800">
+                <Camera className="w-24 h-24 mx-auto text-accent-500" />
+                <h2 className="section-title">
                   Let's Calibrate Your Blink Detection
                 </h2>
-                <p className="text-gray-600 max-w-2xl mx-auto">
+                <p className="text-gray-500 max-w-2xl mx-auto">
                   This quick 30-second process will learn your unique eye characteristics
                   to provide accurate blink counting. You'll need to:
                 </p>
                 
                 <div className="grid md:grid-cols-2 gap-4 text-left max-w-2xl mx-auto">
-                  <div className="bg-teal-50 p-4 rounded-lg">
-                    <h3 className="font-semibold text-teal-800 mb-2">Step 1: Baseline</h3>
-                    <p className="text-sm text-gray-700">
+                  <div className="bg-accent-50 border border-accent-100 p-4 rounded-2xl">
+                    <h3 className="font-semibold text-accent-800 mb-2">Step 1: Baseline</h3>
+                    <p className="text-sm text-gray-600">
                       Look at the camera normally with eyes open for 5 seconds
                     </p>
                   </div>
-                  <div className="bg-blue-50 p-4 rounded-lg">
-                    <h3 className="font-semibold text-blue-800 mb-2">Step 2: Blink</h3>
-                    <p className="text-sm text-gray-700">
+                  <div className="bg-accent-50 border border-accent-100 p-4 rounded-2xl">
+                    <h3 className="font-semibold text-accent-800 mb-2">Step 2: Blink</h3>
+                    <p className="text-sm text-gray-600">
                       Perform 10 slow, deliberate blinks when prompted
                     </p>
                   </div>
@@ -618,7 +618,7 @@ export default function BlinkCalibration() {
 
                 <button
                   onClick={handleStartCalibration}
-                  className="bg-teal-600 hover:bg-teal-700 text-white px-8 py-3 rounded-lg font-semibold transition-colors"
+                  className="btn-primary min-h-[44px] px-8"
                 >
                   Start Calibration
                 </button>
@@ -635,16 +635,16 @@ export default function BlinkCalibration() {
                 className="space-y-6"
               >
                 <div className="text-center">
-                  <h2 className="text-2xl font-bold text-gray-800 mb-2">
+                  <h2 className="section-title mb-2">
                     Step 1: Baseline Collection
                   </h2>
-                  <p className="text-gray-600">
+                  <p className="text-gray-500">
                     Look at the camera normally. Keep your eyes open.
                   </p>
                 </div>
 
                 {/* Video Feed */}
-                <div className="relative bg-black rounded-lg overflow-hidden aspect-video">
+                <div className="relative bg-black rounded-2xl overflow-hidden aspect-video">
                   {/* Display video with same stream */}
                   <video
                     ref={(el) => {
@@ -664,9 +664,9 @@ export default function BlinkCalibration() {
                   {!cameraReady && (
                     <div className="absolute inset-0 flex items-center justify-center bg-black/80">
                       <div className="text-center">
-                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-teal-500 mx-auto mb-4"></div>
+                        <div className="animate-spin rounded-full h-12 w-12 border-4 border-accent-100 border-t-accent-600 mx-auto mb-4"></div>
                         <p className="text-white text-lg">Initializing camera...</p>
-                        <p className="text-gray-400 text-sm mt-2">Please allow camera access if prompted</p>
+                        <p className="text-gray-300 text-sm mt-2">Please allow camera access if prompted</p>
                       </div>
                     </div>
                   )}
@@ -678,9 +678,9 @@ export default function BlinkCalibration() {
                         <span>{cameraReady ? 'Collecting baseline...' : 'Waiting for camera...'}</span>
                         <span>{baselineSamples}/150 samples</span>
                       </div>
-                      <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
+                      <div className="h-2 bg-white/25 rounded-full overflow-hidden">
                         <motion.div
-                          className="h-full bg-teal-500"
+                          className="h-full bg-accent-500"
                           initial={{ width: 0 }}
                           animate={{ width: `${(baselineSamples / 150) * 100}%` }}
                           transition={{ duration: 0.3 }}

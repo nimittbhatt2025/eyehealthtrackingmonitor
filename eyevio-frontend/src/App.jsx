@@ -26,6 +26,7 @@ import VisionTestRunner from './pages/VisionTestRunner'
 import ContrastSensitivityTest from './pages/ContrastSensitivityTest'
 import GlaucomaTest from './pages/GlaucomaTest'
 import CataractTest from './pages/CataractTest'
+import DryEyeTest from './pages/DryEyeTest'
 import RedReflexTest from './pages/RedReflexTest'
 import AccommodativeLagTest from './pages/AccommodativeLagTest'
 import PeripheralAwarenessTest from './pages/PeripheralAwarenessTest'
@@ -142,6 +143,7 @@ function App() {
                 <Route path="/vision-tests/contrast_sensitivity" element={<ContrastSensitivityTest />} />
                 <Route path="/vision-tests/glaucoma_neural" element={<GlaucomaTest />} />
                 <Route path="/vision-tests/cataract_glare" element={<CataractTest />} />
+                <Route path="/vision-tests/dry_eye" element={<DryEyeTest />} />
                 <Route path="/vision-tests/red_reflex" element={<RedReflexTest />} />
                 <Route path="/vision-tests/accommodative_lag" element={<AccommodativeLagTest />} />
                 <Route path="/vision-tests/peripheral_awareness" element={<PeripheralAwarenessTest />} />

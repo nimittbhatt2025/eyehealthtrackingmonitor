@@ -260,7 +260,7 @@ export const EYE_CONDITIONS = {
       'Discharge or crusting',
       'Worsening despite treatment',
     ],
-    appTests: ['eye_tracking', 'blink_analysis', 'blink_completeness'],
+    appTests: ['dry_eye', 'eye_tracking', 'blink_analysis'],
   },
 
   eye_fatigue_asthenopia: {
@@ -1277,7 +1277,7 @@ export const EYE_CONDITIONS = {
       },
     ],
     warningSigns: ['Severe pain', 'Vision loss', 'Thick discharge'],
-    appTests: ['tear_break_up_time', 'meibography', 'blink_analysis'],
+    appTests: ['dry_eye', 'tear_break_up_time', 'meibography', 'blink_analysis'],
   },
 
   aqueous_deficient_dry_eye: {
@@ -1331,7 +1331,7 @@ export const EYE_CONDITIONS = {
       },
     ],
     warningSigns: ['Corneal damage', 'Severe pain', 'Vision changes'],
-    appTests: ['schirmer_test', 'tear_osmolarity'],
+    appTests: ['dry_eye', 'schirmer_test', 'tear_osmolarity'],
   },
 
   allergic_irritation: {
@@ -1671,7 +1671,7 @@ export const EYE_CONDITIONS = {
       },
     ],
     warningSigns: ['Severe tearing', 'Vision loss', 'Pain'],
-    appTests: ['dry_eye_assessment', 'tear_function'],
+    appTests: ['dry_eye', 'tear_function'],
   },
 
   // ... (end of additions)
@@ -1889,7 +1889,7 @@ export const EYE_CONDITIONS = {
       { action: 'Warm compresses', description: 'Improve oil gland function', frequency: 'Twice daily' },
     ],
     warningSigns: ['Severe burning', 'Vision changes', 'Discharge'],
-    appTests: ['dry_eye_workup', 'lid_examination'],
+    appTests: ['dry_eye', 'lid_examination'],
   },
 
   // 🌞 E. LIGHT PERCEPTION - REMAINING CONDITIONS
@@ -2422,7 +2422,7 @@ export const EYE_CONDITIONS = {
       { action: 'Humidify environment', description: 'Especially in dry climates', frequency: 'Continuous' },
     ],
     warningSigns: ['Corneal damage', 'Vision loss', 'Severe pain'],
-    appTests: ['comprehensive_dry_eye_workup'],
+    appTests: ['dry_eye'],
   },
 
   // 🏠 I. ENVIRONMENTAL - REMAINING CONDITIONS
@@ -2442,7 +2442,7 @@ export const EYE_CONDITIONS = {
       { action: 'Frequent drops', description: 'Lubricate more often in dry air', frequency: 'Every 2 hours' },
     ],
     warningSigns: ['Chronic dryness', 'Corneal issues'],
-    appTests: ['dry_eye_assessment'],
+    appTests: ['dry_eye'],
   },
 
   ac_dryness: {
@@ -2592,7 +2592,7 @@ export const EYE_CONDITIONS = {
       },
     ],
     warningSigns: ['Worsening fatigue', 'Vision changes', 'Impact on daily activities'],
-    appTests: ['fatigue_assessment', 'visual_acuity', 'dry_eye_test'],
+    appTests: ['fatigue_assessment', 'visual_acuity', 'dry_eye'],
   },
 
   eyes_feel_heavy: {

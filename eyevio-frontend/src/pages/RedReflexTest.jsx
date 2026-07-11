@@ -373,7 +373,7 @@ const RedReflexTest = () => {
 
   // Render instruction screen
   const renderInstructions = () => (
-    <div className="min-h-screen bg-gradient-to-br from-red-50 to-orange-50 p-8">
+    <div className="test-shell">
       <div className="max-w-4xl mx-auto">
         <button
           onClick={() => navigate('/vision-tests')}
@@ -382,7 +382,7 @@ const RedReflexTest = () => {
           ← Back to Tests
         </button>
 
-        <div className="bg-white rounded-3xl shadow-2xl p-8 md:p-12">
+        <div className="test-panel p-8 md:p-12">
           <div className="text-center mb-8">
             <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
               <svg className="w-10 h-10 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -391,7 +391,7 @@ const RedReflexTest = () => {
                 <path d="M12 2v4M12 18v4M2 12h4M18 12h4" strokeWidth="2"/>
               </svg>
             </div>
-            <h1 className="text-4xl font-bold text-gray-900 mb-2">Eye Glow Test</h1>
+            <h1 className="page-title mb-2">Eye Glow Test</h1>
             <p className="text-xl text-gray-600">Checks the glow from the back of your eyes</p>
           </div>
 
@@ -482,7 +482,7 @@ const RedReflexTest = () => {
           <div className="text-center">
             <button
               onClick={startTest}
-              className="px-8 py-4 bg-gradient-to-r from-red-600 to-orange-600 text-white rounded-full text-xl font-bold hover:from-red-700 hover:to-orange-700 transition-all transform hover:scale-105 shadow-lg"
+              className="btn-primary px-8 py-4 text-xl"
             >
               Start Eye Glow Scan
             </button>
@@ -711,7 +711,7 @@ const RedReflexTest = () => {
     }
 
     return (
-      <div className="min-h-screen bg-gradient-to-br from-red-50 to-orange-50 p-8">
+      <div className="test-shell">
         <div className="max-w-4xl mx-auto">
           <button
             onClick={() => navigate('/vision-tests')}
@@ -720,9 +720,9 @@ const RedReflexTest = () => {
             ← Back to Tests
           </button>
 
-          <div className="bg-white rounded-3xl shadow-2xl p-8 md:p-12">
+          <div className="test-panel p-8 md:p-12">
             <div className="text-center mb-8">
-              <h1 className="text-4xl font-bold text-gray-900 mb-2">Eye Glow Test Complete</h1>
+              <h1 className="page-title mb-2">Eye Glow Test Complete</h1>
               <p className="text-gray-600">Here's what the glow in your eyes looked like</p>
             </div>
 

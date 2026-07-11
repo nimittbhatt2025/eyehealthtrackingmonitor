@@ -88,7 +88,7 @@ function Trends() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
-        <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary-200 border-t-primary-600"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-4 border-accent-100 border-t-accent-600"></div>
       </div>
     )
   }
@@ -100,8 +100,8 @@ function Trends() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-4xl font-serif font-bold text-gray-900">Trends & Predictions</h1>
-          <p className="text-gray-600 mt-2 text-lg">Track your vision health over time</p>
+          <h1 className="page-title">Trends & Predictions</h1>
+          <p className="page-subtitle">Track your vision health over time</p>
         </div>
 
         {/* Period Selector */}
@@ -110,9 +110,9 @@ function Trends() {
             <button
               key={days}
               onClick={() => setPeriod(days)}
-              className={`px-6 py-2 rounded-full font-medium text-sm transition-colors ${
+              className={`min-h-[44px] px-6 py-2 rounded-full font-medium text-sm transition-colors ${
                 period === days
-                  ? 'bg-primary-600 text-white'
+                  ? 'bg-accent-600 text-white'
                   : 'text-gray-600 hover:text-gray-900'
               }`}
             >
@@ -123,7 +123,7 @@ function Trends() {
       </div>
 
       {!hasData ? (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-12 text-center">
+        <div className="card p-12 text-center">
           <div className="w-20 h-20 mx-auto mb-6 bg-gray-100 rounded-full flex items-center justify-center">
             <svg className="w-12 h-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
@@ -137,11 +137,11 @@ function Trends() {
           {/* Statistics Cards */}
           <div className="grid md:grid-cols-3 gap-6">
             {/* Vision Health */}
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+            <div className="card">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold text-gray-900">Vision Health</h3>
-                <div className="w-10 h-10 bg-primary-100 rounded-full flex items-center justify-center">
-                  <svg className="w-6 h-6 text-primary-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="icon-tile bg-accent-50 text-accent-600">
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                   </svg>
@@ -152,14 +152,14 @@ function Trends() {
                   <div className="text-3xl font-bold text-gray-900 mb-1">
                     {trendData.statistics.vision.avg_score.toFixed(1)}%
                   </div>
-                  <p className="text-sm text-gray-600">Average Score</p>
+                  <p className="text-sm text-gray-500">Average Score</p>
                   <div className="mt-4 pt-4 border-t border-gray-100">
                     <div className="flex justify-between text-sm mb-1">
-                      <span className="text-gray-600">Min</span>
+                      <span className="text-gray-500">Min</span>
                       <span className="font-semibold">{trendData.statistics.vision.min.toFixed(1)}%</span>
                     </div>
                     <div className="flex justify-between text-sm">
-                      <span className="text-gray-600">Max</span>
+                      <span className="text-gray-500">Max</span>
                       <span className="font-semibold">{trendData.statistics.vision.max.toFixed(1)}%</span>
                     </div>
                   </div>
@@ -170,11 +170,11 @@ function Trends() {
             </div>
 
             {/* Test Count */}
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+            <div className="card">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold text-gray-900">Tests Completed</h3>
-                <div className="w-10 h-10 bg-accent-100 rounded-full flex items-center justify-center">
-                  <svg className="w-6 h-6 text-accent-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="icon-tile bg-accent-50 text-accent-600">
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
                   </svg>
                 </div>
@@ -182,15 +182,15 @@ function Trends() {
               <div className="text-3xl font-bold text-gray-900 mb-1">
                 {trendData.statistics.vision.test_count}
               </div>
-              <p className="text-sm text-gray-600">Last {period} days</p>
+              <p className="text-sm text-gray-500">Last {period} days</p>
             </div>
 
             {/* Fatigue Level */}
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+            <div className="card">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold text-gray-900">Fatigue Status</h3>
-                <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center">
-                  <svg className="w-6 h-6 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="icon-tile bg-amber-50 text-amber-600">
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                 </div>
@@ -200,20 +200,20 @@ function Trends() {
                   <div className="text-3xl font-bold text-gray-900 mb-1">
                     {trendData.statistics.fatigue.average.toFixed(1)}%
                   </div>
-                  <p className="text-sm text-gray-600">Average Fatigue</p>
+                  <p className="text-sm text-gray-500">Average Fatigue</p>
                 </>
               ) : (
                 <>
                   <div className="text-gray-500">No data</div>
-                  <p className="text-sm text-gray-600">Complete webcam analysis</p>
+                  <p className="text-sm text-gray-500">Complete webcam analysis</p>
                 </>
               )}
             </div>
           </div>
 
           {/* Vision Score Trend Chart */}
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
-            <h2 className="text-2xl font-serif font-bold text-gray-900 mb-6">Vision Score Trend</h2>
+          <div className="card p-8">
+            <h2 className="section-title mb-6">Vision Score Trend</h2>
             {trendData.trend_data && trendData.trend_data.length > 0 ? (
               <ResponsiveContainer width="100%" height={300}>
                 <LineChart data={trendData.trend_data}>
@@ -235,9 +235,9 @@ function Trends() {
                   <Line
                     type="monotone"
                     dataKey="avg_vision_score"
-                    stroke="#a39c85"
+                    stroke="#267563"
                     strokeWidth={3}
-                    dot={{ fill: '#a39c85', r: 4 }}
+                    dot={{ fill: '#267563', r: 4 }}
                     name="Vision Score"
                   />
                 </LineChart>
@@ -251,26 +251,26 @@ function Trends() {
 
           {/* Predictions */}
           {prediction ? (
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+            <div className="card p-8">
               <div className="flex items-center justify-between mb-6">
                 <div>
-                  <h2 className="text-2xl font-serif font-bold text-gray-900">AI Predictions</h2>
-                  <p className="text-gray-600 text-sm mt-1">Based on {prediction.data_points_used} test results</p>
+                  <h2 className="section-title">AI Predictions</h2>
+                  <p className="text-gray-500 text-sm mt-1">Based on {prediction.data_points_used} test results</p>
                 </div>
-                <div className={`px-4 py-2 rounded-full text-sm font-semibold ${
+                <div className={`badge ${
                   prediction.trend === 'improving'
-                    ? 'bg-green-100 text-green-700'
+                    ? 'badge-success'
                     : prediction.trend === 'declining'
-                    ? 'bg-orange-100 text-orange-700'
-                    : 'bg-blue-100 text-blue-700'
+                    ? 'badge-warning'
+                    : 'badge-brand'
                 }`}>
                   {prediction.trend === 'improving' ? 'Improving' : prediction.trend === 'declining' ? 'Declining' : 'Stable'} Trend
                 </div>
               </div>
 
               <div className="grid md:grid-cols-3 gap-6 mb-6">
-                <div className="bg-cream-200 rounded-xl p-6">
-                  <div className="text-sm text-gray-600 mb-2">30 Days Prediction</div>
+                <div className="bg-brand-soft rounded-xl p-6 border border-gray-100/80">
+                  <div className="text-sm text-gray-500 mb-2">30 Days Prediction</div>
                   <div className="text-3xl font-bold text-gray-900">
                     {prediction.predictions['30_days'].score.toFixed(1)}%
                   </div>
@@ -282,8 +282,8 @@ function Trends() {
                   </div>
                 </div>
 
-                <div className="bg-cream-200 rounded-xl p-6">
-                  <div className="text-sm text-gray-600 mb-2">60 Days Prediction</div>
+                <div className="bg-brand-soft rounded-xl p-6 border border-gray-100/80">
+                  <div className="text-sm text-gray-500 mb-2">60 Days Prediction</div>
                   <div className="text-3xl font-bold text-gray-900">
                     {prediction.predictions['60_days'].score.toFixed(1)}%
                   </div>
@@ -295,8 +295,8 @@ function Trends() {
                   </div>
                 </div>
 
-                <div className="bg-cream-200 rounded-xl p-6">
-                  <div className="text-sm text-gray-600 mb-2">90 Days Prediction</div>
+                <div className="bg-brand-soft rounded-xl p-6 border border-gray-100/80">
+                  <div className="text-sm text-gray-500 mb-2">90 Days Prediction</div>
                   <div className="text-3xl font-bold text-gray-900">
                     {prediction.predictions['90_days'].score.toFixed(1)}%
                   </div>
@@ -310,16 +310,16 @@ function Trends() {
               </div>
 
               {prediction.prescription_change_recommended && (
-                <div className="bg-orange-50 border border-orange-200 rounded-xl p-6">
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-6">
                   <div className="flex items-start">
-                    <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center flex-shrink-0">
-                      <svg className="w-6 h-6 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <div className="icon-tile bg-amber-100 text-amber-600">
+                      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                       </svg>
                     </div>
                     <div className="ml-4">
-                      <h3 className="text-lg font-semibold text-orange-900 mb-1">Prescription Review Recommended</h3>
-                      <p className="text-orange-700">Based on your declining vision trend, we recommend scheduling an eye exam to review your prescription.</p>
+                      <h3 className="text-lg font-semibold text-amber-900 mb-1">Prescription Review Recommended</h3>
+                      <p className="text-amber-700">Based on your declining vision trend, we recommend scheduling an eye exam to review your prescription.</p>
                     </div>
                   </div>
                 </div>
@@ -335,11 +335,11 @@ function Trends() {
               </div>
             </div>
           ) : (
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
-              <h2 className="text-2xl font-serif font-bold text-gray-900 mb-4">AI Predictions</h2>
+            <div className="card p-8">
+              <h2 className="section-title mb-4">AI Predictions</h2>
               <div className="text-center py-8">
-                <div className="w-16 h-16 mx-auto mb-4 bg-blue-100 rounded-full flex items-center justify-center">
-                  <svg className="w-10 h-10 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="w-16 h-16 mx-auto mb-4 bg-accent-50 rounded-full flex items-center justify-center text-accent-600">
+                  <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                   </svg>
                 </div>
@@ -353,15 +353,15 @@ function Trends() {
           )}
 
           {/* Enhanced Visualizations Tabs */}
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+          <div className="card p-8">
             <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6">
-              <h2 className="text-2xl font-serif font-bold text-gray-900 mb-4 md:mb-0">Advanced Analytics</h2>
-              <div className="flex space-x-2 bg-[#f3f0e9] rounded-full p-1">
+              <h2 className="section-title mb-4 md:mb-0">Advanced Analytics</h2>
+              <div className="flex space-x-2 bg-accent-50 rounded-full p-1">
                 <button
                   onClick={() => setActiveTab('overview')}
                   className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
                     activeTab === 'overview'
-                      ? 'bg-white text-[#a39c85] shadow-sm'
+                      ? 'bg-white text-accent-700 shadow-sm'
                       : 'text-gray-600 hover:text-gray-900'
                   }`}
                 >
@@ -371,7 +371,7 @@ function Trends() {
                   onClick={() => setActiveTab('correlations')}
                   className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
                     activeTab === 'correlations'
-                      ? 'bg-white text-[#a39c85] shadow-sm'
+                      ? 'bg-white text-accent-700 shadow-sm'
                       : 'text-gray-600 hover:text-gray-900'
                   }`}
                 >
@@ -381,7 +381,7 @@ function Trends() {
                   onClick={() => setActiveTab('comparisons')}
                   className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
                     activeTab === 'comparisons'
-                      ? 'bg-white text-[#a39c85] shadow-sm'
+                      ? 'bg-white text-accent-700 shadow-sm'
                       : 'text-gray-600 hover:text-gray-900'
                   }`}
                 >
@@ -394,7 +394,7 @@ function Trends() {
             {activeTab === 'overview' && (
               <div>
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Multi-Metric Health Overview</h3>
-                <p className="text-gray-600 mb-6">Comprehensive view of your health metrics normalized on a 0-100 scale</p>
+                <p className="text-gray-500 mb-6">Comprehensive view of your health metrics normalized on a 0-100 scale</p>
                 <ResponsiveContainer width="100%" height={400}>
                   <RadarChart data={(() => {
                     const avgScore = trendData?.statistics?.vision?.avg_score || 0
@@ -432,7 +432,7 @@ function Trends() {
             {activeTab === 'correlations' && (
               <div>
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Lifestyle Impact on Vision</h3>
-                <p className="text-gray-600 mb-6">Correlation between lifestyle factors and vision health scores</p>
+                <p className="text-gray-500 mb-6">Correlation between lifestyle factors and vision health scores</p>
                 
                 {!lifestyleData || lifestyleData.length === 0 ? (
                   <div className="text-center py-12 text-gray-500">
@@ -559,7 +559,7 @@ function Trends() {
             {activeTab === 'comparisons' && (
               <div>
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Trend Comparisons</h3>
-                <p className="text-gray-600 mb-6">Smooth visualization of vision scores and test frequency over time</p>
+                <p className="text-gray-500 mb-6">Smooth visualization of vision scores and test frequency over time</p>
                 <div className="space-y-6">
                   {/* Vision Score Area Chart */}
                   <div>
@@ -638,8 +638,8 @@ function Trends() {
           </div>
 
           {/* Test Type Distribution */}
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
-            <h2 className="text-2xl font-serif font-bold text-gray-900 mb-6">Test Distribution</h2>
+          <div className="card p-8">
+            <h2 className="section-title mb-6">Test Distribution</h2>
             <ResponsiveContainer width="100%" height={300}>
               <BarChart data={trendData.trend_data}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />

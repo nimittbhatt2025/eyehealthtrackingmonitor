@@ -148,7 +148,7 @@ function LifestyleLog() {
     <div className="space-y-8">
       {/* Header */}
       <div>
-        <h1 className="text-4xl font-serif font-bold text-gray-900">Lifestyle Log</h1>
+        <h1 className="page-title">Lifestyle Log</h1>
         <p className="text-gray-600 mt-2 text-lg">Track daily habits that affect your eye health</p>
       </div>
 
@@ -158,7 +158,7 @@ function LifestyleLog() {
           onClick={() => setActiveTab('today')}
           className={`px-8 py-3 rounded-full font-semibold text-sm transition-colors ${
             activeTab === 'today'
-              ? 'bg-primary-600 text-white'
+              ? 'bg-accent-600 text-white'
               : 'text-gray-600 hover:text-gray-900'
           }`}
         >
@@ -168,7 +168,7 @@ function LifestyleLog() {
           onClick={() => setActiveTab('history')}
           className={`px-8 py-3 rounded-full font-semibold text-sm transition-colors ${
             activeTab === 'history'
-              ? 'bg-primary-600 text-white'
+              ? 'bg-accent-600 text-white'
               : 'text-gray-600 hover:text-gray-900'
           }`}
         >
@@ -179,7 +179,7 @@ function LifestyleLog() {
       {activeTab === 'today' ? (
         <form onSubmit={handleSubmit} className="space-y-8">
           {/* Date Selector */}
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+          <div className="card p-6">
             <label className="block text-sm font-semibold text-gray-900 mb-2">
               Log Date
             </label>
@@ -188,12 +188,12 @@ function LifestyleLog() {
               value={selectedDate}
               onChange={(e) => setSelectedDate(e.target.value)}
               max={new Date().toISOString().split('T')[0]}
-              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-accent-500 focus:border-transparent"
             />
           </div>
 
           {/* Screen Time & Sleep */}
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+          <div className="card p-8">
             <h2 className="text-2xl font-serif font-bold text-gray-900 mb-6">Screen Time & Sleep</h2>
             
             <div className="grid md:grid-cols-2 gap-6">
@@ -208,7 +208,7 @@ function LifestyleLog() {
                   max="24"
                   value={formData.screen_time_hours}
                   onChange={(e) => handleChange('screen_time_hours', parseFloat(e.target.value))}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-accent-500 focus:border-transparent"
                   placeholder="e.g., 8.5"
                 />
               </div>
@@ -224,7 +224,7 @@ function LifestyleLog() {
                   max="24"
                   value={formData.blue_light_exposure_hours}
                   onChange={(e) => handleChange('blue_light_exposure_hours', parseFloat(e.target.value))}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-accent-500 focus:border-transparent"
                   placeholder="e.g., 6"
                 />
               </div>
@@ -240,7 +240,7 @@ function LifestyleLog() {
                   max="24"
                   value={formData.sleep_hours}
                   onChange={(e) => handleChange('sleep_hours', parseFloat(e.target.value))}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-accent-500 focus:border-transparent"
                   placeholder="e.g., 7.5"
                 />
               </div>
@@ -252,7 +252,7 @@ function LifestyleLog() {
                 <select
                   value={formData.sleep_quality}
                   onChange={(e) => handleChange('sleep_quality', e.target.value)}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-accent-500 focus:border-transparent"
                 >
                   <option value="">Select quality</option>
                   <option value="1">Very Poor (1)</option>
@@ -272,7 +272,7 @@ function LifestyleLog() {
                   min="0"
                   value={formData.breaks_taken}
                   onChange={(e) => handleChange('breaks_taken', parseInt(e.target.value))}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-accent-500 focus:border-transparent"
                   placeholder="Number of breaks"
                 />
               </div>
@@ -284,7 +284,7 @@ function LifestyleLog() {
                 <select
                   value={formData.lighting_condition}
                   onChange={(e) => handleChange('lighting_condition', e.target.value)}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-accent-500 focus:border-transparent"
                 >
                   <option value="">Select condition</option>
                   <option value="bright">Bright</option>
@@ -296,7 +296,7 @@ function LifestyleLog() {
           </div>
 
           {/* Physical Activity */}
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+          <div className="card p-8">
             <h2 className="text-2xl font-serif font-bold text-gray-900 mb-6">Physical Activity</h2>
             
             <div className="grid md:grid-cols-3 gap-6">
@@ -307,7 +307,7 @@ function LifestyleLog() {
                 <select
                   value={formData.activity_level}
                   onChange={(e) => handleChange('activity_level', e.target.value)}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-accent-500 focus:border-transparent"
                 >
                   <option value="">Select level</option>
                   <option value="sedentary">Sedentary</option>
@@ -327,7 +327,7 @@ function LifestyleLog() {
                   max="24"
                   value={formData.outdoor_time_hours}
                   onChange={(e) => handleChange('outdoor_time_hours', parseFloat(e.target.value))}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-accent-500 focus:border-transparent"
                   placeholder="e.g., 1.5"
                 />
               </div>
@@ -341,7 +341,7 @@ function LifestyleLog() {
                   min="0"
                   value={formData.exercise_minutes}
                   onChange={(e) => handleChange('exercise_minutes', parseInt(e.target.value))}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-accent-500 focus:border-transparent"
                   placeholder="e.g., 30"
                 />
               </div>
@@ -349,7 +349,7 @@ function LifestyleLog() {
           </div>
 
           {/* Symptoms */}
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+          <div className="card p-8">
             <h2 className="text-2xl font-serif font-bold text-gray-900 mb-6">Symptoms & Eye Health</h2>
             
             <div className="grid md:grid-cols-2 gap-6">
@@ -360,7 +360,7 @@ function LifestyleLog() {
                 <select
                   value={formData.eye_strain_level}
                   onChange={(e) => handleChange('eye_strain_level', parseInt(e.target.value))}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-accent-500 focus:border-transparent"
                 >
                   <option value="">Select level</option>
                   <option value="1">Minimal (1)</option>
@@ -378,7 +378,7 @@ function LifestyleLog() {
                 <select
                   value={formData.headache_level}
                   onChange={(e) => handleChange('headache_level', parseInt(e.target.value))}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-accent-500 focus:border-transparent"
                 >
                   <option value="">Select level</option>
                   <option value="0">None (0)</option>
@@ -396,7 +396,7 @@ function LifestyleLog() {
                   id="dry_eyes"
                   checked={formData.dry_eyes}
                   onChange={(e) => handleChange('dry_eyes', e.target.checked)}
-                  className="w-5 h-5 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+                  className="w-5 h-5 text-accent-600 border-gray-300 rounded focus:ring-accent-500"
                 />
                 <label htmlFor="dry_eyes" className="ml-3 text-sm font-semibold text-gray-900">
                   Dry Eyes
@@ -409,7 +409,7 @@ function LifestyleLog() {
                   id="blurred_vision"
                   checked={formData.blurred_vision}
                   onChange={(e) => handleChange('blurred_vision', e.target.checked)}
-                  className="w-5 h-5 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+                  className="w-5 h-5 text-accent-600 border-gray-300 rounded focus:ring-accent-500"
                 />
                 <label htmlFor="blurred_vision" className="ml-3 text-sm font-semibold text-gray-900">
                   Blurred Vision
@@ -422,7 +422,7 @@ function LifestyleLog() {
                   id="eye_drops_used"
                   checked={formData.eye_drops_used}
                   onChange={(e) => handleChange('eye_drops_used', e.target.checked)}
-                  className="w-5 h-5 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+                  className="w-5 h-5 text-accent-600 border-gray-300 rounded focus:ring-accent-500"
                 />
                 <label htmlFor="eye_drops_used" className="ml-3 text-sm font-semibold text-gray-900">
                   Used Eye Drops
@@ -432,14 +432,14 @@ function LifestyleLog() {
           </div>
 
           {/* Notes */}
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+          <div className="card p-8">
             <h2 className="text-2xl font-serif font-bold text-gray-900 mb-6">Additional Notes</h2>
             
             <textarea
               value={formData.notes}
               onChange={(e) => handleChange('notes', e.target.value)}
               rows={4}
-              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-accent-500 focus:border-transparent"
               placeholder="Any additional observations about your eye health today..."
             />
           </div>
@@ -452,7 +452,7 @@ function LifestyleLog() {
               className={`px-8 py-4 rounded-full font-semibold text-lg transition-colors ${
                 loading
                   ? 'bg-gray-400 cursor-not-allowed'
-                  : 'bg-primary-600 hover:bg-primary-700'
+                  : 'btn-primary'
               } text-white`}
             >
               {loading ? 'Saving...' : 'Save Log Entry'}
@@ -460,12 +460,12 @@ function LifestyleLog() {
           </div>
         </form>
       ) : (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+        <div className="card p-8">
           <h2 className="text-2xl font-serif font-bold text-gray-900 mb-6">Recent Logs</h2>
           
           {loading ? (
             <div className="text-center py-12">
-              <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary-200 border-t-primary-600 mx-auto"></div>
+              <div className="animate-spin rounded-full h-12 w-12 border-4 border-accent-100 border-t-accent-600 mx-auto"></div>
             </div>
           ) : recentLogs.length === 0 ? (
             <div className="text-center py-12">
@@ -478,7 +478,7 @@ function LifestyleLog() {
               <p className="text-gray-600 mb-6">Start tracking your daily lifestyle to see patterns</p>
               <button
                 onClick={() => setActiveTab('today')}
-                className="px-6 py-3 bg-primary-600 text-white rounded-full font-semibold hover:bg-primary-700 transition-colors"
+                className="px-6 py-3 btn-primary transition-colors"
               >
                 Create First Log
               </button>
@@ -496,7 +496,7 @@ function LifestyleLog() {
                         setSelectedDate(log.log_date)
                         setActiveTab('today')
                       }}
-                      className="text-primary-600 hover:text-primary-700 text-sm font-semibold"
+                      className="text-accent-600 hover:text-accent-700 text-sm font-semibold"
                     >
                       Edit
                     </button>

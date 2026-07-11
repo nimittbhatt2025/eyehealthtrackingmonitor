@@ -272,7 +272,7 @@ function Profile() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
-        <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary-200 border-t-primary-600"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-4 border-accent-100 border-t-accent-600"></div>
       </div>
     )
   }
@@ -280,9 +280,9 @@ function Profile() {
   return (
     <div className="space-y-8">
       {/* Header */}
-      <div>
-        <h1 className="text-4xl font-serif font-bold text-gray-900">Profile Settings</h1>
-        <p className="text-gray-600 mt-2 text-lg">Manage your account and preferences</p>
+      <div className="animate-fade-in-up">
+        <h1 className="page-title">Profile Settings</h1>
+        <p className="page-subtitle">Manage your account and preferences</p>
       </div>
 
       {/* Tabs */}
@@ -294,7 +294,7 @@ function Profile() {
               onClick={() => setActiveTab(tab)}
               className={`pb-4 px-1 border-b-2 font-medium text-sm transition-colors ${
                 activeTab === tab
-                  ? 'border-primary-600 text-primary-600'
+                  ? 'border-accent-600 text-accent-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
@@ -305,45 +305,45 @@ function Profile() {
       </div>
 
       {/* Tab Content */}
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+      <div className="bg-white rounded-2xl shadow-card border border-gray-100/80 p-8">
         
         {/* Personal Information */}
         {activeTab === 'personal' && (
           <div className="space-y-6">
             <div>
-              <h2 className="text-2xl font-serif font-bold text-gray-900 mb-6">Personal Information</h2>
+              <h2 className="section-title mb-6">Personal Information</h2>
             </div>
             
             <div className="grid md:grid-cols-2 gap-6">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Full Name</label>
+                <label className="block text-sm font-medium text-gray-600 mb-2">Full Name</label>
                 <input
                   type="text"
                   value={personalInfo.full_name}
                   onChange={(e) => setPersonalInfo({...personalInfo, full_name: e.target.value})}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="input"
                   placeholder="Enter your full name"
                 />
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
+                <label className="block text-sm font-medium text-gray-600 mb-2">Email</label>
                 <input
                   type="email"
                   value={personalInfo.email}
                   disabled
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl bg-gray-50 text-gray-500 cursor-not-allowed"
+                  className="input bg-gray-50 text-gray-500 cursor-not-allowed"
                 />
                 <p className="text-xs text-gray-500 mt-1">Email cannot be changed</p>
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Age</label>
+                <label className="block text-sm font-medium text-gray-600 mb-2">Age</label>
                 <input
                   type="number"
                   value={personalInfo.age}
                   onChange={(e) => setPersonalInfo({...personalInfo, age: e.target.value})}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="input"
                   placeholder="Enter your age"
                   min="1"
                   max="120"
@@ -351,11 +351,11 @@ function Profile() {
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Gender</label>
+                <label className="block text-sm font-medium text-gray-600 mb-2">Gender</label>
                 <select
                   value={personalInfo.gender}
                   onChange={(e) => setPersonalInfo({...personalInfo, gender: e.target.value})}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="input"
                 >
                   <option value="">Select gender</option>
                   <option value="male">Male</option>
@@ -370,7 +370,7 @@ function Profile() {
               <button
                 onClick={handleSaveProfile}
                 disabled={saving}
-                className="bg-primary-600 hover:bg-primary-700 text-white font-semibold px-8 py-3 rounded-full transition-colors disabled:opacity-50"
+                className="btn-primary"
               >
                 {saving ? 'Saving...' : 'Save Changes'}
               </button>
@@ -382,7 +382,7 @@ function Profile() {
         {activeTab === 'prescription' && (
           <div className="space-y-6">
             <div>
-              <h2 className="text-2xl font-serif font-bold text-gray-900 mb-2">Current Prescription</h2>
+              <h2 className="section-title mb-2">Current Prescription</h2>
               <p className="text-gray-600 text-sm">Enter your current eyeglass or contact lens prescription</p>
             </div>
             
@@ -391,7 +391,7 @@ function Profile() {
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Right Eye (OD)</h3>
               <div className="grid grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Sphere (SPH)</label>
+                  <label className="block text-sm font-medium text-gray-600 mb-2">Sphere (SPH)</label>
                   <input
                     type="number"
                     step="0.25"
@@ -400,12 +400,12 @@ function Profile() {
                       ...prescription,
                       od: {...prescription.od, sph: e.target.value}
                     })}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    className="input"
                     placeholder="0.00"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Cylinder (CYL)</label>
+                  <label className="block text-sm font-medium text-gray-600 mb-2">Cylinder (CYL)</label>
                   <input
                     type="number"
                     step="0.25"
@@ -414,12 +414,12 @@ function Profile() {
                       ...prescription,
                       od: {...prescription.od, cyl: e.target.value}
                     })}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    className="input"
                     placeholder="0.00"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Axis</label>
+                  <label className="block text-sm font-medium text-gray-600 mb-2">Axis</label>
                   <input
                     type="number"
                     min="0"
@@ -429,7 +429,7 @@ function Profile() {
                       ...prescription,
                       od: {...prescription.od, axis: e.target.value}
                     })}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    className="input"
                     placeholder="0"
                   />
                 </div>
@@ -441,7 +441,7 @@ function Profile() {
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Left Eye (OS)</h3>
               <div className="grid grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Sphere (SPH)</label>
+                  <label className="block text-sm font-medium text-gray-600 mb-2">Sphere (SPH)</label>
                   <input
                     type="number"
                     step="0.25"
@@ -450,12 +450,12 @@ function Profile() {
                       ...prescription,
                       os: {...prescription.os, sph: e.target.value}
                     })}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    className="input"
                     placeholder="0.00"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Cylinder (CYL)</label>
+                  <label className="block text-sm font-medium text-gray-600 mb-2">Cylinder (CYL)</label>
                   <input
                     type="number"
                     step="0.25"
@@ -464,12 +464,12 @@ function Profile() {
                       ...prescription,
                       os: {...prescription.os, cyl: e.target.value}
                     })}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    className="input"
                     placeholder="0.00"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Axis</label>
+                  <label className="block text-sm font-medium text-gray-600 mb-2">Axis</label>
                   <input
                     type="number"
                     min="0"
@@ -479,7 +479,7 @@ function Profile() {
                       ...prescription,
                       os: {...prescription.os, axis: e.target.value}
                     })}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    className="input"
                     placeholder="0"
                   />
                 </div>
@@ -490,7 +490,7 @@ function Profile() {
               <button
                 onClick={handleSaveProfile}
                 disabled={saving}
-                className="bg-primary-600 hover:bg-primary-700 text-white font-semibold px-8 py-3 rounded-full transition-colors disabled:opacity-50"
+                className="btn-primary"
               >
                 {saving ? 'Saving...' : 'Save Prescription'}
               </button>
@@ -502,16 +502,16 @@ function Profile() {
         {activeTab === 'lens' && (
           <div className="space-y-6">
             <div>
-              <h2 className="text-2xl font-serif font-bold text-gray-900 mb-6">Lens Information</h2>
+              <h2 className="section-title mb-6">Lens Information</h2>
             </div>
             
             <div className="grid md:grid-cols-2 gap-6">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Lens Type</label>
+                <label className="block text-sm font-medium text-gray-600 mb-2">Lens Type</label>
                 <select
                   value={lensInfo.lens_type}
                   onChange={(e) => setLensInfo({...lensInfo, lens_type: e.target.value})}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="input"
                 >
                   <option value="">Select type</option>
                   <option value="glasses">Glasses</option>
@@ -521,23 +521,23 @@ function Profile() {
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Brand</label>
+                <label className="block text-sm font-medium text-gray-600 mb-2">Brand</label>
                 <input
                   type="text"
                   value={lensInfo.lens_brand}
                   onChange={(e) => setLensInfo({...lensInfo, lens_brand: e.target.value})}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="input"
                   placeholder="e.g., Acuvue, Ray-Ban"
                 />
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Purchase Date</label>
+                <label className="block text-sm font-medium text-gray-600 mb-2">Purchase Date</label>
                 <input
                   type="date"
                   value={lensInfo.lens_purchase_date}
                   onChange={(e) => setLensInfo({...lensInfo, lens_purchase_date: e.target.value})}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="input"
                 />
               </div>
             </div>
@@ -546,7 +546,7 @@ function Profile() {
               <button
                 onClick={handleSaveProfile}
                 disabled={saving}
-                className="bg-primary-600 hover:bg-primary-700 text-white font-semibold px-8 py-3 rounded-full transition-colors disabled:opacity-50"
+                className="btn-primary"
               >
                 {saving ? 'Saving...' : 'Save Lens Info'}
               </button>
@@ -558,19 +558,19 @@ function Profile() {
         {activeTab === 'lifestyle' && (
           <div className="space-y-6">
             <div>
-              <h2 className="text-2xl font-serif font-bold text-gray-900 mb-2">Lifestyle Information</h2>
+              <h2 className="section-title mb-2">Lifestyle Information</h2>
               <p className="text-gray-600 text-sm">Help us provide better insights by sharing your daily habits</p>
             </div>
             
             <div className="grid md:grid-cols-2 gap-6">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Avg Screen Time (hours/day)</label>
+                <label className="block text-sm font-medium text-gray-600 mb-2">Avg Screen Time (hours/day)</label>
                 <input
                   type="number"
                   step="0.5"
                   value={lifestyle.avg_screen_time_hours}
                   onChange={(e) => setLifestyle({...lifestyle, avg_screen_time_hours: e.target.value})}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="input"
                   placeholder="8"
                   min="0"
                   max="24"
@@ -578,13 +578,13 @@ function Profile() {
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Avg Sleep (hours/day)</label>
+                <label className="block text-sm font-medium text-gray-600 mb-2">Avg Sleep (hours/day)</label>
                 <input
                   type="number"
                   step="0.5"
                   value={lifestyle.avg_sleep_hours}
                   onChange={(e) => setLifestyle({...lifestyle, avg_sleep_hours: e.target.value})}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="input"
                   placeholder="8"
                   min="0"
                   max="24"
@@ -592,11 +592,11 @@ function Profile() {
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Lighting Condition</label>
+                <label className="block text-sm font-medium text-gray-600 mb-2">Lighting Condition</label>
                 <select
                   value={lifestyle.lighting_condition}
                   onChange={(e) => setLifestyle({...lifestyle, lighting_condition: e.target.value})}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="input"
                 >
                   <option value="">Select condition</option>
                   <option value="bright">Bright</option>
@@ -606,11 +606,11 @@ function Profile() {
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Activity Level</label>
+                <label className="block text-sm font-medium text-gray-600 mb-2">Activity Level</label>
                 <select
                   value={lifestyle.activity_level}
                   onChange={(e) => setLifestyle({...lifestyle, activity_level: e.target.value})}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="input"
                 >
                   <option value="">Select level</option>
                   <option value="sedentary">Sedentary</option>
@@ -624,7 +624,7 @@ function Profile() {
               <button
                 onClick={handleSaveProfile}
                 disabled={saving}
-                className="bg-primary-600 hover:bg-primary-700 text-white font-semibold px-8 py-3 rounded-full transition-colors disabled:opacity-50"
+                className="btn-primary"
               >
                 {saving ? 'Saving...' : 'Save Lifestyle Info'}
               </button>
@@ -636,29 +636,29 @@ function Profile() {
         {activeTab === 'security' && (
           <div className="space-y-6">
             <div>
-              <h2 className="text-2xl font-serif font-bold text-gray-900 mb-6">Change Password</h2>
+              <h2 className="section-title mb-6">Change Password</h2>
             </div>
             
             <form onSubmit={handleChangePassword} className="space-y-6 max-w-md">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Current Password</label>
+                <label className="block text-sm font-medium text-gray-600 mb-2">Current Password</label>
                 <input
                   type="password"
                   value={passwordForm.current_password}
                   onChange={(e) => setPasswordForm({...passwordForm, current_password: e.target.value})}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="input"
                   placeholder="Enter current password"
                   required
                 />
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">New Password</label>
+                <label className="block text-sm font-medium text-gray-600 mb-2">New Password</label>
                 <input
                   type="password"
                   value={passwordForm.new_password}
                   onChange={(e) => setPasswordForm({...passwordForm, new_password: e.target.value})}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="input"
                   placeholder="Enter new password"
                   required
                 />
@@ -666,12 +666,12 @@ function Profile() {
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Confirm New Password</label>
+                <label className="block text-sm font-medium text-gray-600 mb-2">Confirm New Password</label>
                 <input
                   type="password"
                   value={passwordForm.confirm_password}
                   onChange={(e) => setPasswordForm({...passwordForm, confirm_password: e.target.value})}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="input"
                   placeholder="Confirm new password"
                   required
                 />
@@ -680,7 +680,7 @@ function Profile() {
               <div className="pt-4">
                 <button
                   type="submit"
-                  className="bg-primary-600 hover:bg-primary-700 text-white font-semibold px-8 py-3 rounded-full transition-colors"
+                  className="btn-primary"
                 >
                   Change Password
                 </button>
@@ -693,16 +693,16 @@ function Profile() {
         {activeTab === 'export' && (
           <div className="space-y-6">
             <div>
-              <h2 className="text-2xl font-serif font-bold text-gray-900 mb-2">Export Your Data</h2>
+              <h2 className="section-title mb-2">Export Your Data</h2>
               <p className="text-gray-600">Download your vision tests and lifestyle data in CSV format</p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Vision Tests Export */}
-              <div className="border border-gray-200 rounded-2xl p-6 space-y-4">
+              <div className="border border-gray-100/80 rounded-2xl p-6 space-y-4">
                 <div className="flex items-center space-x-3">
-                  <div className="w-12 h-12 bg-gradient-to-br from-[#7dcab9] to-[#a39c85] rounded-xl flex items-center justify-center">
-                    <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <div className="icon-tile bg-accent-50 text-accent-600">
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                     </svg>
@@ -718,17 +718,17 @@ function Profile() {
                 <button
                   onClick={handleExportVisionTests}
                   disabled={exporting}
-                  className="w-full bg-white border-2 border-[#7dcab9] text-[#7dcab9] hover:bg-[#7dcab9] hover:text-white font-semibold px-6 py-3 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="btn-secondary w-full"
                 >
                   {exporting ? 'Exporting...' : 'Export Vision Tests'}
                 </button>
               </div>
 
               {/* Lifestyle Export */}
-              <div className="border border-gray-200 rounded-2xl p-6 space-y-4">
+              <div className="border border-gray-100/80 rounded-2xl p-6 space-y-4">
                 <div className="flex items-center space-x-3">
-                  <div className="w-12 h-12 bg-gradient-to-br from-[#7dcab9] to-[#a39c85] rounded-xl flex items-center justify-center">
-                    <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <div className="icon-tile bg-accent-50 text-accent-600">
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
                     </svg>
                   </div>
@@ -743,7 +743,7 @@ function Profile() {
                 <button
                   onClick={handleExportLifestyle}
                   disabled={exporting}
-                  className="w-full bg-white border-2 border-[#7dcab9] text-[#7dcab9] hover:bg-[#7dcab9] hover:text-white font-semibold px-6 py-3 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="btn-secondary w-full"
                 >
                   {exporting ? 'Exporting...' : 'Export Lifestyle Data'}
                 </button>
@@ -751,7 +751,7 @@ function Profile() {
             </div>
 
             {/* Export All */}
-            <div className="border-2 border-[#a39c85] rounded-2xl p-6 bg-gradient-to-r from-[#f3f0e9] to-white">
+            <div className="border border-accent-100 rounded-2xl p-6 bg-brand-soft">
               <div className="flex items-start justify-between">
                 <div className="flex-1">
                   <h3 className="font-semibold text-gray-900 text-lg mb-2">Export Complete Dataset</h3>
@@ -760,19 +760,19 @@ function Profile() {
                   </p>
                   <ul className="space-y-2 text-sm text-gray-600 mb-4">
                     <li className="flex items-center space-x-2">
-                      <svg className="w-4 h-4 text-[#7dcab9]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-4 h-4 text-accent-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                       </svg>
                       <span>All vision test history with detailed metrics</span>
                     </li>
                     <li className="flex items-center space-x-2">
-                      <svg className="w-4 h-4 text-[#7dcab9]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-4 h-4 text-accent-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                       </svg>
                       <span>Complete lifestyle tracking logs</span>
                     </li>
                     <li className="flex items-center space-x-2">
-                      <svg className="w-4 h-4 text-[#7dcab9]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-4 h-4 text-accent-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                       </svg>
                       <span>CSV format compatible with Excel and Google Sheets</span>
@@ -783,7 +783,7 @@ function Profile() {
                   <button
                     onClick={handleExportAll}
                     disabled={exporting}
-                    className="bg-gradient-to-r from-[#7dcab9] to-[#a39c85] text-white font-semibold px-8 py-3 rounded-xl hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                    className="btn-primary whitespace-nowrap"
                   >
                     {exporting ? 'Exporting...' : 'Export All Data'}
                   </button>
@@ -792,12 +792,12 @@ function Profile() {
             </div>
 
             {/* Info Section */}
-            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+            <div className="bg-accent-50 border border-accent-100 rounded-xl p-4">
               <div className="flex items-start space-x-3">
-                <svg className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-5 h-5 text-accent-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                <div className="text-sm text-blue-800">
+                <div className="text-sm text-accent-800">
                   <p className="font-medium mb-1">About Your Data</p>
                   <p>Exported files contain all your historical data. Files are downloaded directly to your device and are not shared with anyone. You can import these files into spreadsheet applications for further analysis.</p>
                 </div>

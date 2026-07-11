@@ -46,6 +46,30 @@ export default {
         serif: ['Playfair Display', 'Georgia', 'serif'],
         sans: ['Inter', 'system-ui', 'sans-serif'],
       },
+      borderRadius: {
+        '4xl': '2rem',
+      },
+      boxShadow: {
+        // Softer, more refined elevation system
+        soft: '0 1px 2px rgba(45, 42, 35, 0.04), 0 1px 3px rgba(45, 42, 35, 0.06)',
+        card: '0 2px 4px rgba(45, 42, 35, 0.04), 0 4px 12px rgba(45, 42, 35, 0.06)',
+        elevated: '0 8px 24px rgba(45, 42, 35, 0.08), 0 2px 6px rgba(45, 42, 35, 0.05)',
+        glow: '0 8px 30px rgba(38, 117, 99, 0.18)',
+      },
+      backgroundImage: {
+        'brand-gradient': 'linear-gradient(135deg, #33927b 0%, #205f52 100%)',
+        'brand-soft': 'linear-gradient(135deg, #f0f9f7 0%, #f8f7f4 100%)',
+        'app-bg': 'linear-gradient(180deg, #fcfbf9 0%, #f3f0e9 100%)',
+      },
+      keyframes: {
+        fadeInUp: {
+          from: { opacity: '0', transform: 'translateY(16px)' },
+          to: { opacity: '1', transform: 'translateY(0)' },
+        },
+      },
+      animation: {
+        'fade-in-up': 'fadeInUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+      },
     },
   },
   plugins: [],

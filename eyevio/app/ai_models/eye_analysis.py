@@ -291,49 +291,24 @@ def detect_squinting(frames: List[np.ndarray]) -> Dict[str, Any]:
 
 def measure_redness(eye_region: np.ndarray) -> float:
     """
-    Measure sclera redness level
-    
-    Args:
-        eye_region: Cropped eye region image
-        
-    Returns:
-        Redness level (0-100)
+    Measure sclera redness level (delegates to dry_eye_analysis).
     """
-    # Placeholder implementation
-    # In production, this would analyze RGB values in sclera region
-    
     try:
-        # Convert to RGB if needed
-        if len(eye_region.shape) == 2:
-            return 0.0
-        
-        # Calculate red channel dominance
-        red_channel = eye_region[:, :, 2] if eye_region.shape[2] == 3 else eye_region[:, :, 0]
-        green_channel = eye_region[:, :, 1]
-        blue_channel = eye_region[:, :, 0] if eye_region.shape[2] == 3 else eye_region[:, :, 2]
-        
-        # Simple redness metric
-        redness = (np.mean(red_channel) - np.mean(green_channel)) / 255.0 * 100
-        return max(0, min(100, redness))
-        
+        from app.ai_models.dry_eye_analysis import measure_sclera_redness
+        return measure_sclera_redness(eye_region)
     except Exception:
         return 0.0
 
 
 def analyze_tear_film(eye_region: np.ndarray) -> float:
     """
-    Analyze tear film quality
-    
-    Args:
-        eye_region: Cropped eye region image
-        
-    Returns:
-        Tear film quality score (0-100)
+    Analyze tear film quality (delegates to dry_eye_analysis).
     """
-    # Placeholder implementation
-    # In production, this would analyze reflection patterns
-    
-    return 80.0  # Default good tear film
+    try:
+        from app.ai_models.dry_eye_analysis import analyze_tear_film_surface
+        return analyze_tear_film_surface(eye_region)['tear_film_quality']
+    except Exception:
+        return 50.0
 
 
 def calculate_fatigue_score(

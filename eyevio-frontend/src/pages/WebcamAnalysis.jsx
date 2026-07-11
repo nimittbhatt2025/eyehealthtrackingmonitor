@@ -368,28 +368,28 @@ function WebcamAnalysis() {
       {/* Calibration Required Modal */}
       {showCalibrationPrompt && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-8">
+          <div className="card shadow-elevated max-w-md w-full p-8 animate-fade-in-up">
             <div className="text-center">
-              <div className="w-16 h-16 bg-teal-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <svg className="w-10 h-10 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="icon-tile w-16 h-16 bg-accent-50 text-accent-600 rounded-full mx-auto mb-4">
+                <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                 </svg>
               </div>
-              <h2 className="text-2xl font-bold text-gray-900 mb-3">Calibration Required</h2>
-              <p className="text-gray-600 mb-6">
+              <h2 className="section-title mb-3">Calibration Required</h2>
+              <p className="text-gray-500 mb-6">
                 Before using webcam analysis, you need to calibrate blink detection for accurate results. This takes only 30 seconds.
               </p>
-              <div className="flex gap-3 justify-center">
+              <div className="flex flex-col sm:flex-row gap-3 justify-center">
                 <button
                   onClick={() => navigate('/calibrate-blink')}
-                  className="bg-teal-600 hover:bg-teal-700 text-white px-6 py-3 rounded-lg font-semibold transition-colors"
+                  className="btn-primary min-h-[44px]"
                 >
                   Calibrate Now
                 </button>
                 <button
                   onClick={() => setShowCalibrationPrompt(false)}
-                  className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-6 py-3 rounded-lg font-semibold transition-colors"
+                  className="btn-secondary min-h-[44px]"
                 >
                   Skip for Now
                 </button>
@@ -400,12 +400,12 @@ function WebcamAnalysis() {
       )}
 
       {/* Header */}
-      <div>
-        <h1 className="text-4xl font-serif font-bold text-gray-900">Webcam Analysis</h1>
-        <p className="text-gray-600 mt-2 text-lg">Monitor eye fatigue and health in real-time</p>
+      <div className="animate-fade-in-up">
+        <h1 className="page-title">Webcam Analysis</h1>
+        <p className="page-subtitle">Monitor eye fatigue and health in real-time</p>
         
         {/* Demo Notice */}
-        <div className="mt-4 bg-amber-50 border border-amber-200 rounded-xl p-4">
+        <div className="mt-4 bg-amber-50 border border-amber-200 rounded-2xl p-4">
           <div className="flex items-start">
             <svg className="w-5 h-5 text-amber-600 mt-0.5 mr-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -425,7 +425,7 @@ function WebcamAnalysis() {
         {/* Left Column - Video Feed */}
         <div className="lg:col-span-2 space-y-6">
           {/* Video Container */}
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+          <div className="bg-white rounded-2xl shadow-card border border-gray-100/80 overflow-hidden">
             <div className="relative bg-gray-900" style={{ paddingBottom: '56.25%' }}>
               {cameraActive ? (
                 <video
@@ -451,9 +451,9 @@ function WebcamAnalysis() {
               
               {/* Recording Indicator */}
               {isAnalyzing && (
-                <div className="absolute top-4 left-4 flex items-center space-x-2 bg-red-500 text-white px-3 py-2 rounded-full">
-                  <div className="w-3 h-3 bg-white rounded-full animate-pulse"></div>
-                  <span className="text-sm font-semibold">Recording</span>
+                <div className="absolute top-4 left-4 badge badge-brand shadow-soft">
+                  <span className="w-2 h-2 bg-accent-500 rounded-full animate-pulse"></span>
+                  Recording
                 </div>
               )}
               
@@ -466,20 +466,20 @@ function WebcamAnalysis() {
             </div>
 
             {/* Camera Controls */}
-            <div className="p-6 bg-gray-50 border-t border-gray-200">
-              <div className="flex items-center justify-between">
-                <div className="flex space-x-3">
+            <div className="p-6 bg-gray-50 border-t border-gray-100/80">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div className="flex flex-wrap gap-3">
                   {!cameraActive ? (
                     <button
                       onClick={startCamera}
-                      className="px-6 py-3 bg-primary-600 text-white rounded-full font-semibold hover:bg-primary-700 transition-colors"
+                      className="btn-primary min-h-[44px]"
                     >
                       Start Camera
                     </button>
                   ) : (
                     <button
                       onClick={stopCamera}
-                      className="px-6 py-3 bg-gray-600 text-white rounded-full font-semibold hover:bg-gray-700 transition-colors"
+                      className="btn-secondary min-h-[44px]"
                     >
                       Stop Camera
                     </button>
@@ -489,18 +489,14 @@ function WebcamAnalysis() {
                     <button
                       onClick={startAnalysis}
                       disabled={!cameraActive}
-                      className={`px-6 py-3 rounded-full font-semibold transition-colors ${
-                        cameraActive
-                          ? 'bg-accent-600 text-white hover:bg-accent-700'
-                          : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                      }`}
+                      className="btn-primary min-h-[44px]"
                     >
                       Start Analysis
                     </button>
                   ) : (
                     <button
                       onClick={stopAnalysis}
-                      className="px-6 py-3 bg-red-600 text-white rounded-full font-semibold hover:bg-red-700 transition-colors"
+                      className="inline-flex items-center justify-center gap-2 min-h-[44px] px-6 py-3 bg-red-600 text-white rounded-full font-semibold shadow-soft hover:bg-red-700 transition-all duration-300 active:scale-[0.98]"
                     >
                       Stop & Save
                     </button>
@@ -509,13 +505,13 @@ function WebcamAnalysis() {
 
                 <div className="text-sm text-gray-600">
                   {cameraActive ? (
-                    <span className="flex items-center">
-                      <span className="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
+                    <span className="badge badge-success">
+                      <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
                       Camera Active
                     </span>
                   ) : (
-                    <span className="flex items-center">
-                      <span className="w-2 h-2 bg-gray-400 rounded-full mr-2"></span>
+                    <span className="badge badge-neutral">
+                      <span className="w-2 h-2 bg-gray-400 rounded-full"></span>
                       Camera Inactive
                     </span>
                   )}
@@ -525,32 +521,32 @@ function WebcamAnalysis() {
           </div>
 
           {/* Instructions */}
-          <div className="bg-cream-200 rounded-2xl p-6">
+          <div className="bg-brand-soft border border-accent-100 rounded-2xl p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-3 flex items-center">
-              <svg className="w-5 h-5 mr-2 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-5 h-5 mr-2 text-accent-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
               How It Works
             </h3>
             <ul className="space-y-2 text-gray-700">
               <li className="flex items-start">
-                <span className="text-primary-600 mr-2">1.</span>
+                <span className="text-accent-600 font-semibold mr-2">1.</span>
                 <span>Click "Start Camera" to activate your webcam</span>
               </li>
               <li className="flex items-start">
-                <span className="text-primary-600 mr-2">2.</span>
+                <span className="text-accent-600 font-semibold mr-2">2.</span>
                 <span>Position your face clearly in the frame</span>
               </li>
               <li className="flex items-start">
-                <span className="text-primary-600 mr-2">3.</span>
+                <span className="text-accent-600 font-semibold mr-2">3.</span>
                 <span>Click "Start Analysis" to begin monitoring</span>
               </li>
               <li className="flex items-start">
-                <span className="text-primary-600 mr-2">4.</span>
+                <span className="text-accent-600 font-semibold mr-2">4.</span>
                 <span>Use your computer normally for at least 1-2 minutes</span>
               </li>
               <li className="flex items-start">
-                <span className="text-primary-600 mr-2">5.</span>
+                <span className="text-accent-600 font-semibold mr-2">5.</span>
                 <span>Click "Stop & Save" to save your fatigue metrics</span>
               </li>
             </ul>
@@ -561,16 +557,16 @@ function WebcamAnalysis() {
         <div className="space-y-6">
           {/* Live Metrics */}
           {isAnalyzing && (
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-              <h3 className="text-xl font-serif font-bold text-gray-900 mb-4">Live Metrics</h3>
+            <div className="card animate-fade-in-up">
+              <h3 className="section-title mb-4">Live Metrics</h3>
               
               <div className="space-y-4">
                 <div>
                   <div className="flex justify-between items-center mb-1">
-                    <span className="text-sm text-gray-600">Blink Rate</span>
+                    <span className="text-sm text-gray-500">Blink Rate</span>
                     <span className="text-lg font-semibold text-gray-900">{liveMetrics.blinkRate}/min</span>
                   </div>
-                  <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                  <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
                     <div 
                       className="h-full bg-accent-600 transition-all duration-500"
                       style={{ width: `${Math.min((liveMetrics.blinkRate / 30) * 100, 100)}%` }}
@@ -580,12 +576,12 @@ function WebcamAnalysis() {
 
                 <div>
                   <div className="flex justify-between items-center mb-1">
-                    <span className="text-sm text-gray-600">Incomplete Blinks</span>
+                    <span className="text-sm text-gray-500">Incomplete Blinks</span>
                     <span className="text-lg font-semibold text-gray-900">{liveMetrics.incompleteBlinks}</span>
                   </div>
-                  <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                  <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
                     <div 
-                      className="h-full bg-orange-500 transition-all duration-500"
+                      className="h-full bg-amber-500 transition-all duration-500"
                       style={{ width: `${Math.min((liveMetrics.incompleteBlinks / 10) * 100, 100)}%` }}
                     ></div>
                   </div>
@@ -593,20 +589,20 @@ function WebcamAnalysis() {
 
                 <div>
                   <div className="flex justify-between items-center mb-1">
-                    <span className="text-sm text-gray-600">Squint Count</span>
+                    <span className="text-sm text-gray-500">Squint Count</span>
                     <span className="text-lg font-semibold text-gray-900">{liveMetrics.squintCount}</span>
                   </div>
-                  <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                  <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
                     <div 
-                      className="h-full bg-yellow-500 transition-all duration-500"
+                      className="h-full bg-amber-500 transition-all duration-500"
                       style={{ width: `${Math.min((liveMetrics.squintCount / 5) * 100, 100)}%` }}
                     ></div>
                   </div>
                 </div>
 
-                <div className="pt-4 border-t border-gray-200">
+                <div className="pt-4 border-t border-gray-100/80">
                   <div className="text-center">
-                    <div className="text-sm text-gray-600 mb-2">Fatigue Score</div>
+                    <div className="text-sm text-gray-500 mb-2">Fatigue Score</div>
                     <div className={`text-4xl font-bold ${getFatigueColor(liveMetrics.fatigueScore)}`}>
                       {liveMetrics.fatigueScore}%
                     </div>
@@ -620,12 +616,12 @@ function WebcamAnalysis() {
           )}
 
           {/* Recent Sessions */}
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-            <h3 className="text-xl font-serif font-bold text-gray-900 mb-4">Recent Sessions</h3>
+          <div className="card">
+            <h3 className="section-title mb-4">Recent Sessions</h3>
             
             {loading ? (
               <div className="text-center py-8">
-                <div className="animate-spin rounded-full h-8 w-8 border-4 border-primary-200 border-t-primary-600 mx-auto"></div>
+                <div className="animate-spin rounded-full h-8 w-8 border-4 border-accent-100 border-t-accent-600 mx-auto"></div>
               </div>
             ) : recentMetrics.length === 0 ? (
               <div className="text-center py-8">
@@ -638,20 +634,20 @@ function WebcamAnalysis() {
             ) : (
               <div className="space-y-3">
                 {recentMetrics.map((metric) => (
-                  <div key={metric.id} className="p-4 bg-gray-50 rounded-xl">
+                  <div key={metric.id} className="p-4 bg-gray-50 rounded-2xl border border-gray-100/80">
                     <div className="flex justify-between items-start mb-2">
-                      <div className="text-sm text-gray-600">{formatDate(metric.created_at)}</div>
+                      <div className="text-sm text-gray-500">{formatDate(metric.created_at)}</div>
                       <div className={`px-3 py-1 rounded-full text-xs font-semibold ${getFatigueBgColor(metric.fatigue_score)} ${getFatigueColor(metric.fatigue_score)}`}>
                         {metric.fatigue_score.toFixed(1)}%
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-2 text-sm">
                       <div>
-                        <span className="text-gray-600">Blinks:</span>
+                        <span className="text-gray-500">Blinks:</span>
                         <span className="ml-1 font-semibold text-gray-900">{metric.blink_rate}/min</span>
                       </div>
                       <div>
-                        <span className="text-gray-600">Duration:</span>
+                        <span className="text-gray-500">Duration:</span>
                         <span className="ml-1 font-semibold text-gray-900">{metric.session_duration_minutes.toFixed(1)}m</span>
                       </div>
                     </div>

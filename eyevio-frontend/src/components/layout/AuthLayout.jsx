@@ -2,11 +2,12 @@ import { Outlet } from 'react-router-dom'
 
 function AuthLayout() {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary-50 to-primary-100 flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
+    <div className="min-h-screen bg-brand-soft flex items-center justify-center p-4">
+      <div className="w-full max-w-md animate-fade-in-up">
         <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-primary-700 mb-2">EyeVio</h1>
-          <p className="text-gray-600">AI-Powered Vision Health Monitoring</p>
+          <img src="/logo.svg" alt="EyeVio Logo" className="h-14 w-auto mx-auto mb-4" />
+          <h1 className="page-title mb-2">eyevio</h1>
+          <p className="page-subtitle">AI-powered vision health monitoring</p>
         </div>
         <Outlet />
       </div>

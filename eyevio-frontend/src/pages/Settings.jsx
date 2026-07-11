@@ -117,9 +117,9 @@ function Settings() {
   return (
     <div className="space-y-8">
       {/* Header */}
-      <div>
-        <h1 className="text-4xl font-serif font-bold text-gray-900">Settings</h1>
-        <p className="text-gray-600 mt-2 text-lg">Customize your EyeVio experience</p>
+      <div className="animate-fade-in-up">
+        <h1 className="page-title">Settings</h1>
+        <p className="page-subtitle">Customize your EyeVio experience</p>
       </div>
 
       {/* Tabs */}
@@ -136,7 +136,7 @@ function Settings() {
               onClick={() => setActiveTab(tab.id)}
               className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
                 activeTab === tab.id
-                  ? 'border-primary-600 text-primary-600'
+                  ? 'border-accent-600 text-accent-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
@@ -147,11 +147,11 @@ function Settings() {
       </div>
 
       {/* Content */}
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+      <div className="bg-white rounded-2xl shadow-card border border-gray-100/80 p-8">
         {/* Notifications Tab */}
         {activeTab === 'notifications' && (
           <div className="space-y-6">
-            <h2 className="text-2xl font-serif font-bold text-gray-900 mb-6">Notification Preferences</h2>
+            <h2 className="section-title mb-6">Notification Preferences</h2>
             
             {[
               { key: 'emailNotifications', label: 'Email Notifications', desc: 'Receive email updates about your vision health' },
@@ -170,8 +170,8 @@ function Settings() {
                   role="switch"
                   aria-checked={settings[item.key]}
                   aria-label={`${item.label}: ${settings[item.key] ? 'on' : 'off'}`}
-                  className={`relative inline-flex h-7 w-14 flex-shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary-400 focus:ring-offset-2 ${
-                    settings[item.key] ? 'bg-primary-600' : 'bg-gray-400'
+                  className={`relative inline-flex h-7 w-14 flex-shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-accent-400 focus:ring-offset-2 ${
+                    settings[item.key] ? 'bg-accent-600' : 'bg-gray-400'
                   }`}
                 >
                   <span
@@ -188,11 +188,11 @@ function Settings() {
         {/* Preferences Tab */}
         {activeTab === 'preferences' && (
           <div className="space-y-6">
-            <h2 className="text-2xl font-serif font-bold text-gray-900 mb-6">App Preferences</h2>
+            <h2 className="section-title mb-6">App Preferences</h2>
             
             {/* Units */}
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-3">Units</label>
+              <label className="block text-sm font-medium text-gray-600 mb-3">Units</label>
               <div className="grid grid-cols-2 gap-4">
                 {['metric', 'imperial'].map((unit) => (
                   <button
@@ -200,7 +200,7 @@ function Settings() {
                     onClick={() => handleChange('units', unit)}
                     className={`p-4 rounded-xl border-2 font-semibold capitalize transition-colors ${
                       settings.units === unit
-                        ? 'border-primary-600 bg-primary-50 text-primary-700'
+                        ? 'border-accent-600 bg-accent-50 text-accent-700'
                         : 'border-gray-200 hover:border-gray-300 text-gray-700'
                     }`}
                   >
@@ -212,11 +212,11 @@ function Settings() {
 
             {/* Date Format */}
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-3">Date Format</label>
+              <label className="block text-sm font-medium text-gray-600 mb-3">Date Format</label>
               <select
                 value={settings.dateFormat}
                 onChange={(e) => handleChange('dateFormat', e.target.value)}
-                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                className="input"
               >
                 <option value="MM/DD/YYYY">MM/DD/YYYY</option>
                 <option value="DD/MM/YYYY">DD/MM/YYYY</option>
@@ -229,7 +229,7 @@ function Settings() {
         {/* Privacy Tab */}
         {activeTab === 'privacy' && (
           <div className="space-y-6">
-            <h2 className="text-2xl font-serif font-bold text-gray-900 mb-6">Privacy & Data</h2>
+            <h2 className="section-title mb-6">Privacy & Data</h2>
             
             {[
               { key: 'shareAnonymousData', label: 'Share Anonymous Data', desc: 'Help improve EyeVio by sharing anonymized usage data' },
@@ -245,8 +245,8 @@ function Settings() {
                   role="switch"
                   aria-checked={settings[item.key]}
                   aria-label={`${item.label}: ${settings[item.key] ? 'on' : 'off'}`}
-                  className={`relative inline-flex h-7 w-14 flex-shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary-400 focus:ring-offset-2 ${
-                    settings[item.key] ? 'bg-primary-600' : 'bg-gray-400'
+                  className={`relative inline-flex h-7 w-14 flex-shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-accent-400 focus:ring-offset-2 ${
+                    settings[item.key] ? 'bg-accent-600' : 'bg-gray-400'
                   }`}
                 >
                   <span
@@ -260,11 +260,11 @@ function Settings() {
 
             {/* Data Retention */}
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-3">Data Retention</label>
+              <label className="block text-sm font-medium text-gray-600 mb-3">Data Retention</label>
               <select
                 value={settings.dataRetention}
                 onChange={(e) => handleChange('dataRetention', e.target.value)}
-                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                className="input"
               >
                 <option value="6months">6 Months</option>
                 <option value="1year">1 Year</option>
@@ -279,13 +279,13 @@ function Settings() {
               <div className="space-y-3">
                 <button
                   onClick={exportData}
-                  className="w-full px-6 py-3 bg-primary-600 text-white rounded-xl font-semibold hover:bg-primary-700 transition-colors"
+                  className="btn-primary w-full"
                 >
                   Export My Data
                 </button>
                 <button
                   onClick={() => { setDeleteConfirmText(''); setShowDeleteModal(true) }}
-                  className="w-full px-6 py-3 bg-red-600 text-white rounded-xl font-semibold hover:bg-red-700 transition-colors focus:outline-none focus:ring-2 focus:ring-red-400"
+                  className="w-full inline-flex items-center justify-center px-6 py-3 min-h-[44px] bg-red-600 text-white rounded-full font-semibold hover:bg-red-700 transition-colors focus:outline-none focus:ring-2 focus:ring-red-400"
                 >
                   Delete Account
                 </button>
@@ -297,10 +297,10 @@ function Settings() {
         {/* Test Settings Tab */}
         {activeTab === 'tests' && (
           <div className="space-y-6">
-            <h2 className="text-2xl font-serif font-bold text-gray-900 mb-6">Test Settings</h2>
+            <h2 className="section-title mb-6">Test Settings</h2>
             
             {/* Blink Calibration Card */}
-            <div className="bg-gradient-to-br from-teal-50 to-blue-50 border-2 border-teal-200 rounded-xl p-6">
+            <div className="bg-brand-soft border border-accent-100 rounded-xl p-6">
               <div className="flex items-start justify-between">
                 <div className="flex-1">
                   <h3 className="text-lg font-bold text-gray-900 mb-2">Blink Detection Calibration</h3>
@@ -309,7 +309,7 @@ function Settings() {
                   </p>
                   <button
                     onClick={() => navigate('/calibrate-blink')}
-                    className="bg-teal-600 hover:bg-teal-700 text-white px-6 py-2.5 rounded-lg font-semibold transition-colors inline-flex items-center gap-2"
+                    className="btn-primary"
                   >
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -323,11 +323,11 @@ function Settings() {
             
             {/* Difficulty */}
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-3">Test Difficulty</label>
+              <label className="block text-sm font-medium text-gray-600 mb-3">Test Difficulty</label>
               <select
                 value={settings.testDifficulty}
                 onChange={(e) => handleChange('testDifficulty', e.target.value)}
-                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                className="input"
               >
                 <option value="easy">Easy</option>
                 <option value="standard">Standard</option>
@@ -337,11 +337,11 @@ function Settings() {
 
             {/* Reminder Frequency */}
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-3">Test Reminder Frequency</label>
+              <label className="block text-sm font-medium text-gray-600 mb-3">Test Reminder Frequency</label>
               <select
                 value={settings.reminderFrequency}
                 onChange={(e) => handleChange('reminderFrequency', e.target.value)}
-                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                className="input"
               >
                 <option value="daily">Daily</option>
                 <option value="weekly">Weekly</option>
@@ -364,8 +364,8 @@ function Settings() {
                   role="switch"
                   aria-checked={settings[item.key]}
                   aria-label={`${item.label}: ${settings[item.key] ? 'on' : 'off'}`}
-                  className={`relative inline-flex h-7 w-14 flex-shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary-400 focus:ring-offset-2 ${
-                    settings[item.key] ? 'bg-primary-600' : 'bg-gray-400'
+                  className={`relative inline-flex h-7 w-14 flex-shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-accent-400 focus:ring-offset-2 ${
+                    settings[item.key] ? 'bg-accent-600' : 'bg-gray-400'
                   }`}
                 >
                   <span
@@ -384,7 +384,7 @@ function Settings() {
           <button
             onClick={saveSettings}
             disabled={loading}
-            className="px-8 py-3 bg-primary-600 text-white rounded-full font-semibold hover:bg-primary-700 transition-colors disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-primary-400"
+            className="btn-primary"
           >
             {loading ? 'Saving...' : 'Save Changes'}
           </button>
@@ -401,7 +401,7 @@ function Settings() {
           onClick={() => setShowDeleteModal(false)}
         >
           <div
-            className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 sm:p-8"
+            className="bg-white rounded-2xl shadow-elevated max-w-md w-full p-6 sm:p-8"
             onClick={(e) => e.stopPropagation()}
           >
             <h2 id="delete-modal-title" className="text-2xl font-serif font-bold text-gray-900 mb-3">

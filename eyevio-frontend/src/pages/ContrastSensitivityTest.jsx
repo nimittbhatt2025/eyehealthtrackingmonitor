@@ -1111,7 +1111,7 @@ const ContrastSensitivityTest = () => {
               setGammaCalibrated(true)
               setTestState('instructions')
             }}
-            className="w-full bg-gradient-to-r from-purple-600 to-blue-600 text-white px-8 py-5 rounded-xl font-bold text-xl hover:from-purple-700 hover:to-blue-700 transition-all shadow-lg"
+            className="btn-primary w-full py-5 text-xl"
           >
             ✓ I Can See Box A Only (Continue)
           </button>
@@ -1126,7 +1126,7 @@ const ContrastSensitivityTest = () => {
 
   // 3. Instructions
   const renderInstructions = () => (
-    <div className="min-h-screen bg-gradient-to-br from-purple-50 to-blue-50 py-8 px-4">
+    <div className="test-shell">
       <div className="max-w-4xl mx-auto space-y-6">
         <div className="bg-white rounded-2xl shadow-xl p-8 border-2 border-purple-100">
           <h1 className="text-4xl font-bold text-gray-900 mb-4 text-center">Faint Shapes Test</h1>
@@ -1283,7 +1283,7 @@ const ContrastSensitivityTest = () => {
 
           <button
             onClick={() => setTestState('mode-select')}
-            className="w-full mt-8 bg-gradient-to-r from-purple-600 to-blue-600 text-white px-8 py-4 rounded-xl font-bold text-lg hover:from-purple-700 hover:to-blue-700 transition-all shadow-lg"
+            className="w-full mt-8 btn-primary py-4 text-lg"
           >
             Continue to Mode Selection
           </button>
@@ -1294,7 +1294,7 @@ const ContrastSensitivityTest = () => {
 
   // 4. Mode Selection (Standard, Glare, Fog)
   const renderModeSelect = () => (
-    <div className="min-h-screen bg-gradient-to-br from-purple-50 to-blue-50 py-8 px-4">
+    <div className="test-shell">
       <div className="max-w-5xl mx-auto space-y-6">
         <div className="text-center mb-8">
           <h2 className="text-3xl font-bold text-gray-900 mb-2">Select Test Mode</h2>
@@ -1812,7 +1812,7 @@ const ContrastSensitivityTest = () => {
 
   // 7. Switch Eyes Interlude
   const renderSwitchEyes = () => (
-    <div className="min-h-screen bg-gradient-to-br from-purple-50 to-blue-50 flex items-center justify-center p-8">
+    <div className="test-shell flex items-center justify-center min-h-[60vh]">
       <div className="max-w-2xl w-full bg-white rounded-2xl shadow-xl p-12 text-center">
         <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
           <span className="text-4xl"></span>
@@ -1834,7 +1834,7 @@ const ContrastSensitivityTest = () => {
 
         <button
           onClick={startRightEye}
-          className="bg-gradient-to-r from-purple-600 to-blue-600 text-white px-12 py-4 rounded-xl font-bold text-lg hover:from-purple-700 hover:to-blue-700 transition-all shadow-lg"
+          className="btn-primary px-12 py-4 text-lg"
         >
           Test Right Eye
         </button>
@@ -1915,7 +1915,7 @@ const ContrastSensitivityTest = () => {
         {/* SUPERIOR VISION CERTIFICATE MODAL */}
         {showCertificate && (
           <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fadeIn">
-            <div className="bg-gradient-to-br from-emerald-600 via-green-600 to-teal-600 rounded-3xl shadow-2xl max-w-2xl w-full p-8 border-4 border-yellow-400 animate-scaleIn">
+            <div className="bg-brand-gradient rounded-3xl shadow-glow max-w-2xl w-full p-8 border border-accent-400 animate-scaleIn">
               <div className="text-center mb-6">
                 <div className="text-8xl mb-4 animate-bounce">🦅</div>
                 <h1 className="text-5xl font-black text-white mb-2 drop-shadow-lg">SUPERIOR VISION</h1>
@@ -2019,7 +2019,7 @@ const ContrastSensitivityTest = () => {
 
           {/* MONOCULAR COMPARISON: Individual Eyes */}
           <div className="grid md:grid-cols-2 gap-6">
-            <div className="bg-gradient-to-br from-blue-600 to-cyan-600 rounded-2xl shadow-xl p-6 text-white">
+            <div className="bg-brand-gradient rounded-2xl shadow-card p-6 text-white">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-bold text-2xl">LEFT Eye</h3>
                 <span className="text-4xl">{leftRating.emoji}</span>
@@ -2046,7 +2046,7 @@ const ContrastSensitivityTest = () => {
               </div>
             </div>
             
-            <div className="bg-gradient-to-br from-purple-600 to-pink-600 rounded-2xl shadow-xl p-6 text-white">
+            <div className="card bg-accent-50 p-6">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-bold text-2xl">RIGHT Eye</h3>
                 <span className="text-4xl">{rightRating.emoji}</span>
@@ -2306,7 +2306,7 @@ const ContrastSensitivityTest = () => {
 
           <button
             onClick={() => navigate('/vision-tests')}
-            className="w-full bg-gradient-to-r from-purple-600 to-blue-600 text-white px-8 py-4 rounded-xl font-bold text-lg hover:from-purple-700 hover:to-blue-700 transition-all shadow-lg"
+            className="btn-primary w-full py-4 text-lg"
           >
             Return to Vision Tests
           </button>

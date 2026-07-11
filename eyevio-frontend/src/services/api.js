@@ -94,6 +94,7 @@ export const visionTestAPI = {
   getTestById: (id) => api.get(`/vision-test/${id}`),
   getHistory: (params) => api.get('/vision-test/', { params }),
   getStats: (params) => api.get('/vision-test/stats', { params }),
+  analyzeDryEye: (data) => api.post('/vision-test/analyze-dry-eye', data),
 }
 
 // Webcam API

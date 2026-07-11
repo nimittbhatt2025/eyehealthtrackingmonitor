@@ -24,6 +24,7 @@ def submit_vision_test():
     - accommodative_lag: Ciliary muscle fatigue / near-work stress tracker (pupillary miosis)
     - peripheral_awareness: Visual field / peripheral vision deficit detection (gamified)
     - ocular_ergonomics: Real-time posture & lighting monitoring (glare, distance, ergonomics)
+    - dry_eye: Photo-based dry eye screening (sclera redness + tear film surface analysis)
     """
     try:
         user_id = int(get_jwt_identity())  # Convert from string to int
@@ -97,6 +98,30 @@ def submit_vision_test():
     except Exception as e:
         db.session.rollback()
         print(f"Error submitting vision test: {str(e)}")  # Debug log
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@vision_test_bp.route('/analyze-dry-eye', methods=['POST'])
+@jwt_required()
+def analyze_dry_eye():
+    """
+    Analyze a face/eye photo for dry-eye screening signals.
+    Body: { "image": "<base64 or data-URL>" }
+    """
+    try:
+        data = request.get_json() or {}
+        image_data = data.get('image')
+        if not image_data:
+            return jsonify({'error': 'image is required (base64 data URL)'}), 400
+
+        from app.ai_models.dry_eye_analysis import analyze_dry_eye_from_base64
+        results = analyze_dry_eye_from_base64(image_data)
+        if results.get('error'):
+            return jsonify(results), 400
+        return jsonify(results), 200
+    except Exception as e:
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500

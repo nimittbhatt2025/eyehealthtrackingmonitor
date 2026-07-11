@@ -4,6 +4,162 @@ import { visionTestAPI } from '../services/api'
 import { toast } from 'react-hot-toast'
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, LineChart, Line, Legend, RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis } from 'recharts'
 
+function DryEyeTestDetails({ testData, comparisonTests, navigate }) {
+  const details = testData.test_details || {}
+  const testDate = testData.created_at || testData.test_date
+
+  const riskBadge = (level) => {
+    const map = {
+      low: { label: 'Low signs', className: 'badge-success' },
+      moderate: { label: 'Mild signs', className: 'badge-warning' },
+      elevated: { label: 'Higher signs', className: 'badge-danger' },
+    }
+    return map[level] || map.moderate
+  }
+
+  const comparisonData = comparisonTests
+    .filter((t) => t.test_type === 'dry_eye')
+    .slice(0, 5)
+    .reverse()
+    .map((t) => ({
+      date: new Date(t.created_at || t.test_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      score: t.score,
+    }))
+
+  const badge = riskBadge(details.risk_level)
+
+  return (
+    <div className="space-y-8">
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <div>
+          <button
+            onClick={() => navigate('/vision-tests')}
+            className="text-gray-600 hover:text-gray-900 mb-2 flex items-center space-x-2"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+            <span>Back to Vision Tests</span>
+          </button>
+          <h1 className="page-title">Dry Eye Screening</h1>
+          <p className="page-subtitle">
+            {testDate && new Date(testDate).toLocaleDateString('en-US', {
+              weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+              hour: '2-digit', minute: '2-digit',
+            })}
+          </p>
+        </div>
+        <div className="text-center">
+          <div className="text-5xl font-bold text-gray-900">{testData.score}</div>
+          <div className="text-sm text-gray-500">Combined score</div>
+          <span className={`inline-flex mt-2 ${badge.className}`}>{badge.label}</span>
+        </div>
+      </div>
+
+      {details.risk_message && (
+        <div className="card p-6 bg-accent-50 border border-accent-100">
+          <p className="text-accent-900">{details.risk_message}</p>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="card p-6 text-center">
+          <h3 className="font-semibold text-gray-900 mb-2">Symptoms (OSDI-lite)</h3>
+          <div className="text-4xl font-bold text-accent-700">{details.symptom_score ?? '—'}</div>
+          <p className="text-sm text-gray-500 mt-1">
+            {details.symptom_severity_label || 'Symptom health score'}
+            {details.osdi_score != null && ` · OSDI ${details.osdi_score}/100`}
+          </p>
+        </div>
+        <div className="card p-6 text-center">
+          <h3 className="font-semibold text-gray-900 mb-2">Photo analysis</h3>
+          <div className="text-4xl font-bold text-accent-700">{details.cv_score ?? '—'}</div>
+          <p className="text-sm text-gray-500 mt-1">Redness & tear film surface</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {details.left_eye && (
+          <div className="card p-6">
+            <h3 className="font-semibold text-gray-900 mb-3">Left eye</h3>
+            <div className="text-3xl font-bold text-accent-700 mb-3">{details.left_eye.health_score}</div>
+            <dl className="space-y-1.5 text-sm">
+              <div className="flex justify-between"><dt className="text-gray-500">Redness</dt><dd>{details.left_eye.sclera_redness}%</dd></div>
+              <div className="flex justify-between"><dt className="text-gray-500">Tear film</dt><dd>{details.left_eye.tear_film_quality}%</dd></div>
+            </dl>
+          </div>
+        )}
+        {details.right_eye && (
+          <div className="card p-6">
+            <h3 className="font-semibold text-gray-900 mb-3">Right eye</h3>
+            <div className="text-3xl font-bold text-accent-700 mb-3">{details.right_eye.health_score}</div>
+            <dl className="space-y-1.5 text-sm">
+              <div className="flex justify-between"><dt className="text-gray-500">Redness</dt><dd>{details.right_eye.sclera_redness}%</dd></div>
+              <div className="flex justify-between"><dt className="text-gray-500">Tear film</dt><dd>{details.right_eye.tear_film_quality}%</dd></div>
+            </dl>
+          </div>
+        )}
+      </div>
+
+      {details.symptom_responses?.length > 0 && (
+        <div className="card p-6">
+          <h2 className="text-xl font-serif font-bold text-gray-900 mb-4">Symptom responses</h2>
+          <ul className="space-y-2">
+            {details.symptom_responses.map((r) => (
+              <li key={r.id} className="flex justify-between gap-4 text-sm text-gray-700 border-b border-gray-50 pb-2">
+                <span>{r.question}</span>
+                <span className="font-medium text-gray-900 shrink-0">{r.label}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {details.findings?.length > 0 && (
+        <div className="card p-6">
+          <h2 className="text-xl font-serif font-bold text-gray-900 mb-4">Photo findings</h2>
+          <ul className="space-y-2">
+            {details.findings.map((f, i) => (
+              <li key={i} className="text-sm text-gray-700">• {f}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {comparisonData.length > 1 && (
+        <div className="card p-8">
+          <h2 className="text-2xl font-serif font-bold text-gray-900 mb-6">Progress Over Time</h2>
+          <ResponsiveContainer width="100%" height={300}>
+            <LineChart data={comparisonData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+              <XAxis dataKey="date" stroke="#6b7280" style={{ fontSize: '12px' }} />
+              <YAxis stroke="#6b7280" style={{ fontSize: '12px' }} domain={[0, 100]} />
+              <Tooltip />
+              <Line type="monotone" dataKey="score" stroke="#7dcab9" strokeWidth={2} name="Combined score" dot={{ fill: '#7dcab9', r: 5 }} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {details.disclaimer && (
+        <p className="text-xs text-gray-500">{details.disclaimer}</p>
+      )}
+
+      <div className="flex items-center justify-between pt-6 border-t border-gray-200">
+        <Link to="/vision-tests" className="text-gray-600 hover:text-gray-900 font-medium">
+          View All Tests
+        </Link>
+        <Link
+          to="/vision-tests/dry_eye"
+          className="bg-brand-gradient text-white font-semibold px-8 py-3 rounded-xl hover:shadow-glow transition-all"
+        >
+          Retake Test
+        </Link>
+      </div>
+    </div>
+  )
+}
+
 function TestDetails() {
   const { testId } = useParams()
   const navigate = useNavigate()
@@ -57,6 +213,12 @@ function TestDetails() {
       </div>
     )
   }
+
+  if (testData.test_type === 'dry_eye') {
+    return <DryEyeTestDetails testData={testData} comparisonTests={comparisonTests} navigate={navigate} />
+  }
+
+  const testDate = testData.created_at || testData.test_date
 
   // Calculate per-question performance
   const questionPerformance = testData.question_details || []
@@ -162,9 +324,9 @@ function TestDetails() {
             </svg>
             <span>Back to Vision Tests</span>
           </button>
-          <h1 className="text-4xl font-serif font-bold text-gray-900">Test Details</h1>
-          <p className="text-gray-600 mt-2">
-            {testData.test_type.replace('_', ' ').toUpperCase()} - {new Date(testData.test_date).toLocaleDateString('en-US', { 
+          <h1 className="page-title">Test Details</h1>
+          <p className="page-subtitle">
+            {testData.test_type.replace('_', ' ').toUpperCase()} - {testDate && new Date(testDate).toLocaleDateString('en-US', { 
               weekday: 'long', 
               year: 'numeric', 
               month: 'long', 
@@ -193,7 +355,7 @@ function TestDetails() {
 
       {/* Summary Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+        <div className="card p-6">
           <div className="flex items-center justify-between mb-2">
             <span className="text-gray-600 text-sm">Accuracy</span>
             <svg className="w-5 h-5 text-[#7dcab9]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -206,7 +368,7 @@ function TestDetails() {
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+        <div className="card p-6">
           <div className="flex items-center justify-between mb-2">
             <span className="text-gray-600 text-sm">Avg Response Time</span>
             <svg className="w-5 h-5 text-[#7dcab9]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -217,7 +379,7 @@ function TestDetails() {
           <div className="text-sm text-gray-500 mt-1">Per question</div>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+        <div className="card p-6">
           <div className="flex items-center justify-between mb-2">
             <span className="text-gray-600 text-sm">Total Time</span>
             <svg className="w-5 h-5 text-[#7dcab9]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -230,7 +392,7 @@ function TestDetails() {
           <div className="text-sm text-gray-500 mt-1">minutes</div>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+        <div className="card p-6">
           <div className="flex items-center justify-between mb-2">
             <span className="text-gray-600 text-sm">Test Type</span>
             <svg className="w-5 h-5 text-[#7dcab9]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -246,7 +408,7 @@ function TestDetails() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Performance Radar */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+        <div className="card p-8">
           <h2 className="text-2xl font-serif font-bold text-gray-900 mb-6">Performance Profile</h2>
           <ResponsiveContainer width="100%" height={300}>
             <RadarChart data={radarData}>
@@ -260,7 +422,7 @@ function TestDetails() {
 
         {/* Line-by-Line Accuracy */}
         {lineChartData.length > 0 && (
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+          <div className="card p-8">
             <h2 className="text-2xl font-serif font-bold text-gray-900 mb-6">Line-by-Line Performance</h2>
             <ResponsiveContainer width="100%" height={300}>
               <BarChart data={lineChartData}>
@@ -287,7 +449,7 @@ function TestDetails() {
 
       {/* Response Time Analysis */}
       {responseTimeData.length > 0 && (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+        <div className="card p-8">
           <h2 className="text-2xl font-serif font-bold text-gray-900 mb-6">Response Time Pattern</h2>
           <ResponsiveContainer width="100%" height={300}>
             <LineChart data={responseTimeData}>
@@ -319,7 +481,7 @@ function TestDetails() {
 
       {/* Historical Comparison */}
       {comparisonData.length > 1 && (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+        <div className="card p-8">
           <h2 className="text-2xl font-serif font-bold text-gray-900 mb-6">Progress Over Time</h2>
           <ResponsiveContainer width="100%" height={300}>
             <LineChart data={comparisonData}>
@@ -346,7 +508,7 @@ function TestDetails() {
 
       {/* Question Details */}
       {questionPerformance.length > 0 && (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+        <div className="card p-8">
           <h2 className="text-2xl font-serif font-bold text-gray-900 mb-6">Question-by-Question Breakdown</h2>
           <div className="space-y-3">
             {questionPerformance.map((q, index) => (
@@ -395,7 +557,7 @@ function TestDetails() {
         </Link>
         <Link
           to={`/vision-tests/${testData.test_type}`}
-          className="bg-gradient-to-r from-[#7dcab9] to-[#a39c85] text-white font-semibold px-8 py-3 rounded-xl hover:shadow-lg transition-all"
+          className="bg-brand-gradient text-white font-semibold px-8 py-3 rounded-xl hover:shadow-glow transition-all"
         >
           Retake Test
         </Link>

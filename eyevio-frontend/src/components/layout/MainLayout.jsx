@@ -7,7 +7,7 @@ function MainLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
   return (
-    <div className="min-h-screen bg-gray-50 transition-colors">
+    <div className="min-h-screen bg-app-bg transition-colors">
       <a href="#main-content" className="skip-to-content">
         Skip to main content
       </a>

@@ -286,15 +286,10 @@ function Achievements() {
     }
   }
 
-  const getCategoryColor = (category) => {
-    switch (category) {
-      case 'tests': return 'from-blue-400 to-blue-600'
-      case 'streaks': return 'from-orange-400 to-red-600'
-      case 'performance': return 'from-yellow-400 to-orange-600'
-      case 'lifestyle': return 'from-green-400 to-teal-600'
-      case 'special': return 'from-purple-400 to-pink-600'
-      default: return 'from-gray-400 to-gray-600'
-    }
+  const getCategoryColor = () => {
+    // Single brand-consistent teal gradient (accent-500 -> accent-700) for all
+    // categories; category is still distinguished by its icon and heading.
+    return 'from-accent-500 to-accent-700'
   }
 
   const unlockedCount = achievements.filter(a => a.unlocked).length
@@ -304,56 +299,84 @@ function Achievements() {
     <div className="space-y-8">
       {/* Header */}
       <div>
-        <h1 className="text-4xl font-serif font-bold text-gray-900">Achievements</h1>
-        <p className="text-gray-600 mt-2 text-lg">Track your progress and unlock rewards</p>
+        <h1 className="page-title">Achievements</h1>
+        <p className="page-subtitle">Track your progress and unlock rewards</p>
       </div>
 
       {loading ? (
         <div className="flex items-center justify-center min-h-[400px]">
-          <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary-200 border-t-primary-600"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-4 border-accent-100 border-t-accent-600"></div>
         </div>
       ) : (
         <>
           {/* Stats Overview */}
           <div className="grid md:grid-cols-4 gap-6">
-            <div className="bg-gradient-to-br from-primary-500 to-primary-700 rounded-2xl p-6 text-white">
+            {/* Total Points — key metric hero */}
+            <div className="bg-brand-gradient rounded-2xl p-6 text-white shadow-glow">
               <div className="text-sm opacity-90 mb-2">Total Points</div>
               <div className="text-4xl font-bold">{totalPoints}</div>
               <div className="text-sm opacity-75 mt-2">Keep earning!</div>
             </div>
 
-            <div className="bg-gradient-to-br from-accent-500 to-accent-700 rounded-2xl p-6 text-white">
-              <div className="text-sm opacity-90 mb-2">Unlocked</div>
-              <div className="text-4xl font-bold">{unlockedCount}/{achievements.length}</div>
-              <div className="text-sm opacity-75 mt-2">{progressPercent.toFixed(0)}% complete</div>
+            <div className="card">
+              <div className="flex items-start justify-between">
+                <div>
+                  <div className="text-sm text-gray-500 mb-2">Unlocked</div>
+                  <div className="text-4xl font-bold text-gray-900">{unlockedCount}/{achievements.length}</div>
+                  <div className="text-sm text-gray-500 mt-2">{progressPercent.toFixed(0)}% complete</div>
+                </div>
+                <div className="icon-tile bg-accent-50 text-accent-600">
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+                  </svg>
+                </div>
+              </div>
             </div>
 
-            <div className="bg-gradient-to-br from-orange-500 to-red-600 rounded-2xl p-6 text-white">
-              <div className="text-sm opacity-90 mb-2">Current Streak</div>
-              <div className="text-4xl font-bold">{currentStreak}</div>
-              <div className="text-sm opacity-75 mt-2">days active</div>
+            <div className="card">
+              <div className="flex items-start justify-between">
+                <div>
+                  <div className="text-sm text-gray-500 mb-2">Current Streak</div>
+                  <div className="text-4xl font-bold text-gray-900">{currentStreak}</div>
+                  <div className="text-sm text-gray-500 mt-2">days active</div>
+                </div>
+                <div className="icon-tile bg-amber-50 text-amber-600">
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.777 17.656 7.343A7.975 7.975 0 0120 13a7.975 7.975 0 01-2.343 5.657z" />
+                  </svg>
+                </div>
+              </div>
             </div>
 
-            <div className="bg-gradient-to-br from-green-500 to-teal-600 rounded-2xl p-6 text-white">
-              <div className="text-sm opacity-90 mb-2">Longest Streak</div>
-              <div className="text-4xl font-bold">{longestStreak}</div>
-              <div className="text-sm opacity-75 mt-2">days record</div>
+            <div className="card">
+              <div className="flex items-start justify-between">
+                <div>
+                  <div className="text-sm text-gray-500 mb-2">Longest Streak</div>
+                  <div className="text-4xl font-bold text-gray-900">{longestStreak}</div>
+                  <div className="text-sm text-gray-500 mt-2">days record</div>
+                </div>
+                <div className="icon-tile bg-accent-50 text-accent-600">
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                  </svg>
+                </div>
+              </div>
             </div>
           </div>
 
           {/* Progress Bar */}
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+          <div className="card p-8">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-xl font-serif font-bold text-gray-900">Overall Progress</h2>
-              <span className="text-sm font-semibold text-primary-600">{progressPercent.toFixed(1)}%</span>
+              <span className="text-sm font-semibold text-accent-600">{progressPercent.toFixed(1)}%</span>
             </div>
-            <div className="w-full bg-gray-200 rounded-full h-4">
+            <div className="w-full bg-gray-100 rounded-full h-4">
               <div 
-                className="bg-gradient-to-r from-primary-500 to-accent-500 h-4 rounded-full transition-all duration-500"
+                className="bg-brand-gradient h-4 rounded-full transition-all duration-500"
                 style={{ width: `${progressPercent}%` }}
               ></div>
             </div>
-            <p className="text-sm text-gray-600 mt-2">{unlockedCount} achievements unlocked, {achievements.length - unlockedCount} remaining</p>
+            <p className="text-sm text-gray-500 mt-2">{unlockedCount} achievements unlocked, {achievements.length - unlockedCount} remaining</p>
           </div>
 
           {/* Achievements Grid by Category */}
@@ -362,9 +385,9 @@ function Achievements() {
             if (categoryAchievements.length === 0) return null
 
             return (
-              <div key={category} className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+              <div key={category} className="card p-8">
                 <div className="flex items-center space-x-3 mb-6">
-                  <div className="text-primary-600">{getCategoryIcon(category)}</div>
+                  <div className="text-accent-600">{getCategoryIcon(category)}</div>
                   <h2 className="text-2xl font-serif font-bold text-gray-900 capitalize">{category}</h2>
                 </div>
 
@@ -386,7 +409,7 @@ function Achievements() {
                         </div>
                       )}
 
-                      <div className={`mb-3 ${achievement.unlocked ? 'text-white' : 'text-primary-600'}`}>
+                      <div className={`mb-3 ${achievement.unlocked ? 'text-white' : 'text-accent-600'}`}>
                         {getCategoryIcon(achievement.category)}
                       </div>
 
@@ -415,7 +438,7 @@ function Achievements() {
                       )}
 
                       {/* Points */}
-                      <div className={`mt-4 text-sm font-semibold ${achievement.unlocked ? 'text-white' : 'text-primary-600'}`}>
+                      <div className={`mt-4 text-sm font-semibold ${achievement.unlocked ? 'text-white' : 'text-accent-600'}`}>
                         +{achievement.points} points
                       </div>
                     </div>

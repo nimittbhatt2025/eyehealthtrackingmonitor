@@ -311,26 +311,26 @@ const VisualAcuityTest = () => {
   const renderInstructions = () => (
     <div className="max-w-4xl mx-auto space-y-6">
       <div className="text-center mb-8">
-        <div className="mb-4">
-          <svg className="w-16 h-16 mx-auto text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div className="icon-tile bg-accent-50 text-accent-600 w-16 h-16 mx-auto mb-4">
+          <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
           </svg>
         </div>
-        <h1 className="text-4xl font-bold text-gray-900 mb-3">
+        <h1 className="page-title mb-3">
           Visual Acuity Test
         </h1>
-        <p className="text-xl text-gray-600">
+        <p className="page-subtitle">
           Professional eye chart test to measure how clearly you can see
         </p>
       </div>
 
-      <div className="bg-blue-50 border-2 border-blue-200 rounded-2xl p-8">
-        <h2 className="text-2xl font-bold text-gray-900 mb-6">How This Test Works:</h2>
+      <div className="card">
+        <h2 className="section-title mb-6">How This Test Works:</h2>
         
         <div className="space-y-4">
           <div className="flex items-start gap-4">
-            <span className="w-10 h-10 bg-blue-600 text-white rounded-full flex items-center justify-center font-bold flex-shrink-0">1</span>
+            <span className="w-10 h-10 bg-accent-600 text-white rounded-full flex items-center justify-center font-bold flex-shrink-0">1</span>
             <div>
               <h3 className="font-bold text-lg text-gray-900">Cover One Eye</h3>
               <p className="text-gray-700">We'll test each eye separately. Use your palm to gently cover one eye.</p>
@@ -338,7 +338,7 @@ const VisualAcuityTest = () => {
           </div>
 
           <div className="flex items-start gap-4">
-            <span className="w-10 h-10 bg-blue-600 text-white rounded-full flex items-center justify-center font-bold flex-shrink-0">2</span>
+            <span className="w-10 h-10 bg-accent-600 text-white rounded-full flex items-center justify-center font-bold flex-shrink-0">2</span>
             <div>
               <h3 className="font-bold text-lg text-gray-900">Read the Letters</h3>
               <p className="text-gray-700">Letters will appear on screen, getting progressively smaller. Select the letter you see.</p>
@@ -346,7 +346,7 @@ const VisualAcuityTest = () => {
           </div>
 
           <div className="flex items-start gap-4">
-            <span className="w-10 h-10 bg-blue-600 text-white rounded-full flex items-center justify-center font-bold flex-shrink-0">3</span>
+            <span className="w-10 h-10 bg-accent-600 text-white rounded-full flex items-center justify-center font-bold flex-shrink-0">3</span>
             <div>
               <h3 className="font-bold text-lg text-gray-900">Test Stops Automatically</h3>
               <p className="text-gray-700">When letters become too small to read accurately, the test moves to your other eye.</p>
@@ -354,7 +354,7 @@ const VisualAcuityTest = () => {
           </div>
 
           <div className="flex items-start gap-4">
-            <span className="w-10 h-10 bg-blue-600 text-white rounded-full flex items-center justify-center font-bold flex-shrink-0">4</span>
+            <span className="w-10 h-10 bg-accent-600 text-white rounded-full flex items-center justify-center font-bold flex-shrink-0">4</span>
             <div>
               <h3 className="font-bold text-lg text-gray-900">Get Your Results</h3>
               <p className="text-gray-700">See a simple score for each eye — like the familiar "20/20" from the eye doctor.</p>
@@ -413,14 +413,14 @@ const VisualAcuityTest = () => {
       </div>
 
       {voiceSupported && (
-        <div className="bg-purple-50 border-2 border-purple-200 rounded-xl p-6">
+        <div className="card bg-brand-soft">
           <div className="flex items-start gap-4">
-            <svg className="w-8 h-8 text-purple-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-8 h-8 text-accent-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
             </svg>
             <div className="flex-1">
-              <h3 className="font-bold text-purple-900 mb-2">Voice Control Available</h3>
-              <p className="text-purple-800 text-sm mb-3">
+              <h3 className="font-bold text-gray-900 mb-2">Voice Control Available</h3>
+              <p className="text-gray-600 text-sm mb-3">
                 Since you'll be at a distance from the screen, you can use your voice to answer instead of clicking. 
                 Just say the letter you see (e.g., "E" or "P").
               </p>
@@ -429,16 +429,16 @@ const VisualAcuityTest = () => {
                   type="checkbox"
                   checked={voiceEnabled}
                   onChange={(e) => setVoiceEnabled(e.target.checked)}
-                  className="w-5 h-5 text-purple-600 rounded focus:ring-purple-500"
+                  className="w-5 h-5 text-accent-600 rounded focus:ring-accent-500"
                 />
-                <span className="font-semibold text-purple-900">Enable voice control during test</span>
+                <span className="font-semibold text-gray-900">Enable voice control during test</span>
               </label>
             </div>
           </div>
         </div>
       )}
 
-      <div className="bg-white border-2 border-gray-200 rounded-xl p-6">
+      <div className="card">
         <h3 className="font-bold text-gray-900 mb-3">What your score means:</h3>
         <ul className="space-y-2 text-gray-700">
           <li><strong>20/20:</strong> Normal, healthy sharpness.</li>
@@ -451,13 +451,13 @@ const VisualAcuityTest = () => {
       <div className="flex gap-4">
         <button
           onClick={() => navigate('/vision-tests')}
-          className="flex-1 bg-gray-200 text-gray-700 px-8 py-4 rounded-full font-semibold hover:bg-gray-300 transition-colors"
+          className="flex-1 btn-secondary min-h-[44px]"
         >
            Back to Tests
         </button>
         <button
           onClick={() => setTestState('glasses-check')}
-          className="flex-1 bg-blue-600 text-white px-8 py-4 rounded-full font-bold hover:bg-blue-700 transition-colors"
+          className="flex-1 btn-primary min-h-[44px]"
         >
           Start Test 
         </button>
@@ -564,7 +564,7 @@ const VisualAcuityTest = () => {
                       ? 'bg-green-600 text-white'
                       : showFeedback
                         ? 'bg-red-600 text-white'
-                        : 'bg-blue-600 text-white'
+                        : 'bg-accent-600 text-white'
                     : 'bg-gray-100 hover:bg-gray-200 text-gray-900'
                   }
                   ${showFeedback ? 'cursor-not-allowed' : 'cursor-pointer hover:scale-105'}
@@ -630,9 +630,9 @@ const VisualAcuityTest = () => {
         Great job! Now let's test your right eye.
       </p>
       
-      <div className="bg-blue-50 border-2 border-blue-200 rounded-xl p-8">
+      <div className="bg-accent-50 border border-accent-100 rounded-xl p-8">
         <h3 className="font-bold text-lg mb-3">Your Left Eye Result:</h3>
-        <div className="text-4xl font-bold text-blue-600 mb-2">
+        <div className="text-4xl font-bold text-accent-600 mb-2">
           {lineResults.left.snellen}
         </div>
         <p className="text-gray-600">LogMAR: {lineResults.left.finalLogMAR?.toFixed(2)}</p>
@@ -652,7 +652,7 @@ const VisualAcuityTest = () => {
           setTestState('eye-coverage-setup')
           setCurrentEye('right')
         }}
-        className="bg-blue-600 text-white px-12 py-4 rounded-full font-bold hover:bg-blue-700 transition-colors"
+        className="btn-primary px-12 min-h-[44px]"
       >
         Test Right Eye 
       </button>
@@ -679,9 +679,9 @@ const VisualAcuityTest = () => {
       }
       if (logMAR <= 0.2) return { 
         label: 'Good', 
-        bgColor: 'bg-blue-50', 
-        borderColor: 'border-blue-200',
-        textColor: 'text-blue-900',
+        bgColor: 'bg-accent-50', 
+        borderColor: 'border-accent-100',
+        textColor: 'text-accent-800',
         description: 'Slight blur - Monitor for changes' 
       }
       if (logMAR <= 0.3) return { 
@@ -718,10 +718,10 @@ const VisualAcuityTest = () => {
               <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
             </svg>
           </div>
-          <h1 className="text-4xl font-bold text-gray-900 mb-3">
+          <h1 className="page-title mb-3">
             Test Complete!
           </h1>
-          <p className="text-xl text-gray-600">
+          <p className="page-subtitle">
             Here are your visual acuity results
           </p>
         </div>
@@ -731,7 +731,7 @@ const VisualAcuityTest = () => {
         {/* Eye Results */}
         <div className="grid md:grid-cols-2 gap-6">
           {/* Left Eye */}
-          <div className="bg-white border-2 border-gray-200 rounded-2xl p-8">
+          <div className="card">
             <div className="text-center mb-6">
               <svg className="w-12 h-12 mx-auto text-gray-700 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -759,7 +759,7 @@ const VisualAcuityTest = () => {
           </div>
 
           {/* Right Eye */}
-          <div className="bg-white border-2 border-gray-200 rounded-2xl p-8">
+          <div className="card">
             <div className="text-center mb-6">
               <svg className="w-12 h-12 mx-auto text-gray-700 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -804,15 +804,15 @@ const VisualAcuityTest = () => {
         )}
 
         {/* Recommendations */}
-        <div className="bg-blue-50 border-2 border-blue-200 rounded-xl p-6">
-          <h3 className="font-bold text-lg text-blue-900 mb-4 flex items-center gap-2">
+        <div className="bg-accent-50 border border-accent-100 rounded-xl p-6">
+          <h3 className="font-bold text-lg text-accent-800 mb-4 flex items-center gap-2">
             <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
               <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" />
               <path fillRule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z" clipRule="evenodd" />
             </svg>
             Recommendations:
           </h3>
-          <ul className="space-y-2 text-blue-900">
+          <ul className="space-y-2 text-gray-700">
             {(leftLogMAR > 0.3 || rightLogMAR > 0.3) && (
               <li className="flex items-start gap-2">
                 <span>•</span>
@@ -850,13 +850,13 @@ const VisualAcuityTest = () => {
               })
               setCorrectionInfo(null)
             }}
-            className="flex-1 bg-gray-200 text-gray-700 px-8 py-4 rounded-full font-semibold hover:bg-gray-300 transition-colors"
+            className="flex-1 btn-secondary min-h-[44px]"
           >
             Retry Test
           </button>
           <button
             onClick={submitResults}
-            className="flex-1 bg-blue-600 text-white px-8 py-4 rounded-full font-bold hover:bg-blue-700 transition-colors"
+            className="flex-1 btn-primary min-h-[44px]"
           >
             Save Results 
           </button>
@@ -873,7 +873,7 @@ const VisualAcuityTest = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 py-12 px-4">
+    <div className="test-shell">
       <div className="max-w-7xl mx-auto">
         {testState === 'distance-gate' && (
           <div className="max-w-4xl mx-auto">

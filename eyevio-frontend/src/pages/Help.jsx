@@ -130,38 +130,38 @@ function Help() {
   return (
     <div className="space-y-8">
       {/* Header */}
-      <div>
-        <h1 className="text-4xl font-serif font-bold text-gray-900">Help & Resources</h1>
-        <p className="text-gray-600 mt-2 text-lg">Everything you need to know about EyeVio</p>
+      <div className="animate-fade-in-up">
+        <h1 className="page-title">Help & Resources</h1>
+        <p className="page-subtitle">Everything you need to know about EyeVio</p>
       </div>
 
       {/* Quick Links */}
       <div className="grid md:grid-cols-4 gap-4">
-        <a href="#faqs" className="p-6 bg-primary-50 rounded-2xl hover:bg-primary-100 transition-colors">
-          <div className="text-sm text-gray-600 mb-2">Quick Access</div>
+        <a href="#faqs" className="card-hover block">
+          <div className="text-sm font-medium text-accent-600 mb-2">Quick Access</div>
           <div className="font-semibold text-gray-900">FAQs</div>
           <div className="text-sm text-gray-600 mt-1">Find quick answers</div>
         </a>
-        <a href="#tips" className="p-6 bg-accent-50 rounded-2xl hover:bg-accent-100 transition-colors">
-          <div className="text-sm text-gray-600 mb-2">Expert Advice</div>
+        <a href="#tips" className="card-hover block">
+          <div className="text-sm font-medium text-accent-600 mb-2">Expert Advice</div>
           <div className="font-semibold text-gray-900">Eye Health Tips</div>
           <div className="text-sm text-gray-600 mt-1">Professional guidance</div>
         </a>
-        <a href="#glossary" className="p-6 bg-cream-200 rounded-2xl hover:bg-cream-300 transition-colors">
-          <div className="text-sm text-gray-600 mb-2">Reference</div>
+        <a href="#glossary" className="card-hover block">
+          <div className="text-sm font-medium text-accent-600 mb-2">Reference</div>
           <div className="font-semibold text-gray-900">Glossary</div>
           <div className="text-sm text-gray-600 mt-1">Vision terms</div>
         </a>
-        <a href="#contact" className="p-6 bg-teal-50 rounded-2xl hover:bg-teal-100 transition-colors">
-          <div className="text-sm text-gray-600 mb-2">Support</div>
+        <a href="#contact" className="card-hover block">
+          <div className="text-sm font-medium text-accent-600 mb-2">Support</div>
           <div className="font-semibold text-gray-900">Contact Us</div>
           <div className="text-sm text-gray-600 mt-1">Get in touch</div>
         </a>
       </div>
 
       {/* FAQs */}
-      <div id="faqs" className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
-        <h2 className="text-2xl font-serif font-bold text-gray-900 mb-6">Frequently Asked Questions</h2>
+      <div id="faqs" className="bg-white rounded-2xl shadow-card border border-gray-100/80 p-8">
+        <h2 className="section-title mb-6">Frequently Asked Questions</h2>
         
         {/* Category Tabs */}
         <div className="flex flex-wrap gap-2 mb-6">
@@ -177,7 +177,7 @@ function Help() {
               onClick={() => setActiveCategory(cat.id)}
               className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors ${
                 activeCategory === cat.id
-                  ? 'bg-primary-600 text-white'
+                  ? 'bg-accent-600 text-white'
                   : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
               }`}
             >
@@ -189,7 +189,7 @@ function Help() {
         {/* FAQ List */}
         <div className="space-y-3">
           {faqs[activeCategory].map((faq, idx) => (
-            <div key={idx} className="border border-gray-200 rounded-xl overflow-hidden">
+            <div key={idx} className="border border-gray-100/80 rounded-xl overflow-hidden">
               <button
                 onClick={() => setExpandedFaq(expandedFaq === idx ? null : idx)}
                 className="w-full px-6 py-4 text-left flex items-center justify-between hover:bg-gray-50 transition-colors"
@@ -217,12 +217,12 @@ function Help() {
       </div>
 
       {/* Eye Health Tips */}
-      <div id="tips" className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
-        <h2 className="text-2xl font-serif font-bold text-gray-900 mb-6">Eye Health Tips</h2>
+      <div id="tips" className="bg-white rounded-2xl shadow-card border border-gray-100/80 p-8">
+        <h2 className="section-title mb-6">Eye Health Tips</h2>
         <div className="grid md:grid-cols-2 gap-6">
           {tips.map((tip, idx) => (
-            <div key={idx} className="flex items-start space-x-4 p-6 bg-gradient-to-br from-primary-50 to-cream-200 rounded-xl">
-              <div className="w-10 h-10 bg-primary-600 rounded-full flex items-center justify-center flex-shrink-0">
+            <div key={idx} className="flex items-start space-x-4 p-6 bg-brand-soft rounded-xl border border-gray-100/80">
+              <div className="w-10 h-10 bg-accent-600 rounded-full flex items-center justify-center flex-shrink-0">
                 <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
@@ -237,12 +237,12 @@ function Help() {
       </div>
 
       {/* Glossary */}
-      <div id="glossary" className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
-        <h2 className="text-2xl font-serif font-bold text-gray-900 mb-6">Vision Terms Glossary</h2>
+      <div id="glossary" className="bg-white rounded-2xl shadow-card border border-gray-100/80 p-8">
+        <h2 className="section-title mb-6">Vision Terms Glossary</h2>
         <div className="grid md:grid-cols-2 gap-4">
           {glossary.map((item, idx) => (
             <div key={idx} className="p-4 bg-gray-50 rounded-xl">
-              <div className="font-semibold text-primary-700 mb-1">{item.term}</div>
+              <div className="font-semibold text-accent-700 mb-1">{item.term}</div>
               <div className="text-sm text-gray-700">{item.def}</div>
             </div>
           ))}
@@ -250,57 +250,57 @@ function Help() {
       </div>
 
       {/* Contact Form */}
-      <div id="contact" className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
-        <h2 className="text-2xl font-serif font-bold text-gray-900 mb-6">Contact Support</h2>
+      <div id="contact" className="bg-white rounded-2xl shadow-card border border-gray-100/80 p-8">
+        <h2 className="section-title mb-6">Contact Support</h2>
         <form onSubmit={handleContactSubmit} className="space-y-6">
           <div className="grid md:grid-cols-2 gap-6">
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">Name</label>
+              <label className="block text-sm font-medium text-gray-600 mb-2">Name</label>
               <input
                 type="text"
                 required
                 value={contactForm.name}
                 onChange={(e) => setContactForm(prev => ({ ...prev, name: e.target.value }))}
-                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                className="input"
               />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">Email</label>
+              <label className="block text-sm font-medium text-gray-600 mb-2">Email</label>
               <input
                 type="email"
                 required
                 value={contactForm.email}
                 onChange={(e) => setContactForm(prev => ({ ...prev, email: e.target.value }))}
-                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                className="input"
               />
             </div>
           </div>
 
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2">Subject</label>
+            <label className="block text-sm font-medium text-gray-600 mb-2">Subject</label>
             <input
               type="text"
               required
               value={contactForm.subject}
               onChange={(e) => setContactForm(prev => ({ ...prev, subject: e.target.value }))}
-              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+              className="input"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2">Message</label>
+            <label className="block text-sm font-medium text-gray-600 mb-2">Message</label>
             <textarea
               required
               rows="6"
               value={contactForm.message}
               onChange={(e) => setContactForm(prev => ({ ...prev, message: e.target.value }))}
-              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent resize-none"
+              className="input resize-none"
             />
           </div>
 
           <button
             type="submit"
-            className="w-full px-8 py-3 bg-primary-600 text-white rounded-full font-semibold hover:bg-primary-700 transition-colors"
+            className="btn-primary w-full"
           >
             Send Message
           </button>

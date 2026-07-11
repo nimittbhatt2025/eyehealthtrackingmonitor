@@ -78,6 +78,16 @@ function VisionTests() {
       badge: 'Doctor-style'
     },
     {
+      type: 'dry_eye',
+      title: 'Dry Eye Screening',
+      subtitle: 'Photo check for dryness signs',
+      description: 'Take a well-lit photo of your eyes. We check redness and how smooth your tear film looks on the eye surface. Quick screening — not a diagnosis.',
+      duration: '3-4 minutes',
+      features: ['Symptom questionnaire', 'Redness check', 'Tear film check'],
+      badge: 'New',
+      webcam: true
+    },
+    {
       type: 'red_reflex',
       title: 'Eye Glow Test',
       subtitle: 'The glow from the back of your eye (Red reflex)',
@@ -121,9 +131,9 @@ function VisionTests() {
   return (
     <div className="space-y-6 md:space-y-8">
       {/* Header */}
-      <div>
-        <h1 className="text-3xl md:text-4xl font-serif font-bold text-gray-900">Vision Tests</h1>
-        <p className="text-sm md:text-base text-gray-600 mt-2 md:text-lg">Choose a test to monitor your vision health</p>
+      <div className="animate-fade-in-up">
+        <h1 className="page-title">Vision Tests</h1>
+        <p className="page-subtitle">Choose a test to monitor your vision health</p>
       </div>
 
       {/* Test Type Cards */}
@@ -131,38 +141,36 @@ function VisionTests() {
         {testTypes.map(test => (
           <div
             key={test.type}
-            className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 md:p-8 hover:shadow-md transition-shadow"
+            className="group bg-white rounded-2xl shadow-card border border-gray-100/80 p-6 md:p-7 hover:shadow-elevated hover:-translate-y-0.5 transition-all duration-300 flex flex-col"
           >
-            {/* Header with Icon and Webcam Badge */}
+            {/* Header with Icon and Badges */}
             <div className="flex items-start justify-between mb-4">
-              <div className="w-10 h-10 md:w-12 md:h-12 bg-primary-100 rounded-full flex items-center justify-center flex-shrink-0">
-                <svg className="w-5 h-5 md:w-6 md:h-6 text-primary-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="icon-tile bg-accent-50 text-accent-600 group-hover:bg-accent-100 transition-colors">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                 </svg>
               </div>
-              {test.webcam && (
-                <span className="px-2 md:px-3 py-1 bg-gray-100 text-gray-700 text-xs font-medium rounded-full border border-gray-300">
-                  Webcam Required
-                </span>
-              )}
-              {test.badge && (
-                <span className="px-2 md:px-3 py-1 bg-gradient-to-r from-primary-500 to-blue-600 text-white text-xs font-medium rounded-full shadow-sm">
-                  {test.badge}
-                </span>
-              )}
+              <div className="flex flex-wrap justify-end gap-2">
+                {test.webcam && (
+                  <span className="badge badge-neutral">Webcam</span>
+                )}
+                {test.badge && (
+                  <span className="badge badge-brand">{test.badge}</span>
+                )}
+              </div>
             </div>
 
             {/* Title and Subtitle */}
-            <h3 className="text-xl md:text-2xl font-serif font-bold text-gray-900 mb-1">{test.title}</h3>
-            <p className="text-xs md:text-sm text-gray-500 mb-3">{test.subtitle}</p>
+            <h3 className="text-xl font-serif font-bold text-gray-900 mb-1">{test.title}</h3>
+            <p className="text-sm text-gray-400 mb-3">{test.subtitle}</p>
 
             {/* Description */}
-            <p className="text-sm md:text-base text-gray-600 mb-4 leading-relaxed">{test.description}</p>
+            <p className="text-sm text-gray-500 mb-4 leading-relaxed">{test.description}</p>
 
             {/* Duration */}
-            <div className="flex items-center text-xs md:text-sm text-gray-500 mb-4">
-              <svg className="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="flex items-center gap-1.5 text-sm text-gray-400 mb-4">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
               {test.duration}
@@ -170,12 +178,11 @@ function VisionTests() {
 
             {/* Related Features */}
             <div className="mb-6">
-              <div className="text-xs text-gray-500 font-medium mb-2">Related Features:</div>
               <div className="flex flex-wrap gap-2">
                 {test.features.map((feature, idx) => (
                   <span
                     key={idx}
-                    className="px-2 md:px-3 py-1 bg-primary-50 text-primary-700 text-xs font-medium rounded-full"
+                    className="px-2.5 py-1 bg-gray-50 text-gray-600 text-xs font-medium rounded-full ring-1 ring-gray-100"
                   >
                     {feature}
                   </span>
@@ -186,23 +193,26 @@ function VisionTests() {
             {/* Start Test Button */}
             <Link
               to={test.type === 'tracking' ? '/eye-tracking-analysis' : `/vision-tests/${test.type}`}
-              className="block w-full bg-cream-300 hover:bg-primary-100 text-gray-900 font-semibold py-3 md:py-3 rounded-full text-center transition-colors text-sm md:text-base min-h-[44px] flex items-center justify-center"
+              className="btn-primary w-full mt-auto min-h-[44px]"
             >
               Start Test
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+              </svg>
             </Link>
           </div>
         ))}
       </div>
 
       {/* Test History */}
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 md:p-8">
+      <div className="bg-white rounded-2xl shadow-card border border-gray-100/80 p-4 md:p-7 animate-fade-in-up">
         <div className="flex items-center justify-between mb-4 md:mb-6">
-          <h2 className="text-xl md:text-2xl font-serif font-bold text-gray-900">Recent Tests</h2>
+          <h2 className="section-title">Recent Tests</h2>
         </div>
 
         {loading ? (
           <div className="flex items-center justify-center py-12">
-            <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary-200 border-t-primary-600"></div>
+            <div className="animate-spin rounded-full h-12 w-12 border-4 border-accent-100 border-t-accent-600"></div>
           </div>
         ) : tests.length > 0 ? (
           <div className="overflow-x-auto -mx-4 md:mx-0">
@@ -210,25 +220,29 @@ function VisionTests() {
               <table className="min-w-full">
                 <thead>
                   <tr className="border-b border-gray-200">
-                    <th className="text-left py-3 px-4 font-semibold text-gray-700 text-xs md:text-sm">Test Type</th>
-                    <th className="text-left py-3 px-4 font-semibold text-gray-700 text-xs md:text-sm">Score</th>
-                    <th className="text-left py-3 px-4 font-semibold text-gray-700 text-xs md:text-sm hidden sm:table-cell">Date</th>
-                    <th className="text-left py-3 px-4 font-semibold text-gray-700 text-xs md:text-sm">Status</th>
+                    <th className="text-left py-3 px-4 font-semibold text-gray-500 text-xs uppercase tracking-wide">Test Type</th>
+                    <th className="text-left py-3 px-4 font-semibold text-gray-500 text-xs uppercase tracking-wide">Score</th>
+                    <th className="text-left py-3 px-4 font-semibold text-gray-500 text-xs uppercase tracking-wide hidden sm:table-cell">Date</th>
+                    <th className="text-left py-3 px-4 font-semibold text-gray-500 text-xs uppercase tracking-wide">Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {tests.map(test => (
-                    <tr key={test.id} className="border-b border-gray-100 hover:bg-gray-50">
-                      <td className="py-3 px-4 capitalize text-sm md:text-base">{test.test_type.replace('_', ' ')}</td>
-                      <td className="py-3 px-4 font-semibold text-primary-700 text-sm md:text-base">{test.score}%</td>
-                      <td className="py-3 px-4 text-gray-600 text-xs md:text-sm hidden sm:table-cell">
+                    <tr
+                      key={test.id}
+                      onClick={() => navigate(`/test-details/${test.id}`)}
+                      className="border-b border-gray-50 hover:bg-gray-50/70 transition-colors cursor-pointer"
+                    >
+                      <td className="py-3.5 px-4 capitalize text-sm font-medium text-gray-800">{test.test_type.replace(/_/g, ' ')}</td>
+                      <td className="py-3.5 px-4 font-bold text-accent-700 text-sm">{test.score}%</td>
+                      <td className="py-3.5 px-4 text-gray-500 text-sm hidden sm:table-cell">
                         {new Date(test.created_at).toLocaleDateString()}
                       </td>
-                      <td className="py-3 px-4">
-                        <span className={`px-2 md:px-3 py-1 rounded-full text-xs font-medium ${
-                          test.score >= 80 ? 'bg-green-100 text-green-700' :
-                          test.score >= 60 ? 'bg-yellow-100 text-yellow-700' :
-                          'bg-red-100 text-red-700'
+                      <td className="py-3.5 px-4">
+                        <span className={`badge ${
+                          test.score >= 80 ? 'badge-success' :
+                          test.score >= 60 ? 'badge-warning' :
+                          'badge-danger'
                         }`}>
                           {test.score >= 80 ? 'Good' : test.score >= 60 ? 'Fair' : 'Needs Attention'}
                         </span>
@@ -241,14 +255,16 @@ function VisionTests() {
           </div>
         ) : (
           <div className="text-center py-12">
-            <svg className="w-16 h-16 md:w-20 md:h-20 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
-            </svg>
-            <h3 className="text-base md:text-lg font-semibold text-gray-900 mb-2">No tests yet</h3>
-            <p className="text-sm md:text-base text-gray-600 mb-6 px-4">Take your first vision test to start tracking your eye health</p>
+            <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gray-50 flex items-center justify-center">
+              <svg className="w-8 h-8 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+              </svg>
+            </div>
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">No tests yet</h3>
+            <p className="text-gray-500 mb-6 px-4">Take your first vision test to start tracking your eye health</p>
             <Link
               to={`/vision-tests/${testTypes[0].type}`}
-              className="inline-block bg-primary-600 hover:bg-primary-700 text-white font-semibold px-6 py-3 rounded-full transition-colors text-sm md:text-base min-h-[44px] flex items-center justify-center"
+              className="btn-primary"
             >
               Take Your First Test
             </Link>

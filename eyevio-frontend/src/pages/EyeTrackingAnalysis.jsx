@@ -273,94 +273,94 @@ export default function EyeTrackingAnalysis() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
+    <div className="test-shell">
       <div className="max-w-6xl mx-auto">
         {/* Header */}
-        <div className="mb-6">
+        <div className="mb-6 animate-fade-in-up">
           <button
             onClick={() => navigate('/vision-tests')}
-            className="text-primary-600 hover:text-primary-700 mb-4 flex items-center"
+            className="btn-ghost mb-4 min-h-[44px] -ml-4"
           >
             ← Back to Tests
           </button>
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Eye Tracking Analysis</h1>
-          <p className="text-gray-600">
+          <h1 className="page-title">Eye Tracking Analysis</h1>
+          <p className="page-subtitle">
             Advanced eye movement and blink rate analysis using AI-powered computer vision
           </p>
         </div>
 
         {/* Instruction State */}
         {sessionState === 'instruction' && (
-          <div className="bg-white rounded-2xl shadow-sm p-8">
+          <div className="card p-8 animate-fade-in-up">
             <div className="text-center mb-8">
-              <div className="w-20 h-20 bg-primary-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Eye className="w-10 h-10 text-primary-600" />
+              <div className="icon-tile w-20 h-20 bg-accent-50 text-accent-600 rounded-full mx-auto mb-4">
+                <Eye className="w-10 h-10" />
               </div>
-              <h2 className="text-2xl font-bold text-gray-900 mb-2">Before We Begin</h2>
-              <p className="text-gray-600">Please read these instructions carefully</p>
+              <h2 className="section-title mb-2">Before We Begin</h2>
+              <p className="text-gray-500">Please read these instructions carefully</p>
             </div>
 
             <div className="space-y-6 mb-8">
               <div className="flex items-start space-x-4">
-                <div className="w-8 h-8 bg-primary-600 text-white rounded-full flex items-center justify-center flex-shrink-0">
+                <div className="w-8 h-8 bg-brand-gradient text-white rounded-full flex items-center justify-center flex-shrink-0 font-semibold">
                   1
                 </div>
                 <div>
                   <h3 className="font-semibold text-gray-900 mb-1">Position Yourself Correctly</h3>
-                  <p className="text-gray-600">Sit 50–70 cm (arm's length) from your screen</p>
+                  <p className="text-gray-500">Sit 50–70 cm (arm's length) from your screen</p>
                 </div>
               </div>
 
               <div className="flex items-start space-x-4">
-                <div className="w-8 h-8 bg-primary-600 text-white rounded-full flex items-center justify-center flex-shrink-0">
+                <div className="w-8 h-8 bg-brand-gradient text-white rounded-full flex items-center justify-center flex-shrink-0 font-semibold">
                   2
                 </div>
                 <div>
                   <h3 className="font-semibold text-gray-900 mb-1">Ensure Good Lighting</h3>
-                  <p className="text-gray-600">
+                  <p className="text-gray-500">
                     Face a light source. Avoid backlighting or harsh shadows on your face
                   </p>
                 </div>
               </div>
 
               <div className="flex items-start space-x-4">
-                <div className="w-8 h-8 bg-primary-600 text-white rounded-full flex items-center justify-center flex-shrink-0">
+                <div className="w-8 h-8 bg-brand-gradient text-white rounded-full flex items-center justify-center flex-shrink-0 font-semibold">
                   3
                 </div>
                 <div>
                   <h3 className="font-semibold text-gray-900 mb-1">Keep Your Head Stable</h3>
-                  <p className="text-gray-600">
+                  <p className="text-gray-500">
                     Minimize head movements during the test. Natural blinking is encouraged
                   </p>
                 </div>
               </div>
 
               <div className="flex items-start space-x-4">
-                <div className="w-8 h-8 bg-primary-600 text-white rounded-full flex items-center justify-center flex-shrink-0">
+                <div className="w-8 h-8 bg-brand-gradient text-white rounded-full flex items-center justify-center flex-shrink-0 font-semibold">
                   4
                 </div>
                 <div>
                   <h3 className="font-semibold text-gray-900 mb-1">Duration: 5 Minutes</h3>
-                  <p className="text-gray-600">
+                  <p className="text-gray-500">
                     The session will automatically end after 5 minutes of continuous tracking
                   </p>
                 </div>
               </div>
 
               <div className="flex items-start space-x-4">
-                <div className="w-8 h-8 bg-primary-600 text-white rounded-full flex items-center justify-center flex-shrink-0">
+                <div className="w-8 h-8 bg-brand-gradient text-white rounded-full flex items-center justify-center flex-shrink-0 font-semibold">
                   5
                 </div>
                 <div>
                   <h3 className="font-semibold text-gray-900 mb-1">Calibration Status</h3>
-                  <p className="text-gray-600">
+                  <p className="text-gray-500">
                     {isCalibrated === null ? (
                       <span className="text-gray-500">Checking calibration...</span>
                     ) : isCalibrated ? (
                       <span className="text-green-600 font-medium">✓ Calibrated for accurate detection</span>
                     ) : (
-                      <span className="text-orange-600 font-medium">
-                        [WARNING] Not calibrated (may miss blinks, especially with slim eyes)
+                      <span className="text-amber-600 font-medium">
+                        Not calibrated (may miss blinks, especially with slim eyes)
                       </span>
                     )}
                   </p>
@@ -369,25 +369,25 @@ export default function EyeTrackingAnalysis() {
             </div>
 
             {isCalibrated === false && (
-              <div className="bg-orange-50 border-2 border-orange-300 rounded-xl p-6 mb-6">
+              <div className="bg-amber-50 border border-amber-200 rounded-2xl p-6 mb-6">
                 <div className="flex items-start space-x-4">
-                  <AlertCircle className="w-6 h-6 text-orange-600 flex-shrink-0 mt-1" />
+                  <AlertCircle className="w-6 h-6 text-amber-600 flex-shrink-0 mt-1" />
                   <div>
-                    <h3 className="font-semibold text-orange-900 mb-2">[WARNING] Calibration Strongly Recommended</h3>
-                    <p className="text-orange-800 text-sm mb-3">
+                    <h3 className="font-semibold text-amber-900 mb-2">Calibration Strongly Recommended</h3>
+                    <p className="text-amber-800 text-sm mb-3">
                       <strong>Important for slim/hooded eyes:</strong> Without calibration, the system uses a generic threshold that may not detect your blinks accurately. 
                       Calibration takes 2 minutes and dramatically improves detection for all eye shapes.
                     </p>
-                    <div className="flex space-x-3">
+                    <div className="flex flex-wrap gap-3">
                       <button
                         onClick={() => navigate('/calibrate-blink')}
-                        className="bg-orange-600 hover:bg-orange-700 text-white px-6 py-2 rounded-lg font-semibold transition-colors"
+                        className="btn-primary min-h-[44px]"
                       >
                         Calibrate Now (2 min)
                       </button>
                       <button
                         onClick={() => setIsCalibrated(true)} // Allow skip
-                        className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-6 py-2 rounded-lg font-semibold transition-colors"
+                        className="btn-secondary min-h-[44px]"
                       >
                         Continue Anyway
                       </button>
@@ -397,12 +397,12 @@ export default function EyeTrackingAnalysis() {
               </div>
             )}
 
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+            <div className="bg-brand-soft border border-accent-100 rounded-2xl p-4 mb-6">
               <div className="flex items-start space-x-3">
-                <AlertCircle className="w-5 h-5 text-blue-600 mt-0.5" />
+                <AlertCircle className="w-5 h-5 text-accent-600 mt-0.5" />
                 <div>
-                  <h4 className="font-semibold text-blue-900 mb-1">What We Measure</h4>
-                  <ul className="text-sm text-blue-800 space-y-1">
+                  <h4 className="font-semibold text-gray-900 mb-1">What We Measure</h4>
+                  <ul className="text-sm text-gray-600 space-y-1">
                     <li>• Blink rate (normal: 12-20 blinks/minute)</li>
                     <li>• Blink duration (normal: 100-300 milliseconds)</li>
                     <li>• Eye movement patterns (saccades & fixations)</li>
@@ -414,7 +414,7 @@ export default function EyeTrackingAnalysis() {
 
             <button
               onClick={startSession}
-              className="w-full bg-primary-600 text-white py-4 rounded-xl font-semibold hover:bg-primary-700 transition-colors"
+              className="btn-primary w-full min-h-[44px] py-4"
             >
               Start Eye Tracking Session
             </button>
@@ -423,9 +423,9 @@ export default function EyeTrackingAnalysis() {
 
         {/* Tracking State */}
         {sessionState === 'tracking' && (
-          <div className="space-y-6">
+          <div className="space-y-6 animate-fade-in-up">
             {/* Video Feed */}
-            <div className="bg-white rounded-2xl shadow-sm p-6">
+            <div className="card p-6">
               <div className="relative bg-black rounded-xl overflow-hidden mb-4" style={{ aspectRatio: '4/3' }}>
                 <video 
                   ref={videoRef} 
@@ -443,24 +443,18 @@ export default function EyeTrackingAnalysis() {
 
                 {/* Face Detection Indicator */}
                 <div className="absolute top-4 left-4">
-                  <div
-                    className={`flex items-center space-x-2 px-3 py-2 rounded-lg ${
-                      faceDetected ? 'bg-green-500' : 'bg-red-500'
-                    }`}
-                  >
-                    <div
+                  <div className={`badge shadow-soft ${faceDetected ? 'badge-success' : 'badge-danger'}`}>
+                    <span
                       className={`w-2 h-2 rounded-full ${
-                        faceDetected ? 'bg-white animate-pulse' : 'bg-white'
+                        faceDetected ? 'bg-green-500 animate-pulse' : 'bg-red-500'
                       }`}
                     />
-                    <span className="text-white text-sm font-medium">
-                      {faceDetected ? 'Face Detected' : 'No Face Detected'}
-                    </span>
+                    {faceDetected ? 'Face Detected' : 'No Face Detected'}
                   </div>
                 </div>
 
                 {/* Timer */}
-                <div className="absolute top-4 right-4 bg-black/70 px-4 py-2 rounded-lg">
+                <div className="absolute top-4 right-4 bg-black/70 px-4 py-2 rounded-full">
                   <div className="flex items-center space-x-2">
                     <Clock className="w-4 h-4 text-white" />
                     <span className="text-white font-mono text-lg">{formatTime(timeRemaining)}</span>
@@ -469,9 +463,9 @@ export default function EyeTrackingAnalysis() {
               </div>
 
               {/* Progress Bar */}
-              <div className="w-full bg-gray-200 rounded-full h-2">
+              <div className="w-full bg-gray-100 rounded-full h-2">
                 <div
-                  className="bg-primary-600 h-2 rounded-full transition-all duration-500"
+                  className="bg-accent-600 h-2 rounded-full transition-all duration-500"
                   style={{ width: `${sessionProgress}%` }}
                 />
               </div>
@@ -479,10 +473,12 @@ export default function EyeTrackingAnalysis() {
 
             {/* Real-Time Metrics */}
             <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="bg-white rounded-xl shadow-sm p-4">
+              <div className="card p-4">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-gray-600 text-sm">Blink Rate</span>
-                  <Eye className="w-4 h-4 text-primary-600" />
+                  <span className="text-gray-500 text-sm">Blink Rate</span>
+                  <div className="icon-tile w-9 h-9 bg-accent-50 text-accent-600 rounded-lg">
+                    <Eye className="w-4 h-4" />
+                  </div>
                 </div>
                 <div className="text-2xl font-bold text-gray-900">
                   {metrics.blinkRate}
@@ -491,19 +487,23 @@ export default function EyeTrackingAnalysis() {
                 <div className="text-xs text-gray-500 mt-1">Normal: 12-20/min</div>
               </div>
 
-              <div className="bg-white rounded-xl shadow-sm p-4">
+              <div className="card p-4">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-gray-600 text-sm">Total Blinks</span>
-                  <Activity className="w-4 h-4 text-blue-600" />
+                  <span className="text-gray-500 text-sm">Total Blinks</span>
+                  <div className="icon-tile w-9 h-9 bg-accent-50 text-accent-600 rounded-lg">
+                    <Activity className="w-4 h-4" />
+                  </div>
                 </div>
                 <div className="text-2xl font-bold text-gray-900">{metrics.totalBlinks}</div>
                 <div className="text-xs text-gray-500 mt-1">Blinks detected</div>
               </div>
 
-              <div className="bg-white rounded-xl shadow-sm p-4">
+              <div className="card p-4">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-gray-600 text-sm">Avg Duration</span>
-                  <Zap className="w-4 h-4 text-yellow-600" />
+                  <span className="text-gray-500 text-sm">Avg Duration</span>
+                  <div className="icon-tile w-9 h-9 bg-accent-50 text-accent-600 rounded-lg">
+                    <Zap className="w-4 h-4" />
+                  </div>
                 </div>
                 <div className="text-2xl font-bold text-gray-900">
                   {metrics.avgBlinkDuration}
@@ -512,10 +512,12 @@ export default function EyeTrackingAnalysis() {
                 <div className="text-xs text-gray-500 mt-1">Normal: 100-300ms</div>
               </div>
 
-              <div className="bg-white rounded-xl shadow-sm p-4">
+              <div className="card p-4">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-gray-600 text-sm">Fatigue Score</span>
-                  <TrendingUp className="w-4 h-4 text-red-600" />
+                  <span className="text-gray-500 text-sm">Fatigue Score</span>
+                  <div className={`icon-tile w-9 h-9 rounded-lg ${getFatigueBgColor(metrics.fatigueScore)} ${getFatigueColor(metrics.fatigueScore)}`}>
+                    <TrendingUp className="w-4 h-4" />
+                  </div>
                 </div>
                 <div className={`text-2xl font-bold ${getFatigueColor(metrics.fatigueScore)}`}>
                   {metrics.fatigueScore}
@@ -526,8 +528,8 @@ export default function EyeTrackingAnalysis() {
             </div>
 
             {/* Instructions */}
-            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
-              <p className="text-blue-900 text-center">
+            <div className="bg-brand-soft border border-accent-100 rounded-2xl p-4">
+              <p className="text-gray-700 text-center">
                 Keep your face in view and blink naturally. The session will complete automatically.
               </p>
             </div>
@@ -536,9 +538,9 @@ export default function EyeTrackingAnalysis() {
 
         {/* Results State */}
         {sessionState === 'results' && results && (
-          <div className="space-y-6">
+          <div className="space-y-6 animate-fade-in-up">
             {/* AI-Powered Summary Card */}
-            <div className="bg-white rounded-2xl shadow-sm p-8">
+            <div className="card p-8">
               <div className="text-center mb-8">
                 <div
                   className={`w-20 h-20 ${getFatigueBgColor(
@@ -547,7 +549,7 @@ export default function EyeTrackingAnalysis() {
                 >
                   <Brain className={`w-10 h-10 ${getFatigueColor(results.fatigueScore)}`} />
                 </div>
-                <h2 className="text-3xl font-bold text-gray-900 mb-2">
+                <h2 className="section-title mb-2">
                   {personalizedFeedback?.title || 'Session Complete!'}
                 </h2>
                 <p className={`text-xl font-semibold ${getFatigueColor(results.fatigueScore)}`}>
@@ -557,12 +559,14 @@ export default function EyeTrackingAnalysis() {
 
               {/* Personalized Assessment */}
               {personalizedFeedback?.assessment && (
-                <div className="bg-blue-50 border border-blue-200 rounded-xl p-6 mb-8">
+                <div className="bg-brand-soft border border-accent-100 rounded-2xl p-6 mb-8">
                   <div className="flex items-start space-x-3">
-                    <Brain className="w-6 h-6 text-blue-600 mt-0.5 flex-shrink-0" />
+                    <div className="icon-tile bg-accent-50 text-accent-600">
+                      <Brain className="w-6 h-6" />
+                    </div>
                     <div>
-                      <h3 className="font-semibold text-blue-900 mb-2"> AI Analysis</h3>
-                      <p className="text-blue-800 leading-relaxed">{personalizedFeedback.assessment}</p>
+                      <h3 className="font-semibold text-gray-900 mb-2">AI Analysis</h3>
+                      <p className="text-gray-700 leading-relaxed">{personalizedFeedback.assessment}</p>
                     </div>
                   </div>
                 </div>
@@ -570,32 +574,32 @@ export default function EyeTrackingAnalysis() {
 
               {/* Detailed Results */}
               <div className="grid md:grid-cols-3 gap-6 mb-8">
-                <div className="text-center p-4 bg-gray-50 rounded-xl">
+                <div className="text-center p-4 bg-gray-50 rounded-2xl border border-gray-100/80">
                   <div className="text-3xl font-bold text-gray-900 mb-1">{results.blinkRate}</div>
-                  <div className="text-sm text-gray-600">Blinks/Min</div>
+                  <div className="text-sm text-gray-500">Blinks/Min</div>
                   <div className="text-xs text-gray-500 mt-1">(Normal: 12-20)</div>
                   {results.blinkRate < 12 && (
                     <div className="text-xs text-red-600 mt-2 font-medium"> Below normal</div>
                   )}
                   {results.blinkRate > 20 && (
-                    <div className="text-xs text-yellow-600 mt-2 font-medium"> Above normal</div>
+                    <div className="text-xs text-amber-600 mt-2 font-medium"> Above normal</div>
                   )}
                 </div>
 
-                <div className="text-center p-4 bg-gray-50 rounded-xl">
+                <div className="text-center p-4 bg-gray-50 rounded-2xl border border-gray-100/80">
                   <div className="text-3xl font-bold text-gray-900 mb-1">{results.avgBlinkDuration}</div>
-                  <div className="text-sm text-gray-600">Avg Duration (ms)</div>
+                  <div className="text-sm text-gray-500">Avg Duration (ms)</div>
                   <div className="text-xs text-gray-500 mt-1">(Normal: 100-300)</div>
                   {results.avgBlinkDuration > 300 && (
-                    <div className="text-xs text-yellow-600 mt-2 font-medium"> Prolonged</div>
+                    <div className="text-xs text-amber-600 mt-2 font-medium"> Prolonged</div>
                   )}
                 </div>
 
-                <div className="text-center p-4 bg-gray-50 rounded-xl">
+                <div className="text-center p-4 bg-gray-50 rounded-2xl border border-gray-100/80">
                   <div className={`text-3xl font-bold mb-1 ${getFatigueColor(results.fatigueScore)}`}>
                     {results.fatigueScore}
                   </div>
-                  <div className="text-sm text-gray-600">Fatigue Score</div>
+                  <div className="text-sm text-gray-500">Fatigue Score</div>
                   <div className="text-xs text-gray-500 mt-1">(Lower is better)</div>
                 </div>
               </div>
@@ -604,12 +608,12 @@ export default function EyeTrackingAnalysis() {
               {personalizedFeedback?.insights && personalizedFeedback.insights.length > 0 && (
                 <div className="mb-8">
                   <h3 className="font-semibold text-gray-900 mb-4 flex items-center">
-                    <AlertCircle className="w-5 h-5 mr-2 text-blue-600" />
+                    <AlertCircle className="w-5 h-5 mr-2 text-accent-600" />
                     Key Insights About Your Eye Health
                   </h3>
                   <div className="space-y-3">
                     {personalizedFeedback.insights.map((insight, idx) => (
-                      <div key={idx} className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                      <div key={idx} className="bg-amber-50 border border-amber-200 rounded-xl p-4">
                         <p className="text-gray-800">{insight}</p>
                       </div>
                     ))}
@@ -628,12 +632,12 @@ export default function EyeTrackingAnalysis() {
                     {personalizedFeedback.recommendations.map((rec, idx) => (
                       <div
                         key={idx}
-                        className={`border rounded-lg p-4 ${
+                        className={`border rounded-xl p-4 ${
                           rec.priority === 'urgent'
-                            ? 'bg-red-50 border-red-300'
+                            ? 'bg-red-50 border-red-200'
                             : rec.priority === 'high'
-                            ? 'bg-orange-50 border-orange-300'
-                            : 'bg-green-50 border-green-300'
+                            ? 'bg-amber-50 border-amber-200'
+                            : 'bg-green-50 border-green-200'
                         }`}
                       >
                         <div className="flex items-start space-x-3">
@@ -645,12 +649,12 @@ export default function EyeTrackingAnalysis() {
                             <div className="text-sm text-gray-600">{rec.reason}</div>
                           </div>
                           <span
-                            className={`text-xs font-medium px-2 py-1 rounded ${
+                            className={`badge ${
                               rec.priority === 'urgent'
-                                ? 'bg-red-100 text-red-700'
+                                ? 'badge-danger'
                                 : rec.priority === 'high'
-                                ? 'bg-orange-100 text-orange-700'
-                                : 'bg-green-100 text-green-700'
+                                ? 'badge-warning'
+                                : 'badge-success'
                             }`}
                           >
                             {rec.priority}
@@ -671,7 +675,7 @@ export default function EyeTrackingAnalysis() {
                       <button
                         key={idx}
                         onClick={() => navigate(step.link)}
-                        className="text-left bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg p-4 transition-colors"
+                        className="text-left bg-white hover:bg-accent-50 border border-gray-100/80 hover:border-accent-300 rounded-2xl p-4 shadow-soft hover:shadow-card transition-all duration-300 hover:-translate-y-0.5 min-h-[44px]"
                       >
                         <div className="font-semibold text-gray-900 mb-1">{step.step}</div>
                         <div className="text-sm text-gray-600">{step.reason}</div>
@@ -698,16 +702,16 @@ export default function EyeTrackingAnalysis() {
               )}
 
               {/* Actions */}
-              <div className="flex space-x-4">
+              <div className="flex flex-col sm:flex-row gap-4">
                 <button
                   onClick={() => navigate('/dashboard')}
-                  className="flex-1 bg-primary-600 text-white py-3 rounded-xl font-semibold hover:bg-primary-700 transition-colors"
+                  className="btn-primary flex-1 min-h-[44px]"
                 >
                   View Dashboard
                 </button>
                 <button
                   onClick={() => navigate('/trends')}
-                  className="flex-1 bg-gray-100 text-gray-700 py-3 rounded-xl font-semibold hover:bg-gray-200 transition-colors"
+                  className="btn-secondary flex-1 min-h-[44px]"
                 >
                   View Trends
                 </button>

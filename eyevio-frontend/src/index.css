@@ -21,7 +21,13 @@ body {
   font-size: 1rem;
   line-height: 1.6;
   color: #2d2a23;
+  background-color: #f8f7f4;
+  -webkit-tap-highlight-color: transparent;
 }
+
+/* Refined heading rhythm */
+h1 { letter-spacing: -0.02em; }
+h2, h3 { letter-spacing: -0.01em; }
 
 /* Age-inclusive readability: raise the floor on the smallest text so nothing
    important renders below ~14px. text-xs -> ~14px, text-sm -> ~15px. */
@@ -178,12 +184,12 @@ html {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #7dcab9;
+  background: #cec9ba;
   border-radius: 5px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #6bb9a8;
+  background: #b8b29e;
 }
 
 /* Glassmorphism effect */
@@ -275,33 +281,83 @@ textarea:focus-visible,
 }
 
 @layer components {
+  /* ---- Buttons ---- */
   .btn-primary {
-    @apply bg-primary-600 text-white px-6 py-3 rounded-xl font-medium hover:bg-primary-700 
-           transition-all duration-300 shadow-sm hover:shadow-lg hover:scale-105 
-           disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 
-           active:scale-95;
+    @apply inline-flex items-center justify-center gap-2 bg-brand-gradient text-white px-6 py-3 
+           rounded-full font-semibold shadow-soft hover:shadow-glow 
+           transition-all duration-300 active:scale-[0.98]
+           disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-soft;
   }
-  
+
   .btn-secondary {
-    @apply bg-white text-primary-700 px-6 py-3 rounded-xl font-medium hover:bg-gray-50 
-           transition-all duration-300 border-2 border-primary-300 hover:border-primary-400 
-           hover:shadow-md active:scale-95;
+    @apply inline-flex items-center justify-center gap-2 bg-white text-accent-700 px-6 py-3 
+           rounded-full font-semibold border border-gray-200 hover:border-accent-300 hover:bg-accent-50
+           transition-all duration-300 active:scale-[0.98];
   }
-  
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 text-gray-600 px-4 py-2.5 rounded-full 
+           font-medium hover:bg-gray-100 hover:text-gray-900 transition-all duration-200;
+  }
+
   .input {
-    @apply w-full px-4 py-3 border border-gray-300 rounded-xl 
-           focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent 
-           bg-white transition-all duration-200 hover:border-gray-400;
+    @apply w-full px-4 py-3 border border-gray-200 rounded-xl 
+           focus:outline-none focus:ring-2 focus:ring-accent-400 focus:border-transparent 
+           bg-white transition-all duration-200 hover:border-gray-300 placeholder:text-gray-400;
   }
-  
+
+  /* ---- Cards ---- */
   .card {
-    @apply bg-white rounded-2xl shadow-sm p-6 border border-gray-100 
-           transition-all duration-300 hover:shadow-md;
+    @apply bg-white rounded-2xl shadow-card p-6 border border-gray-100/80 
+           transition-all duration-300;
   }
-  
+
   .card-hover {
-    @apply bg-white rounded-2xl shadow-sm p-6 border border-gray-100 
-           transition-all duration-300 hover:shadow-xl hover:-translate-y-1 
+    @apply bg-white rounded-2xl shadow-card p-6 border border-gray-100/80 
+           transition-all duration-300 hover:shadow-elevated hover:-translate-y-0.5 
            cursor-pointer;
+  }
+
+  /* ---- Badges / pills ---- */
+  .badge {
+    @apply inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold;
+  }
+  .badge-brand   { @apply bg-accent-50 text-accent-700 ring-1 ring-accent-100; }
+  .badge-neutral { @apply bg-gray-100 text-gray-600 ring-1 ring-gray-200; }
+  .badge-success { @apply bg-green-50 text-green-700 ring-1 ring-green-100; }
+  .badge-warning { @apply bg-amber-50 text-amber-700 ring-1 ring-amber-100; }
+  .badge-danger  { @apply bg-red-50 text-red-700 ring-1 ring-red-100; }
+
+  /* ---- Page structure ---- */
+  .page-title {
+    @apply text-3xl md:text-4xl font-serif font-bold text-gray-900;
+  }
+  .page-subtitle {
+    @apply text-gray-500 mt-2 text-base md:text-lg;
+  }
+  .section-title {
+    @apply text-2xl font-serif font-bold text-gray-900;
+  }
+
+  /* Soft rounded icon tile used across cards */
+  .icon-tile {
+    @apply w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0;
+  }
+
+  /* Test / standalone page shells (inside MainLayout) */
+  .test-shell {
+    @apply max-w-4xl mx-auto space-y-6;
+  }
+  .test-panel {
+    @apply bg-white rounded-2xl shadow-card border border-gray-100/80 p-6 md:p-8;
+  }
+  .test-btn {
+    @apply btn-primary flex-1 min-h-[44px];
+  }
+  .test-btn-outline {
+    @apply btn-secondary flex-1 min-h-[44px];
+  }
+  .spinner {
+    @apply animate-spin rounded-full h-12 w-12 border-4 border-accent-100 border-t-accent-600;
   }
 }

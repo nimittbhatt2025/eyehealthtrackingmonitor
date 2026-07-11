@@ -104,13 +104,13 @@ function Lifestyle() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-4xl font-serif font-bold text-gray-900">Lifestyle Tracking</h1>
+          <h1 className="page-title">Lifestyle Tracking</h1>
           <p className="text-gray-600 mt-2 text-lg">Log daily habits and see their impact on vision health</p>
         </div>
 
         <button
           onClick={() => setShowLogForm(!showLogForm)}
-          className="flex items-center px-6 py-3 bg-primary-600 text-white rounded-full font-semibold hover:bg-primary-700 transition-colors"
+          className="flex items-center px-6 py-3 btn-primary transition-colors"
         >
           <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -121,7 +121,7 @@ function Lifestyle() {
 
       {/* Log Form */}
       {showLogForm && (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+        <div className="card p-8">
           <h2 className="text-2xl font-serif font-bold text-gray-900 mb-6">Daily Log</h2>
           
           <form onSubmit={handleSubmit} className="space-y-6">
@@ -134,7 +134,7 @@ function Lifestyle() {
                   value={selectedDate}
                   onChange={(e) => setSelectedDate(e.target.value)}
                   max={new Date().toISOString().split('T')[0]}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-accent-500 focus:border-transparent"
                   required
                 />
               </div>
@@ -153,7 +153,7 @@ function Lifestyle() {
                   min="0"
                   max="24"
                   placeholder="8.0"
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-accent-500 focus:border-transparent"
                   required
                 />
               </div>
@@ -172,7 +172,7 @@ function Lifestyle() {
                   min="0"
                   max="24"
                   placeholder="7.5"
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-accent-500 focus:border-transparent"
                   required
                 />
               </div>
@@ -191,7 +191,7 @@ function Lifestyle() {
                   min="0"
                   max="24"
                   placeholder="2.0"
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-accent-500 focus:border-transparent"
                   required
                 />
               </div>
@@ -209,7 +209,7 @@ function Lifestyle() {
                   min="0"
                   max="1440"
                   placeholder="30"
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-accent-500 focus:border-transparent"
                   required
                 />
               </div>
@@ -228,7 +228,7 @@ function Lifestyle() {
                   min="0"
                   max="10"
                   placeholder="2.0"
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-accent-500 focus:border-transparent"
                   required
                 />
               </div>
@@ -270,7 +270,7 @@ function Lifestyle() {
                 onChange={handleInputChange}
                 rows="3"
                 placeholder="Any symptoms, events, or observations..."
-                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent resize-none"
+                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-accent-500 focus:border-transparent resize-none"
               />
             </div>
 
@@ -285,7 +285,7 @@ function Lifestyle() {
               </button>
               <button
                 type="submit"
-                className="px-6 py-3 bg-primary-600 text-white rounded-full font-semibold hover:bg-primary-700 transition-colors"
+                className="px-6 py-3 btn-primary transition-colors"
               >
                 Save Log
               </button>
@@ -302,7 +302,7 @@ function Lifestyle() {
             onClick={() => setPeriod(days)}
             className={`px-6 py-3 rounded-full font-semibold text-sm transition-colors ${
               period === days
-                ? 'bg-primary-600 text-white'
+                ? 'bg-accent-600 text-white'
                 : 'text-gray-600 hover:text-gray-900'
             }`}
           >
@@ -313,7 +313,7 @@ function Lifestyle() {
 
       {loading ? (
         <div className="flex items-center justify-center min-h-[400px]">
-          <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary-200 border-t-primary-600"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-4 border-accent-100 border-t-accent-600"></div>
         </div>
       ) : (
         <>
@@ -321,7 +321,7 @@ function Lifestyle() {
           {trends.length > 0 && (
             <div className="grid lg:grid-cols-2 gap-8">
               {/* Screen Time & Sleep */}
-              <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+              <div className="card p-8">
                 <h2 className="text-xl font-serif font-bold text-gray-900 mb-6">Screen Time & Sleep</h2>
                 <ResponsiveContainer width="100%" height={300}>
                   <LineChart data={trends}>
@@ -341,7 +341,7 @@ function Lifestyle() {
               </div>
 
               {/* Exercise & Outdoor Time */}
-              <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+              <div className="card p-8">
                 <h2 className="text-xl font-serif font-bold text-gray-900 mb-6">Activity Levels</h2>
                 <ResponsiveContainer width="100%" height={300}>
                   <BarChart data={trends}>
@@ -361,7 +361,7 @@ function Lifestyle() {
               </div>
 
               {/* Diet & Water */}
-              <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+              <div className="card p-8">
                 <h2 className="text-xl font-serif font-bold text-gray-900 mb-6">Diet & Hydration</h2>
                 <ResponsiveContainer width="100%" height={300}>
                   <LineChart data={trends}>
@@ -381,7 +381,7 @@ function Lifestyle() {
               </div>
 
               {/* Averages Summary */}
-              <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+              <div className="card p-8">
                 <h2 className="text-xl font-serif font-bold text-gray-900 mb-6">Period Averages</h2>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="bg-cream-200 rounded-xl p-4">
@@ -414,7 +414,7 @@ function Lifestyle() {
           )}
 
           {/* Recent Logs */}
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+          <div className="card p-8">
             <h2 className="text-2xl font-serif font-bold text-gray-900 mb-6">Recent Logs</h2>
             
             {logs.length === 0 ? (
@@ -428,7 +428,7 @@ function Lifestyle() {
                 <p className="text-gray-600 mb-6">Start tracking your daily habits to see patterns</p>
                 <button
                   onClick={() => setShowLogForm(true)}
-                  className="px-6 py-3 bg-primary-600 text-white rounded-full font-semibold hover:bg-primary-700 transition-colors"
+                  className="px-6 py-3 btn-primary transition-colors"
                 >
                   Create First Log
                 </button>
@@ -436,7 +436,7 @@ function Lifestyle() {
             ) : (
               <div className="space-y-4">
                 {logs.map((log) => (
-                  <div key={log.id} className="border border-gray-200 rounded-xl p-6 hover:border-primary-300 transition-colors">
+                  <div key={log.id} className="border border-gray-200 rounded-xl p-6 hover:border-accent-300 transition-colors">
                     <div className="flex items-center justify-between mb-4">
                       <div className="text-lg font-semibold text-gray-900">{formatDate(log.date)}</div>
                       <div className={`px-3 py-1 rounded-full text-sm font-semibold ${

@@ -334,7 +334,7 @@ const AmslerGridTest = () => {
     <div className="min-h-screen bg-white flex items-center justify-center p-8">
       <div className="max-w-3xl w-full space-y-8">
         <div className="text-center">
-          <h2 className="text-3xl font-bold text-gray-900 mb-4">Brightness Check</h2>
+          <h2 className="section-title mb-4">Brightness Check</h2>
           <p className="text-lg text-gray-600">
             Before starting, ensure your screen brightness is appropriate for clinical testing
           </p>
@@ -367,9 +367,9 @@ const AmslerGridTest = () => {
             </div>
           </div>
           
-          <div className="bg-blue-50 border-2 border-blue-200 rounded-xl p-6">
-            <h4 className="font-bold text-blue-900 mb-3"> Requirements:</h4>
-            <ul className="text-sm text-blue-800 space-y-2">
+          <div className="bg-accent-50 border border-accent-100 rounded-xl p-6">
+            <h4 className="font-bold text-accent-800 mb-3"> Requirements:</h4>
+            <ul className="text-sm text-gray-700 space-y-2">
               <li>• You should see all 10 gray shades distinctly</li>
               <li>• Black and white should have maximum contrast</li>
               <li>• No glare or reflections on screen</li>
@@ -382,7 +382,7 @@ const AmslerGridTest = () => {
         <div className="flex gap-4">
           <button
             onClick={() => setTestState('distance-gate')}
-            className="flex-1 bg-gray-200 text-gray-700 px-8 py-4 rounded-full font-semibold hover:bg-gray-300 transition-colors"
+            className="flex-1 btn-secondary min-h-[44px]"
           >
              Back
           </button>
@@ -391,7 +391,7 @@ const AmslerGridTest = () => {
               setBrightnessConfirmed(true)
               setTestState('instructions')
             }}
-            className="flex-1 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white px-8 py-4 rounded-full font-bold shadow-lg hover:shadow-xl transform hover:scale-[1.02] transition-all"
+            className="flex-1 btn-primary min-h-[44px]"
           >
              Brightness is Good - Continue
           </button>
@@ -402,21 +402,21 @@ const AmslerGridTest = () => {
   
   const renderInstructions = () => (
     <div className="max-w-4xl mx-auto space-y-8">
-      <div className="bg-white rounded-2xl shadow-xl p-8 border-2 border-purple-100">
-        <h1 className="text-4xl font-bold text-gray-900 mb-4 text-center">Amsler Grid Test</h1>
-        <p className="text-lg text-gray-600 text-center mb-8">
+      <div className="card">
+        <h1 className="page-title mb-4 text-center">Amsler Grid Test</h1>
+        <p className="page-subtitle text-center mb-8">
           Look at a grid of straight lines to check the center of your vision
         </p>
 
         {/* Quick-start summary so users can begin without reading everything */}
-        <div className="bg-purple-600 text-white rounded-2xl p-6 mb-8">
+        <div className="bg-brand-gradient text-white rounded-2xl p-6 mb-8">
           <h2 className="font-bold text-lg mb-3">In short</h2>
-          <ol className="space-y-2 text-purple-50">
+          <ol className="space-y-2 text-white/90">
             <li><span className="font-bold">1.</span> Cover one eye and stare at the dot in the center.</li>
             <li><span className="font-bold">2.</span> Tell us if any lines look wavy, blurry, or missing.</li>
             <li><span className="font-bold">3.</span> Switch eyes and repeat. Takes about 2 minutes.</li>
           </ol>
-          <p className="text-sm text-purple-100 mt-3">Want more detail and examples? Keep reading below.</p>
+          <p className="text-sm text-white/80 mt-3">Want more detail and examples? Keep reading below.</p>
         </div>
 
         {/* Corrective lens guidance */}
@@ -431,9 +431,9 @@ const AmslerGridTest = () => {
         </div>
         
         <div className="space-y-6 text-gray-700">
-          <div className="bg-blue-50 border-2 border-blue-200 rounded-xl p-6">
-            <h3 className="font-bold text-blue-900 mb-3 text-lg"> What This Test Does:</h3>
-            <ul className="space-y-2 text-blue-800">
+          <div className="bg-accent-50 border border-accent-100 rounded-xl p-6">
+            <h3 className="font-bold text-accent-800 mb-3 text-lg"> What This Test Does:</h3>
+            <ul className="space-y-2 text-gray-700">
               <li>• Checks the center of your vision (the part you use to read and see faces)</li>
               <li>• Helps you notice wavy lines, blurry spots, or missing areas</li>
               <li>• Lets you track changes over time</li>
@@ -441,9 +441,9 @@ const AmslerGridTest = () => {
             </ul>
           </div>
           
-          <div className="bg-purple-50 border-2 border-purple-200 rounded-xl p-6">
-            <h3 className="font-bold text-purple-900 mb-3 text-lg"> How It Works:</h3>
-            <ol className="space-y-3 text-purple-800">
+          <div className="bg-brand-soft border border-accent-100 rounded-xl p-6">
+            <h3 className="font-bold text-accent-800 mb-3 text-lg"> How It Works:</h3>
+            <ol className="space-y-3 text-gray-700">
               <li><span className="font-bold">1. View the Grid:</span> You'll see a 10×10 white grid with black lines and a red center dot</li>
               <li><span className="font-bold">2. Fixate on Center:</span> Stare at the red dot without moving your eyes</li>
               <li><span className="font-bold">3. Check Periphery:</span> While fixating, notice if any grid lines appear wavy, blurred, broken, or missing</li>
@@ -453,8 +453,8 @@ const AmslerGridTest = () => {
           </div>
 
           {/* Visual Examples Section */}
-          <div className="bg-gradient-to-br from-yellow-50 to-orange-50 border-2 border-orange-300 rounded-xl p-6">
-            <h3 className="font-bold text-orange-900 mb-4 text-xl text-center"> Visual Examples: What to Mark</h3>
+          <div className="card">
+            <h3 className="font-bold text-gray-900 mb-4 text-xl text-center"> Visual Examples: What to Mark</h3>
             
             <div className="space-y-6">
               {/* Example 1: Wavy Lines (Metamorphopsia) */}
@@ -561,13 +561,13 @@ const AmslerGridTest = () => {
         <div className="mt-8 flex gap-4">
           <button
             onClick={() => setTestState('brightness-check')}
-            className="flex-1 bg-gray-200 text-gray-700 px-8 py-4 rounded-full font-semibold hover:bg-gray-300 transition-colors"
+            className="flex-1 btn-secondary min-h-[44px]"
           >
              Back
           </button>
           <button
             onClick={() => setTestState('eye-coverage-setup')}
-            className="flex-1 bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 text-white px-8 py-4 rounded-full font-bold shadow-lg hover:shadow-xl transform hover:scale-[1.02] transition-all"
+            className="flex-1 btn-primary min-h-[44px]"
           >
             Begin Test 
           </button>
@@ -597,7 +597,7 @@ const AmslerGridTest = () => {
           <p className="text-lg text-gray-600">
             Keep your eye on the red center dot. Do you see any distortions?
           </p>
-          <p className="text-sm text-purple-600 font-semibold mt-2">
+          <p className="text-sm text-accent-600 font-semibold mt-2">
             Distance: 355mm (14") • Grid: 10×10 Clinical Standard
           </p>
         </div>
@@ -624,9 +624,9 @@ const AmslerGridTest = () => {
         </div>
         
         {/* Instructions */}
-        <div className="bg-blue-50 border-2 border-blue-200 rounded-xl p-6 max-w-2xl mx-auto">
-          <h4 className="font-bold text-blue-900 mb-3">While fixating on the red dot:</h4>
-          <ul className="text-sm text-blue-800 space-y-2">
+        <div className="bg-accent-50 border border-accent-100 rounded-xl p-6 max-w-2xl mx-auto">
+          <h4 className="font-bold text-accent-800 mb-3">While fixating on the red dot:</h4>
+          <ul className="text-sm text-gray-700 space-y-2">
             <li>• Do all grid lines appear straight?</li>
             <li>• Are all squares equal in size?</li>
             <li>• Is any area missing, blurry, or distorted?</li>
@@ -663,7 +663,7 @@ const AmslerGridTest = () => {
                 submitTest()
               }
             }}
-            className="flex-1 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white px-8 py-4 rounded-xl font-bold shadow-lg hover:shadow-xl transform hover:scale-[1.02] transition-all"
+            className="flex-1 bg-green-600 hover:bg-green-700 text-white px-8 py-4 rounded-full font-bold shadow-soft transition-all min-h-[44px]"
           >
              Grid Looks Normal
           </button>
@@ -675,7 +675,7 @@ const AmslerGridTest = () => {
               }))
               setTestState('marking')
             }}
-            className="flex-1 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white px-8 py-4 rounded-xl font-bold shadow-lg hover:shadow-xl transform hover:scale-[1.02] transition-all"
+            className="flex-1 bg-amber-500 hover:bg-amber-600 text-white px-8 py-4 rounded-full font-bold shadow-soft transition-all min-h-[44px]"
           >
              I See Distortions
           </button>
@@ -811,7 +811,7 @@ const AmslerGridTest = () => {
                 submitTest()
               }
             }}
-            className="flex-1 bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 text-white px-8 py-3 rounded-xl font-bold shadow-lg hover:shadow-xl transform hover:scale-[1.02] transition-all"
+            className="flex-1 btn-primary min-h-[44px]"
           >
             Done Marking 
           </button>
@@ -821,7 +821,7 @@ const AmslerGridTest = () => {
   )
   
   const renderSwitchEyes = () => (
-    <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-blue-50 flex items-center justify-center p-8">
+    <div className="test-shell flex items-center justify-center min-h-[60vh]">
       <div className="max-w-2xl w-full bg-white rounded-2xl shadow-xl p-12 text-center space-y-8">
         <div className="text-6xl mb-4"> ↔️ </div>
         <h2 className="text-4xl font-bold text-gray-900">Switch Eyes</h2>
@@ -837,7 +837,7 @@ const AmslerGridTest = () => {
         </div>
         <button
           onClick={() => setTestState('eye-coverage-setup')}
-          className="w-full bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 text-white px-8 py-4 rounded-full font-bold shadow-lg hover:shadow-xl transform hover:scale-[1.02] transition-all"
+          className="w-full btn-primary min-h-[44px]"
         >
           Continue to {currentEye === 'right' ? 'Right' : 'Left'} Eye Test 
         </button>
@@ -907,13 +907,13 @@ const AmslerGridTest = () => {
         <div className="mt-8 flex gap-4">
           <button
             onClick={() => navigate('/dashboard')}
-            className="flex-1 bg-gray-200 text-gray-700 px-8 py-4 rounded-full font-semibold hover:bg-gray-300 transition-colors"
+            className="flex-1 btn-secondary min-h-[44px]"
           >
              Back to Dashboard
           </button>
           <button
             onClick={() => navigate('/vision-tests')}
-            className="flex-1 bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 text-white px-8 py-4 rounded-full font-bold shadow-lg hover:shadow-xl transform hover:scale-[1.02] transition-all"
+            className="flex-1 btn-primary min-h-[44px]"
           >
             More Tests 
           </button>
@@ -923,7 +923,7 @@ const AmslerGridTest = () => {
   )
   
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-slate-50 py-12 px-4">
+    <div className="test-shell">
       <div className="max-w-7xl mx-auto">
         {testState === 'distance-gate' && renderDistanceGate()}
         {testState === 'brightness-check' && renderBrightnessCheck()}

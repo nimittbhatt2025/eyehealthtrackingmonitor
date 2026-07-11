@@ -9,6 +9,8 @@ class VoiceRecognition {
     this.isListening = false
     this.onResultCallback = null
     this.onErrorCallback = null
+    this.fatalError = false
+    this.lastLoggedError = null
     
     // Check if browser supports speech recognition
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
@@ -29,7 +31,6 @@ class VoiceRecognition {
           // Try all alternatives for best match
           for (let i = 0; i < result.length; i++) {
             const transcript = result[i].transcript.trim()
-            console.log(`Voice alternative ${i}:`, transcript, `(confidence: ${result[i].confidence})`)
             
             if (this.onResultCallback) {
               this.onResultCallback(transcript)
@@ -40,8 +41,27 @@ class VoiceRecognition {
       }
       
       this.recognition.onerror = (event) => {
-        console.error('Speech recognition error:', event.error)
+        const fatalErrors = ['network', 'not-allowed', 'service-not-allowed', 'audio-capture', 'aborted']
+        const isFatal = fatalErrors.includes(event.error)
+
+        if (isFatal) {
+          this.fatalError = true
+          this.isListening = false
+          try {
+            this.recognition.stop()
+          } catch {
+            // ignore
+          }
+        }
+
         if (event.error !== 'no-speech' && event.error !== 'aborted') {
+          // Avoid console spam from repeated network errors
+          if (this.lastLoggedError !== event.error) {
+            this.lastLoggedError = event.error
+            if (event.error !== 'network') {
+              console.error('Speech recognition error:', event.error)
+            }
+          }
           if (this.onErrorCallback) {
             this.onErrorCallback(event.error)
           }
@@ -49,12 +69,12 @@ class VoiceRecognition {
       }
       
       this.recognition.onend = () => {
-        // Auto-restart if still supposed to be listening
-        if (this.isListening) {
+        // Auto-restart only if still active and no fatal error
+        if (this.isListening && !this.fatalError) {
           try {
             this.recognition.start()
-          } catch (e) {
-            console.log('Recognition restart failed:', e.message)
+          } catch {
+            // Recognition may already be starting
           }
         }
       }
@@ -71,6 +91,8 @@ class VoiceRecognition {
       return false
     }
     
+    this.fatalError = false
+    this.lastLoggedError = null
     this.onResultCallback = onResult
     this.onErrorCallback = onError
     
@@ -86,8 +108,12 @@ class VoiceRecognition {
   
   stop() {
     if (this.recognition && this.isListening) {
-      this.recognition.stop()
       this.isListening = false
+      try {
+        this.recognition.stop()
+      } catch {
+        // ignore
+      }
     }
   }
   

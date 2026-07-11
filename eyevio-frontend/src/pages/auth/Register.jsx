@@ -64,20 +64,8 @@ function Register() {
   }
 
   return (
-    <div className="min-h-screen bg-cream-200 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full">
-        <div className="text-center mb-8">
-          <img src="/logo.svg" alt="EyeVio Logo" className="h-16 w-auto mx-auto mb-4" />
-          <h2 className="text-5xl font-serif font-bold text-gray-900 mb-2">
-            Create Account
-          </h2>
-          <p className="text-gray-600">
-            Join EyeVio for personalized vision care
-          </p>
-        </div>
-
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
-          <form className="space-y-5" onSubmit={handleSubmit}>
+    <div className="card p-8">
+      <form className="space-y-5" onSubmit={handleSubmit}>
             <div>
               <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-2">
                 Full Name
@@ -89,7 +77,7 @@ function Register() {
                 required
                 value={formData.name}
                 onChange={handleChange}
-                className="appearance-none relative block w-full px-4 py-3 border border-gray-300 rounded-xl placeholder-gray-400 text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
+                className="input"
                 placeholder="John Doe"
               />
             </div>
@@ -106,7 +94,7 @@ function Register() {
                 required
                 value={formData.email}
                 onChange={handleChange}
-                className="appearance-none relative block w-full px-4 py-3 border border-gray-300 rounded-xl placeholder-gray-400 text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
+                className="input"
                 placeholder="you@example.com"
               />
             </div>
@@ -125,7 +113,7 @@ function Register() {
                   max="120"
                   value={formData.age}
                   onChange={handleChange}
-                  className="appearance-none relative block w-full px-4 py-3 border border-gray-300 rounded-xl placeholder-gray-400 text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
+                  className="input"
                   placeholder="25"
                 />
               </div>
@@ -139,7 +127,7 @@ function Register() {
                   name="gender"
                   value={formData.gender}
                   onChange={handleChange}
-                  className="appearance-none relative block w-full px-4 py-3 border border-gray-300 rounded-xl text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
+                  className="input"
                 >
                   <option value="">Select</option>
                   <option value="male">Male</option>
@@ -159,7 +147,7 @@ function Register() {
                 type="tel"
                 value={formData.phone}
                 onChange={handleChange}
-                className="appearance-none relative block w-full px-4 py-3 border border-gray-300 rounded-xl placeholder-gray-400 text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
+                className="input"
                 placeholder="+1 (555) 000-0000"
               />
             </div>
@@ -176,7 +164,7 @@ function Register() {
                 required
                 value={formData.password}
                 onChange={handleChange}
-                className="appearance-none relative block w-full px-4 py-3 border border-gray-300 rounded-xl placeholder-gray-400 text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
+                className="input"
                 placeholder="••••••••"
               />
             </div>
@@ -193,7 +181,7 @@ function Register() {
                 required
                 value={formData.confirmPassword}
                 onChange={handleChange}
-                className="appearance-none relative block w-full px-4 py-3 border border-gray-300 rounded-xl placeholder-gray-400 text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
+                className="input"
                 placeholder="••••••••"
               />
             </div>
@@ -202,7 +190,7 @@ function Register() {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full flex justify-center py-3 px-4 border border-transparent rounded-full shadow-sm text-base font-semibold text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                className="btn-primary w-full min-h-[44px]"
               >
                 {loading ? (
                   <div className="flex items-center">
@@ -229,14 +217,12 @@ function Register() {
             <div className="mt-6 text-center">
               <Link
                 to="/login"
-                className="font-medium text-primary-600 hover:text-primary-700 transition-colors"
+                className="font-medium text-accent-600 hover:text-accent-700 transition-colors"
               >
                 Sign in instead →
               </Link>
             </div>
           </div>
-        </div>
-      </div>
     </div>
   )
 }

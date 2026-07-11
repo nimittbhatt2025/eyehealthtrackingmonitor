@@ -39,11 +39,12 @@ const ColorVisionTest = () => {
   const [lastResult, setLastResult] = useState(null)
   
   // Voice recognition state
-  const [voiceEnabled, setVoiceEnabled] = useState(true) // Default to voice enabled
+  const [voiceEnabled, setVoiceEnabled] = useState(false)
   const [isListening, setIsListening] = useState(false)
   const [voiceSupported] = useState(voiceRecognition.isSupported())
   const [userInput, setUserInput] = useState('')
-  const [inputMethod, setInputMethod] = useState('voice') // 'voice' or 'type' - set in instructions
+  const [inputMethod, setInputMethod] = useState('type') // 'voice' or 'type' — tap is default
+  const [voiceNotice, setVoiceNotice] = useState('')
   const [lastVoiceSubmitTime, setLastVoiceSubmitTime] = useState(0) // Prevent duplicate submissions
   const autoSubmitTimerRef = useRef(null) // Store auto-submit timer reference
   const pendingAnswerRef = useRef(null) // Store the pending answer to avoid closure issues
@@ -265,10 +266,9 @@ const ColorVisionTest = () => {
     }, 1500)
   }
 
-  // Voice recognition for current plate
+  // Voice recognition for current plate (optional — tap buttons are primary)
   useEffect(() => {
-    if (testState === 'testing' && voiceEnabled && currentPlate && !showFeedback) {
-      // Small delay before starting to ensure plate is ready
+    if (testState === 'testing' && voiceEnabled && inputMethod === 'voice' && currentPlate && !showFeedback) {
       const timer = setTimeout(() => {
         startVoiceRecognition()
       }, 300)
@@ -281,23 +281,37 @@ const ColorVisionTest = () => {
         }
       }
     } else {
-      // Stop listening when not in testing state
       if (isListening) {
         voiceRecognition.stop()
         setIsListening(false)
       }
     }
-  }, [testState, voiceEnabled, currentPlate, showFeedback])
+  }, [testState, voiceEnabled, inputMethod, currentPlate, showFeedback])
+
+  const handleVoiceError = (error) => {
+    const fatalErrors = ['network', 'not-allowed', 'service-not-allowed', 'audio-capture']
+    if (!fatalErrors.includes(error)) return
+
+    voiceRecognition.stop()
+    setIsListening(false)
+    setVoiceEnabled(false)
+    setInputMethod('type')
+
+    const messages = {
+      network: 'Voice needs internet. Tap a number below to continue.',
+      'not-allowed': 'Microphone blocked. Tap a number below to continue.',
+      'service-not-allowed': 'Voice unavailable. Tap a number below to continue.',
+      'audio-capture': 'No microphone found. Tap a number below to continue.',
+    }
+    setVoiceNotice(messages[error] || 'Voice unavailable. Tap a number below.')
+  }
 
   // Start voice recognition
   const startVoiceRecognition = () => {
-    // Don't start if already listening or if we just submitted
-    if (!voiceSupported || isListening || showFeedback) {
-      console.log('⏸️ Cannot start voice - already listening:', isListening, 'or showing feedback:', showFeedback)
+    if (!voiceSupported || !voiceEnabled || inputMethod !== 'voice' || isListening || showFeedback) {
       return
     }
     
-    console.log('[mic] Starting voice recognition...')
     setIsListening(true)
     
     voiceRecognition.start((transcript) => {
@@ -367,7 +381,7 @@ const ColorVisionTest = () => {
           autoSubmitTimerRef.current = null
         }, 800) // FASTER: 0.8 seconds (was 2 seconds)
       }
-    })
+    }, handleVoiceError)
   }
 
   // Normalize answer (now just delegates to voiceRecognition parser)
@@ -442,19 +456,22 @@ const ColorVisionTest = () => {
     // Move to next plate after delay
     setTimeout(() => {
       if (currentPlateIndex < testPlates.length - 1) {
-        setCurrentPlateIndex(currentPlateIndex + 1)
+        const nextIndex = currentPlateIndex + 1
+        setCurrentPlateIndex(nextIndex)
+        setCurrentPlate(testPlates[nextIndex])
+        setSelectedAnswer(null)
         setUserInput('')
         setShowFeedback(false)
         setLastResult(null)
         setResponseStartTime(Date.now())
         
-        // Restart voice recognition for next plate
-        setTimeout(() => {
+        if (voiceEnabled && inputMethod === 'voice') {
+          setTimeout(() => {
             startVoiceRecognition()
-        }, 500)
+          }, 500)
+        }
       } else {
-        // Test complete
-        completeTest([...responses, response])
+        setTestState('results')
       }
     }, FEEDBACK_DURATION)
   }
@@ -581,12 +598,15 @@ const ColorVisionTest = () => {
 
   // Start the test (skip glasses check, go directly to testing)
   const startTest = () => {
+    const useVoice = inputMethod === 'voice' && voiceSupported
+    setVoiceEnabled(useVoice)
+    setVoiceNotice('')
     setTestState('testing')
   }
 
   // Render Distance Gate - blocks until user is at correct distance
   const renderDistanceGate = () => (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-50 py-6 px-4">
+    <div className="test-shell">
       <div className="max-w-4xl mx-auto">
         <InlineDistanceCalibration
           testType="color_vision"
@@ -623,23 +643,21 @@ const ColorVisionTest = () => {
 
   // Render Instructions
   const renderInstructions = () => (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-50 py-6 px-4">
+    <div className="test-shell">
       <div className="max-w-4xl mx-auto space-y-4">
         
         {/* Header Section */}
         <div className="text-center mb-6">
-          <div className="mb-4">
-            <div className="w-16 h-16 mx-auto bg-blue-600 rounded-2xl flex items-center justify-center shadow-lg">
-              <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-              </svg>
-            </div>
+          <div className="icon-tile bg-accent-50 text-accent-600 w-16 h-16 mx-auto mb-4">
+            <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+            </svg>
           </div>
-          <h1 className="text-4xl font-bold text-gray-900 mb-3">
+          <h1 className="page-title mb-3">
             Color Vision Test
           </h1>
-          <p className="text-lg text-gray-600 max-w-2xl mx-auto">
+          <p className="page-subtitle max-w-2xl mx-auto">
             Screen for red-green color deficiencies using Ishihara-inspired plates
           </p>
         </div>
@@ -687,29 +705,29 @@ const ColorVisionTest = () => {
         </div>
 
         {/* How This Test Works */}
-        <div className="bg-white rounded-xl shadow-lg p-6">
-          <h2 className="text-2xl font-bold text-gray-900 mb-4 text-center">How This Test Works</h2>
+        <div className="card">
+          <h2 className="section-title mb-4 text-center">How This Test Works</h2>
           
           <div className="grid md:grid-cols-3 gap-4">
             <div className="text-center">
-              <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                <span className="text-2xl font-bold text-blue-600">1</span>
+              <div className="w-12 h-12 bg-accent-50 rounded-full flex items-center justify-center mx-auto mb-3">
+                <span className="text-2xl font-bold text-accent-600">1</span>
               </div>
               <h3 className="font-bold text-base text-gray-900 mb-1">View Each Plate</h3>
               <p className="text-sm text-gray-600">You'll see 10 colored dot patterns, each containing a hidden number.</p>
             </div>
 
             <div className="text-center">
-              <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                <span className="text-2xl font-bold text-blue-600">2</span>
+              <div className="w-12 h-12 bg-accent-50 rounded-full flex items-center justify-center mx-auto mb-3">
+                <span className="text-2xl font-bold text-accent-600">2</span>
               </div>
               <h3 className="font-bold text-base text-gray-900 mb-1">Identify the Number</h3>
               <p className="text-sm text-gray-600">Select the number you see, or choose "Nothing" if you can't see any.</p>
             </div>
 
             <div className="text-center">
-              <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                <span className="text-2xl font-bold text-blue-600">3</span>
+              <div className="w-12 h-12 bg-accent-50 rounded-full flex items-center justify-center mx-auto mb-3">
+                <span className="text-2xl font-bold text-accent-600">3</span>
               </div>
               <h3 className="font-bold text-base text-gray-900 mb-1">Get Results</h3>
               <p className="text-sm text-gray-600">Receive screening results for red and green deficiencies.</p>
@@ -718,7 +736,7 @@ const ColorVisionTest = () => {
         </div>
 
         {/* Best Practices */}
-        <div className="bg-white rounded-xl shadow-lg p-5">
+        <div className="card">
           <h3 className="text-xl font-bold text-gray-900 mb-4">Best Practices for Reliable Results</h3>
           
           <div className="grid md:grid-cols-2 gap-4">
@@ -819,64 +837,31 @@ const ColorVisionTest = () => {
         </div>
 
         {/* Input Method Selection */}
-        <div className="bg-white rounded-xl shadow-lg p-5">
+        <div className="card">
           <h3 className="text-xl font-bold text-gray-900 mb-4 text-center">Choose Your Input Method</h3>
           
           <div className="grid md:grid-cols-2 gap-4 mb-4">
             <button
-              onClick={() => setInputMethod('voice')}
-              className={`relative overflow-hidden rounded-xl p-4 transition-all duration-200 ${
-                inputMethod === 'voice'
-                  ? 'bg-gradient-to-br from-blue-600 to-blue-700 text-white shadow-lg scale-105'
-                  : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border-2 border-gray-200'
-              }`}
-            >
-              <div className="flex flex-col items-center gap-2">
-                <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
-                  inputMethod === 'voice' ? 'bg-white bg-opacity-20' : 'bg-blue-100'
-                }`}>
-                  <svg className={`w-6 h-6 ${inputMethod === 'voice' ? 'text-white' : 'text-blue-600'}`} fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
-                  </svg>
-                </div>
-                <div className="text-center">
-                  <p className="text-lg font-bold mb-0.5">Voice Input</p>
-                  <p className="text-xs opacity-90 mb-1">Speak numbers aloud</p>
-                  <p className="text-xs opacity-75 px-2 py-0.5 rounded-full bg-black bg-opacity-10">
-                    Stays active throughout test
-                  </p>
-                </div>
-              </div>
-              {inputMethod === 'voice' && (
-                <div className="absolute top-2 right-2">
-                  <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                  </svg>
-                </div>
-              )}
-            </button>
-
-            <button
               onClick={() => setInputMethod('type')}
               className={`relative overflow-hidden rounded-xl p-4 transition-all duration-200 ${
                 inputMethod === 'type'
-                  ? 'bg-gradient-to-br from-blue-600 to-blue-700 text-white shadow-lg scale-105'
+                  ? 'bg-accent-600 text-white shadow-card scale-105'
                   : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border-2 border-gray-200'
               }`}
             >
               <div className="flex flex-col items-center gap-2">
                 <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
-                  inputMethod === 'type' ? 'bg-white bg-opacity-20' : 'bg-blue-100'
+                  inputMethod === 'type' ? 'bg-white bg-opacity-20' : 'bg-accent-50'
                 }`}>
-                  <svg className={`w-6 h-6 ${inputMethod === 'type' ? 'text-white' : 'text-blue-600'}`} fill="currentColor" viewBox="0 0 20 20">
+                  <svg className={`w-6 h-6 ${inputMethod === 'type' ? 'text-white' : 'text-accent-600'}`} fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M6 2a2 2 0 00-2 2v12a2 2 0 002 2h8a2 2 0 002-2V7.414A2 2 0 0015.414 6L12 2.586A2 2 0 0010.586 2H6zm5 6a1 1 0 10-2 0v3.586l-1.293-1.293a1 1 0 10-1.414 1.414l3 3a1 1 0 001.414 0l3-3a1 1 0 00-1.414-1.414L11 11.586V8z" clipRule="evenodd" />
                   </svg>
                 </div>
                 <div className="text-center">
-                  <p className="text-lg font-bold mb-0.5">Click/Type</p>
-                  <p className="text-xs opacity-90 mb-1">Select from buttons</p>
+                  <p className="text-lg font-bold mb-0.5">Tap Numbers (Recommended)</p>
+                  <p className="text-xs opacity-90 mb-1">Select from buttons on screen</p>
                   <p className="text-xs opacity-75 px-2 py-0.5 rounded-full bg-black bg-opacity-10">
-                    Manual selection
+                    Works offline — most reliable
                   </p>
                 </div>
               </div>
@@ -888,15 +873,48 @@ const ColorVisionTest = () => {
                 </div>
               )}
             </button>
+
+            <button
+              onClick={() => setInputMethod('voice')}
+              className={`relative overflow-hidden rounded-xl p-4 transition-all duration-200 ${
+                inputMethod === 'voice'
+                  ? 'bg-accent-600 text-white shadow-card scale-105'
+                  : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border-2 border-gray-200'
+              }`}
+            >
+              <div className="flex flex-col items-center gap-2">
+                <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
+                  inputMethod === 'voice' ? 'bg-white bg-opacity-20' : 'bg-accent-50'
+                }`}>
+                  <svg className={`w-6 h-6 ${inputMethod === 'voice' ? 'text-white' : 'text-accent-600'}`} fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
+                  </svg>
+                </div>
+                <div className="text-center">
+                  <p className="text-lg font-bold mb-0.5">Voice Input (Optional)</p>
+                  <p className="text-xs opacity-90 mb-1">Speak numbers aloud</p>
+                  <p className="text-xs opacity-75 px-2 py-0.5 rounded-full bg-black bg-opacity-10">
+                    Requires internet in most browsers
+                  </p>
+                </div>
+              </div>
+              {inputMethod === 'voice' && (
+                <div className="absolute top-2 right-2">
+                  <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                  </svg>
+                </div>
+              )}
+            </button>
           </div>
 
           {inputMethod === 'voice' && voiceSupported && (
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-start gap-3">
-              <svg className="w-6 h-6 text-blue-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+            <div className="bg-accent-50 border border-accent-100 rounded-lg p-4 flex items-start gap-3">
+              <svg className="w-6 h-6 text-accent-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
               </svg>
-              <p className="text-sm text-blue-900">
-                <strong>Voice recognition will stay active</strong> throughout the entire test. Speak clearly when you see a number.
+              <p className="text-sm text-gray-700">
+                <strong>Voice is optional.</strong> You can always tap a number below. Voice may need internet in Edge/Chrome.
               </p>
             </div>
           )}
@@ -914,7 +932,7 @@ const ColorVisionTest = () => {
         </div>
 
         {/* What This Test Can/Cannot Detect */}
-        <div className="bg-white rounded-2xl shadow-xl p-8">
+        <div className="card">
           <h3 className="text-2xl font-bold text-gray-900 mb-6">What This Test Detects</h3>
           
           <div className="grid md:grid-cols-2 gap-6">
@@ -979,13 +997,13 @@ const ColorVisionTest = () => {
         </div>
 
         {/* Important Requirements */}
-        <div className="bg-white rounded-2xl shadow-xl p-8">
+        <div className="card">
           <h3 className="text-2xl font-bold text-gray-900 mb-6">Important Requirements</h3>
           
           <div className="grid md:grid-cols-2 gap-4">
             <div className="flex items-start gap-3">
-              <div className="flex-shrink-0 w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                <svg className="w-5 h-5 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
+              <div className="flex-shrink-0 w-8 h-8 bg-accent-50 rounded-full flex items-center justify-center">
+                <svg className="w-5 h-5 text-accent-600" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                 </svg>
               </div>
@@ -993,8 +1011,8 @@ const ColorVisionTest = () => {
             </div>
             
             <div className="flex items-start gap-3">
-              <div className="flex-shrink-0 w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                <svg className="w-5 h-5 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
+              <div className="flex-shrink-0 w-8 h-8 bg-accent-50 rounded-full flex items-center justify-center">
+                <svg className="w-5 h-5 text-accent-600" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                 </svg>
               </div>
@@ -1002,8 +1020,8 @@ const ColorVisionTest = () => {
             </div>
             
             <div className="flex items-start gap-3">
-              <div className="flex-shrink-0 w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                <svg className="w-5 h-5 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
+              <div className="flex-shrink-0 w-8 h-8 bg-accent-50 rounded-full flex items-center justify-center">
+                <svg className="w-5 h-5 text-accent-600" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                 </svg>
               </div>
@@ -1011,8 +1029,8 @@ const ColorVisionTest = () => {
             </div>
             
             <div className="flex items-start gap-3">
-              <div className="flex-shrink-0 w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                <svg className="w-5 h-5 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
+              <div className="flex-shrink-0 w-8 h-8 bg-accent-50 rounded-full flex items-center justify-center">
+                <svg className="w-5 h-5 text-accent-600" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                 </svg>
               </div>
@@ -1022,9 +1040,9 @@ const ColorVisionTest = () => {
         </div>
 
         {/* What We Test For */}
-        <div className="bg-white rounded-2xl shadow-xl p-8">
+        <div className="card">
           <h3 className="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-2">
-            <svg className="w-7 h-7 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
+            <svg className="w-7 h-7 text-accent-600" fill="currentColor" viewBox="0 0 20 20">
               <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" />
               <path fillRule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm9.707 5.707a1 1 0 00-1.414-1.414L9 12.586l-1.293-1.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
             </svg>
@@ -1059,7 +1077,7 @@ const ColorVisionTest = () => {
             </div>
           </div>
 
-          <div className="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <div className="mt-6 bg-accent-50 border border-accent-100 rounded-lg p-4">
             <p className="text-sm text-gray-700">
               <strong>Note:</strong> This test checks for red-green color trouble, which is the most common kind.
               Blue-yellow trouble is rare and needs a special test at the eye doctor.
@@ -1071,13 +1089,13 @@ const ColorVisionTest = () => {
         <div className="flex gap-4 pt-4">
           <button
             onClick={() => navigate('/vision-tests')}
-            className="flex-1 bg-gray-100 text-gray-700 px-8 py-4 rounded-xl font-semibold hover:bg-gray-200 transition-all shadow-md hover:shadow-lg"
+            className="flex-1 btn-secondary min-h-[44px]"
           >
              Back to Tests
           </button>
           <button
             onClick={() => startTest()}
-            className="flex-1 bg-gradient-to-r from-blue-600 to-blue-700 text-white px-8 py-4 rounded-xl font-bold hover:from-blue-700 hover:to-blue-800 transition-all shadow-lg hover:shadow-xl"
+            className="flex-1 btn-primary min-h-[44px]"
           >
             Start Test 
           </button>
@@ -1378,10 +1396,10 @@ const ColorVisionTest = () => {
         </div>
         
         {/* Simple Timer Display - 8 seconds for all plates */}
-        <div className="bg-white rounded-xl shadow-lg p-4">
+        <div className="card">
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm font-semibold text-gray-700">
-              Time Remaining: <span className={isLowTime ? 'text-red-600' : 'text-blue-600'}>{timeRemaining.toFixed(1)}s</span>
+              Time Remaining: <span className={isLowTime ? 'text-red-600' : 'text-accent-600'}>{timeRemaining.toFixed(1)}s</span>
             </span>
             <span className="text-xs text-gray-500">
               8 seconds per plate
@@ -1390,7 +1408,7 @@ const ColorVisionTest = () => {
           <div className="w-full h-3 bg-gray-200 rounded-full overflow-hidden">
             <div 
               className={`h-full transition-all duration-100 ${
-                isLowTime ? 'bg-red-500' : 'bg-blue-600'
+                isLowTime ? 'bg-red-500' : 'bg-accent-600'
               }`}
               style={{ width: `${timerPercent}%` }}
             />
@@ -1398,61 +1416,66 @@ const ColorVisionTest = () => {
         </div>
 
         {/* Plate Display */}
-        <div className="bg-white rounded-2xl shadow-xl p-6">
+        <div className="card">
           <div className="flex justify-center mb-4">
             {generatedPlateSVG}
           </div>
 
-          {/* Answer Input - DO NOT show input method toggle during test */}
+          {/* Answer Input — tap buttons always available */}
           <div className="space-y-4">
-            {inputMethod === 'voice' && voiceSupported && (
+            {voiceNotice && (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-sm text-amber-900 text-center">
+                {voiceNotice}
+              </div>
+            )}
+
+            {inputMethod === 'voice' && voiceEnabled && voiceSupported && (
               <div className="text-center">
-                <p className="text-gray-600 mb-4">
-                  {isListening ? 'Listening... Say the number you see' : 'Voice recognition active'}
+                <p className="text-gray-600 mb-2 text-sm">
+                  {isListening ? 'Listening… or tap a number below' : 'Voice active — tap a number if speech fails'}
                 </p>
                 {userInput && (
-                  <p className="mt-4 text-lg text-gray-900">
-                    You said: <strong>{userInput}</strong>
+                  <p className="text-sm text-gray-900">
+                    Heard: <strong>{userInput}</strong>
                   </p>
                 )}
               </div>
             )}
 
-            {inputMethod === 'type' && (
-              <div className="grid grid-cols-7 gap-3">
-                {numberChoices.map((choice) => (
-                  <button
-                    key={choice}
-                    disabled={showFeedback || timeRemaining <= 0}
-                    onClick={() => {
-                      setSelectedAnswer(choice)
-                      setUserInput(choice)
-                    }}
-                    className={`py-4 rounded-xl font-bold text-lg transition-all ${
-                      selectedAnswer === choice
-                        ? 'bg-blue-600 text-white ring-4 ring-blue-300'
-                        : 'bg-gray-100 text-gray-900 hover:bg-gray-200'
-                    }`}
-                  >
-                    {choice}
-                  </button>
-                ))}
-              </div>
-            )}
+            <div className="grid grid-cols-4 sm:grid-cols-7 gap-2 sm:gap-3">
+              {numberChoices.map((choice) => (
+                <button
+                  key={choice}
+                  disabled={showFeedback || timeRemaining <= 0}
+                  onClick={() => {
+                    setSelectedAnswer(choice)
+                    setUserInput(choice)
+                    submitAnswerWithValue(choice === 'Nothing' ? 'nothing' : choice)
+                  }}
+                  className={`py-3 sm:py-4 rounded-xl font-bold text-sm sm:text-lg transition-all min-h-[44px] ${
+                    selectedAnswer === choice
+                      ? 'bg-accent-600 text-white ring-4 ring-accent-300'
+                      : 'bg-gray-100 text-gray-900 hover:bg-gray-200'
+                  }`}
+                >
+                  {choice}
+                </button>
+              ))}
+            </div>
           </div>
 
-          {/* Submit Button - appears immediately when answer detected */}
-          {(selectedAnswer || userInput) && !showFeedback && timeRemaining > 0 && (
+          {/* Manual submit fallback if voice filled input without auto-submit */}
+          {(selectedAnswer || userInput) && !showFeedback && timeRemaining > 0 && inputMethod === 'voice' && (
             <button
               onClick={handleAnswerSubmit}
               data-submit-answer
-              className="w-full mt-6 bg-gradient-to-r from-green-500 to-green-600 text-white py-5 rounded-xl font-bold text-lg hover:from-green-600 hover:to-green-700 transition-all transform hover:scale-[1.02] shadow-lg flex items-center justify-center gap-3 animate-pulse"
+              className="w-full mt-6 bg-accent-600 text-white py-5 rounded-xl font-bold text-lg hover:bg-accent-700 transition-all transform hover:scale-[1.02] shadow-card flex items-center justify-center gap-3 animate-pulse"
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
               {voiceEnabled ? (
-                <>Submit Answer: <span className="font-black text-xl">{userInput}</span> (auto-submitting...)</>
+                <>Submit: <span className="font-black text-xl">{userInput}</span></>
               ) : (
                 <>Submit Answer</>
               )}
@@ -1497,19 +1520,19 @@ const ColorVisionTest = () => {
 
     return (
       <div className="max-w-3xl mx-auto space-y-4 py-4">
-        <div className="bg-white rounded-2xl shadow-xl p-6">
-          <h2 className="text-2xl font-bold text-gray-900 mb-4">Test Results</h2>
+        <div className="card">
+          <h2 className="section-title mb-4">Test Results</h2>
 
           <div className="grid md:grid-cols-2 gap-6 mb-8">
-            <div className="bg-blue-50 rounded-2xl p-6">
+            <div className="bg-accent-50 rounded-2xl p-6">
               <h3 className="font-bold text-xl text-gray-900 mb-2">Accuracy</h3>
-              <p className="text-4xl font-bold text-blue-600">{Math.round(analysis.accuracy)}%</p>
+              <p className="text-4xl font-bold text-accent-600">{Math.round(analysis.accuracy)}%</p>
               <p className="text-gray-600 mt-2">{analysis.correctCount} of {analysis.totalPlates} correct</p>
             </div>
 
-            <div className="bg-purple-50 rounded-2xl p-6">
+            <div className="bg-brand-soft rounded-2xl p-6">
               <h3 className="font-bold text-xl text-gray-900 mb-2">Result</h3>
-              <p className="text-2xl font-bold text-purple-600">
+              <p className="text-2xl font-bold text-accent-700">
                 {analysis.deficiencyType === 'normal' ? 'Normal Color Vision' :
                  analysis.deficiencyType === 'protan' ? 'Some trouble seeing red' :
                  analysis.deficiencyType === 'deutan' ? 'Some trouble seeing green' :
@@ -1524,13 +1547,13 @@ const ColorVisionTest = () => {
           <div className="flex gap-4">
             <button
               onClick={() => navigate('/vision-tests')}
-              className="flex-1 bg-gray-200 text-gray-700 px-8 py-4 rounded-full font-semibold hover:bg-gray-300 transition-colors"
+              className="flex-1 btn-secondary min-h-[44px]"
             >
                Back to Tests
             </button>
             <button
               onClick={submitResults}
-              className="flex-1 bg-blue-600 text-white px-8 py-4 rounded-full font-bold hover:bg-blue-700 transition-colors"
+              className="flex-1 btn-primary min-h-[44px]"
             >
               Save Results 
             </button>
@@ -1541,7 +1564,7 @@ const ColorVisionTest = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-pink-50 py-12 px-4">
+    <div className="test-shell">
       <div className="max-w-7xl mx-auto">
         {testState === 'distance-gate' && renderDistanceGate()}
         {testState === 'instructions' && renderInstructions()}

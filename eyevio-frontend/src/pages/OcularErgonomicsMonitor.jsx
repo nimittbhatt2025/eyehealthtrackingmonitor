@@ -394,7 +394,7 @@ const OcularErgonomicsMonitor = () => {
 
   // Render instructions
   const renderInstructions = () => (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-cyan-50 p-8">
+    <div className="test-shell">
       <div className="max-w-4xl mx-auto">
         <button
           onClick={() => navigate('/vision-tests')}
@@ -403,14 +403,14 @@ const OcularErgonomicsMonitor = () => {
           ← Back to Tests
         </button>
 
-        <div className="bg-white rounded-3xl shadow-2xl p-8 md:p-12">
+        <div className="test-panel p-8 md:p-12">
           <div className="text-center mb-8">
             <div className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
               <svg className="w-10 h-10 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
               </svg>
             </div>
-            <h1 className="text-4xl font-bold text-gray-900 mb-2">Ocular Ergonomics AI</h1>
+            <h1 className="page-title mb-2">Ocular Ergonomics AI</h1>
             <p className="text-xl text-gray-600">Real-Time Posture & Lighting Monitor</p>
           </div>
 
@@ -507,7 +507,7 @@ const OcularErgonomicsMonitor = () => {
                 setMonitoringState('setup')
                 initializeCamera()
               }}
-              className="px-8 py-4 bg-gradient-to-r from-blue-600 to-cyan-600 text-white rounded-full text-xl font-bold hover:from-blue-700 hover:to-cyan-700 transition-all transform hover:scale-105 shadow-lg"
+              className="btn-primary px-8 py-4 text-xl"
             >
               Start Monitoring
             </button>
@@ -787,7 +787,7 @@ const OcularErgonomicsMonitor = () => {
     }
 
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-cyan-50 p-8">
+      <div className="test-shell">
         <div className="max-w-4xl mx-auto">
           <button
             onClick={() => navigate('/vision-tests')}
@@ -796,9 +796,9 @@ const OcularErgonomicsMonitor = () => {
             ← Back to Tests
           </button>
 
-          <div className="bg-white rounded-3xl shadow-2xl p-8 md:p-12">
+          <div className="test-panel p-8 md:p-12">
             <div className="text-center mb-8">
-              <h1 className="text-4xl font-bold text-gray-900 mb-2">Session Complete</h1>
+              <h1 className="page-title mb-2">Session Complete</h1>
               <p className="text-gray-600">Ergonomics Report</p>
             </div>
 

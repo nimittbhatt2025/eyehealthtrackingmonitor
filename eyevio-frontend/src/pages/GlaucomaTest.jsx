@@ -302,42 +302,42 @@ const GlaucomaTest = () => {
   const progress = trials.length > 0 ? Math.round((trialIdx / trials.length) * 100) : 0
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-6 px-4">
+    <div className="test-shell">
       <div className="max-w-3xl mx-auto">
 
         {/* INSTRUCTIONS */}
         {phase === 'instructions' && (
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-8">
+          <div className="test-panel">
             <div className="text-center mb-8">
-              <div className="w-16 h-16 bg-violet-100 dark:bg-violet-900 rounded-full flex items-center justify-center mx-auto mb-4">
-                <svg className="w-9 h-9 text-violet-700 dark:text-violet-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="w-16 h-16 bg-accent-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-9 h-9 text-accent-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                 </svg>
               </div>
-              <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-1">Side Vision Test</h1>
-              <p className="text-sm text-violet-600 dark:text-violet-400 font-medium">Checks the edges of what you can see (glaucoma screen)</p>
+              <h1 className="page-title mb-1">Side Vision Test</h1>
+              <p className="text-sm text-accent-600 font-medium">Checks the edges of what you can see (glaucoma screen)</p>
             </div>
 
-            <div className="bg-violet-600 text-white rounded-2xl p-6 mb-6">
+            <div className="bg-brand-gradient text-white rounded-2xl p-6 mb-6">
               <h3 className="font-bold text-lg mb-3">In short</h3>
-              <ol className="space-y-2 text-violet-50">
+              <ol className="space-y-2 text-accent-50">
                 <li><span className="font-bold">1.</span> Keep your eyes on the "+" in the center the whole time.</li>
                 <li><span className="font-bold">2.</span> Say any faint letter you catch flashing in a corner.</li>
                 <li><span className="font-bold">3.</span> Say "nothing" if you didn't see one. Takes about 4 minutes.</li>
               </ol>
-              <p className="text-sm text-violet-100 mt-3">Want more detail? Keep reading below.</p>
+              <p className="text-sm text-accent-100 mt-3">Want more detail? Keep reading below.</p>
             </div>
 
-            <div className="bg-violet-50 dark:bg-violet-900/30 border-l-4 border-violet-500 rounded-r-xl p-5 mb-6">
-              <h3 className="font-semibold text-violet-900 dark:text-violet-200 mb-2">What This Test Checks</h3>
-              <p className="text-sm text-violet-800 dark:text-violet-300">
+            <div className="bg-accent-50 border-l-4 border-accent-500 rounded-r-xl p-5 mb-6">
+              <h3 className="font-semibold text-accent-900 mb-2">What This Test Checks</h3>
+              <p className="text-sm text-accent-800">
                 Your <strong>side vision</strong> — how well you notice faint letters near the edges of your view while looking straight ahead.
                 Glaucoma can quietly weaken side vision <strong>years before you'd ever notice it</strong>, so catching it early really matters.
               </p>
             </div>
 
-            <div className="space-y-4 text-sm text-gray-700 dark:text-gray-300 mb-6">
+            <div className="space-y-4 text-sm text-gray-700 mb-6">
               {[
                 ['1', <><strong>Keep your eyes on the "+" in the center</strong> — do <em>not</em> look toward the letters.</>],
                 ['2', <>A faint letter will <strong>flash quickly</strong> in one of the four corners. Try to catch it with your side vision only.</>],
@@ -346,56 +346,56 @@ const GlaucomaTest = () => {
                 ['5', <>About 24 rounds, roughly <strong>4–5 minutes</strong>. Sit about an arm's length from your screen in a quiet, well-lit room.</>],
               ].map(([n, text]) => (
                 <div key={n} className="flex gap-3">
-                  <span className="flex-shrink-0 w-7 h-7 bg-violet-100 dark:bg-violet-900 text-violet-700 dark:text-violet-300 rounded-full flex items-center justify-center font-bold text-xs">{n}</span>
+                  <span className="flex-shrink-0 w-7 h-7 bg-accent-50 text-accent-700 rounded-full flex items-center justify-center font-bold text-xs">{n}</span>
                   <p>{text}</p>
                 </div>
               ))}
             </div>
 
-            <div className="bg-gray-100 dark:bg-gray-700 rounded-xl p-4 mb-6 flex items-center justify-center gap-8 text-sm">
+            <div className="bg-gray-100 rounded-xl p-4 mb-6 flex items-center justify-center gap-8 text-sm">
               <div className="text-center">
-                <div className="text-2xl font-bold text-gray-900 dark:text-white mb-1">+</div>
-                <div className="text-xs text-gray-500 dark:text-gray-400">Stare here</div>
+                <div className="text-2xl font-bold text-gray-900 mb-1">+</div>
+                <div className="text-xs text-gray-500">Stare here</div>
               </div>
               <div className="text-gray-400">→</div>
               <div className="text-center">
-                <div className="text-2xl font-bold opacity-25 text-gray-700 dark:text-gray-300 mb-1">H</div>
-                <div className="text-xs text-gray-500 dark:text-gray-400">Corner flash</div>
+                <div className="text-2xl font-bold opacity-25 text-gray-700 mb-1">H</div>
+                <div className="text-xs text-gray-500">Corner flash</div>
               </div>
               <div className="text-gray-400">→</div>
               <div className="text-center">
-                <div className="text-sm font-semibold text-violet-600 dark:text-violet-400 mb-1">"H"</div>
-                <div className="text-xs text-gray-500 dark:text-gray-400">Voice answer</div>
+                <div className="text-sm font-semibold text-accent-600 mb-1">"H"</div>
+                <div className="text-xs text-gray-500">Voice answer</div>
               </div>
             </div>
 
-            <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-xl p-4 mb-8 text-xs text-amber-800 dark:text-amber-300">
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-8 text-xs text-amber-800">
               <strong>Allow microphone access</strong> when prompted — answering by voice lets you keep looking straight ahead.
             </div>
 
             <div className="flex gap-4">
-              <button onClick={() => navigate('/vision-tests')} className="flex-1 px-5 py-3 border-2 border-gray-300 dark:border-gray-600 rounded-full font-semibold text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">Back</button>
-              <button onClick={startTest} className="flex-1 px-5 py-3 bg-violet-600 hover:bg-violet-700 text-white rounded-full font-semibold transition-colors">Begin Test</button>
+              <button onClick={() => navigate('/vision-tests')} className="flex-1 px-5 py-3 border-2 border-gray-300 rounded-full font-semibold text-gray-700 hover:bg-gray-50 transition-colors">Back</button>
+              <button onClick={startTest} className="test-btn">Begin Test</button>
             </div>
           </div>
         )}
 
         {/* TESTING */}
         {phase === 'testing' && (
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
-              <span className="text-sm text-gray-500 dark:text-gray-400 font-medium">Side Vision Test</span>
+          <div className="test-panel overflow-hidden p-0">
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+              <span className="text-sm text-gray-500 font-medium">Side Vision Test</span>
               <div className="flex items-center gap-3">
-                <div className={`flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded-full ${isListening ? 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300' : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400'}`}>
+                <div className={`flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded-full ${isListening ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
                   <div className={`w-2 h-2 rounded-full ${isListening ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`} />
                   {isListening ? 'Listening' : 'Mic'}
                 </div>
-                <span className="text-xs text-gray-500 dark:text-gray-400">{Math.min(trialIdx + 1, trials.length)} / {trials.length}</span>
+                <span className="text-xs text-gray-500">{Math.min(trialIdx + 1, trials.length)} / {trials.length}</span>
               </div>
             </div>
 
-            <div className="h-1.5 bg-gray-100 dark:bg-gray-700">
-              <div className="h-1.5 bg-violet-500 transition-all duration-500" style={{ width: `${progress}%` }} />
+            <div className="h-1.5 bg-gray-100">
+              <div className="h-1.5 bg-accent-500 transition-all duration-500" style={{ width: `${progress}%` }} />
             </div>
 
             {gazeTrapWarning && (
@@ -421,7 +421,7 @@ const GlaucomaTest = () => {
 
               {/* Quadrant ID labels */}
               {QUADRANTS.map(q => (
-                <div key={q.id} className="absolute text-xs font-medium text-gray-300 dark:text-gray-600 pointer-events-none"
+                <div key={q.id} className="absolute text-xs font-medium text-gray-300 pointer-events-none"
                   style={{ left: `${q.x}%`, top: `${q.y}%`, transform: 'translate(-50%,-50%)' }}>
                   {q.id}
                 </div>
@@ -439,12 +439,12 @@ const GlaucomaTest = () => {
               )}
             </div>
 
-            <div className="px-6 py-4 border-t border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-center">
-              <p className="text-sm text-gray-600 dark:text-gray-400">
+            <div className="px-6 py-4 border-t border-gray-100 bg-gray-50 text-center">
+              <p className="text-sm text-gray-600">
                 <strong>Keep eyes on "+"</strong> — say the letter you saw in the corner, or say <strong>"nothing"</strong>
               </p>
               {voiceTranscript && (
-                <p className="text-xs text-violet-600 dark:text-violet-400 mt-1">Last answer: <strong>{voiceTranscript}</strong></p>
+                <p className="text-xs text-accent-600 mt-1">Last answer: <strong>{voiceTranscript}</strong></p>
               )}
             </div>
           </div>
@@ -454,41 +454,41 @@ const GlaucomaTest = () => {
         {phase === 'results' && (() => {
           const { qd, oa, maxD, scotomaPairs, riskLevel, riskLabel, riskColor, riskMessage, cl } = computeResults()
           return (
-            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-8">
+            <div className="test-panel">
               <div className="text-center mb-8">
                 <div className="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4 text-white text-3xl font-bold" style={{ backgroundColor: riskColor }}>
                   {riskLevel === 'low' ? '✓' : riskLevel === 'moderate' ? '~' : '!'}
                 </div>
-                <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-1">Test Complete</h2>
-                <p className="text-gray-500 dark:text-gray-400 text-sm">Side Vision Test Results</p>
+                <h2 className="text-3xl font-bold text-gray-900 mb-1">Test Complete</h2>
+                <p className="text-gray-500 text-sm">Side Vision Test Results</p>
               </div>
 
               <div className="rounded-2xl p-6 mb-6 border" style={{ borderColor: riskColor, backgroundColor: `${riskColor}22` }}>
                 <div className="flex items-center gap-3 mb-2">
                   <div className="w-3 h-3 rounded-full" style={{ backgroundColor: riskColor }} />
-                  <h3 className="font-bold text-gray-900 dark:text-white text-lg">{riskLabel}</h3>
+                  <h3 className="font-bold text-gray-900 text-lg">{riskLabel}</h3>
                 </div>
-                <p className="text-sm text-gray-700 dark:text-gray-300">{riskMessage}</p>
+                <p className="text-sm text-gray-700">{riskMessage}</p>
               </div>
 
               <div className="grid grid-cols-3 gap-4 mb-6">
-                <div className="bg-gray-50 dark:bg-gray-700 rounded-xl p-4 text-center">
-                  <div className="text-2xl font-bold text-gray-900 dark:text-white">{Math.round(oa * 100)}%</div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">Overall Accuracy</div>
+                <div className="bg-gray-50 rounded-xl p-4 text-center">
+                  <div className="text-2xl font-bold text-gray-900">{Math.round(oa * 100)}%</div>
+                  <div className="text-xs text-gray-500 mt-1">Overall Accuracy</div>
                 </div>
-                <div className="bg-gray-50 dark:bg-gray-700 rounded-xl p-4 text-center">
-                  <div className="text-2xl font-bold text-gray-900 dark:text-white">{cl.toFixed(2)}</div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">Center vision (reference)</div>
+                <div className="bg-gray-50 rounded-xl p-4 text-center">
+                  <div className="text-2xl font-bold text-gray-900">{cl.toFixed(2)}</div>
+                  <div className="text-xs text-gray-500 mt-1">Center vision (reference)</div>
                 </div>
-                <div className="bg-gray-50 dark:bg-gray-700 rounded-xl p-4 text-center">
+                <div className="bg-gray-50 rounded-xl p-4 text-center">
                   <div className="text-2xl font-bold" style={{ color: maxD > 0.3 ? '#ef4444' : maxD > 0.15 ? '#f59e0b' : '#22c55e' }}>
                     {maxD > 0 ? `−${maxD.toFixed(2)}` : `+${Math.abs(maxD).toFixed(2)}`}
                   </div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">Biggest weak spot</div>
+                  <div className="text-xs text-gray-500 mt-1">Biggest weak spot</div>
                 </div>
               </div>
 
-              <h3 className="font-semibold text-gray-900 dark:text-white mb-3">Your four corners</h3>
+              <h3 className="font-semibold text-gray-900 mb-3">Your four corners</h3>
               <div className="grid grid-cols-2 gap-3 mb-8">
                 {QUADRANTS.map(q => {
                   const d = qd[q.id]
@@ -497,14 +497,14 @@ const GlaucomaTest = () => {
                   return (
                     <div key={q.id} className="rounded-xl p-4 border-2" style={{ borderColor: bc }}>
                       <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs font-bold text-gray-500 dark:text-gray-400">{q.id}</span>
-                        {d.deficit > 0.3 && <span className="text-xs font-bold text-red-600 dark:text-red-400">WEAK SPOT</span>}
+                        <span className="text-xs font-bold text-gray-500">{q.id}</span>
+                        {d.deficit > 0.3 && <span className="text-xs font-bold text-red-600">WEAK SPOT</span>}
                       </div>
-                      <div className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">{q.label}</div>
-                      <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400">
+                      <div className="text-sm font-semibold text-gray-700 mb-2">{q.label}</div>
+                      <div className="flex justify-between text-xs text-gray-500">
                         <span>You caught: <strong>{accPct !== null ? `${accPct}%` : 'N/A'}</strong></span>
                       </div>
-                      <div className="mt-2 h-1.5 bg-gray-200 dark:bg-gray-600 rounded-full overflow-hidden">
+                      <div className="mt-2 h-1.5 bg-gray-200 rounded-full overflow-hidden">
                         <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, Math.max(0, accPct ?? 0))}%`, backgroundColor: bc }} />
                       </div>
                     </div>
@@ -512,14 +512,14 @@ const GlaucomaTest = () => {
                 })}
               </div>
 
-              <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-xl p-4 mb-8 text-xs text-amber-800 dark:text-amber-300">
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-8 text-xs text-amber-800">
                 <strong>Good to know:</strong> This test checks the inner part of your side vision. It's an early-warning tool, not a full eye exam.
                 If it finds a weak spot, see an eye doctor for a complete check-up and a proper side-vision test.
               </div>
 
               <div className="flex gap-4">
-                <button onClick={() => navigate('/vision-tests')} className="flex-1 px-5 py-3 border-2 border-gray-300 dark:border-gray-600 rounded-full font-semibold text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">Back to Tests</button>
-                <button onClick={() => { setPhase('instructions'); setTrials([]); setTrialIdx(0); setResponses([]); setFeedback(null); setGazeTrapWarning(false); staircaseRef.current={}; responsesRef.current=[] }} className="flex-1 px-5 py-3 bg-violet-600 hover:bg-violet-700 text-white rounded-full font-semibold transition-colors">Retake Test</button>
+                <button onClick={() => navigate('/vision-tests')} className="flex-1 px-5 py-3 border-2 border-gray-300 rounded-full font-semibold text-gray-700 hover:bg-gray-50 transition-colors">Back to Tests</button>
+                <button onClick={() => { setPhase('instructions'); setTrials([]); setTrialIdx(0); setResponses([]); setFeedback(null); setGazeTrapWarning(false); staircaseRef.current={}; responsesRef.current=[] }} className="flex-1 px-5 py-3 bg-accent-600 hover:bg-accent-700 text-white rounded-full font-semibold transition-colors">Retake Test</button>
               </div>
             </div>
           )

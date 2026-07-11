@@ -65,9 +65,9 @@ function Alerts() {
       case 'critical':
         return 'bg-red-50 border-red-200'
       case 'warning':
-        return 'bg-yellow-50 border-yellow-200'
+        return 'bg-amber-50 border-amber-200'
       case 'info':
-        return 'bg-blue-50 border-blue-200'
+        return 'bg-accent-50 border-accent-200'
       default:
         return 'bg-gray-50 border-gray-200'
     }
@@ -77,13 +77,13 @@ function Alerts() {
   const getSeverityBadge = (severity) => {
     switch (severity) {
       case 'critical':
-        return { label: 'Needs attention', className: 'bg-red-100 text-red-800' }
+        return { label: 'Needs attention', className: 'badge-danger' }
       case 'warning':
-        return { label: 'Heads-up', className: 'bg-yellow-100 text-yellow-900' }
+        return { label: 'Heads-up', className: 'badge-warning' }
       case 'info':
-        return { label: 'Info', className: 'bg-blue-100 text-blue-800' }
+        return { label: 'Info', className: 'badge-brand' }
       default:
-        return { label: 'Reminder', className: 'bg-gray-100 text-gray-700' }
+        return { label: 'Reminder', className: 'badge-neutral' }
     }
   }
 
@@ -97,13 +97,13 @@ function Alerts() {
         )
       case 'warning':
         return (
-          <svg className="w-6 h-6 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-6 h-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
         )
       case 'info':
         return (
-          <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-6 h-6 text-accent-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
         )
@@ -139,11 +139,11 @@ function Alerts() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-4xl font-serif font-bold text-gray-900">Alerts & Notifications</h1>
-          <p className="text-gray-600 mt-2 text-lg">
+          <h1 className="page-title">Alerts & Notifications</h1>
+          <p className="page-subtitle">
             Stay informed about your vision health
             {unreadCount > 0 && (
-              <span className="ml-2 px-3 py-1 bg-red-100 text-red-700 rounded-full text-sm font-semibold">
+              <span className="badge badge-danger ml-2">
                 {unreadCount} unread
               </span>
             )}
@@ -153,7 +153,7 @@ function Alerts() {
         {unreadCount > 0 && (
           <button
             onClick={handleMarkAllRead}
-            className="px-6 py-3 bg-primary-600 text-white rounded-full font-semibold hover:bg-primary-700 transition-colors"
+            className="btn-primary min-h-[44px]"
           >
             Mark All Read
           </button>
@@ -166,9 +166,9 @@ function Alerts() {
           <button
             key={tab}
             onClick={() => setFilter(tab)}
-            className={`px-6 py-3 rounded-full font-semibold text-sm transition-colors capitalize ${
+            className={`min-h-[44px] px-6 py-3 rounded-full font-semibold text-sm transition-colors capitalize ${
               filter === tab
-                ? 'bg-primary-600 text-white'
+                ? 'bg-accent-600 text-white'
                 : 'text-gray-600 hover:text-gray-900'
             }`}
           >
@@ -179,10 +179,10 @@ function Alerts() {
 
       {loading ? (
         <div className="flex items-center justify-center min-h-[400px]">
-          <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary-200 border-t-primary-600"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-4 border-accent-100 border-t-accent-600"></div>
         </div>
       ) : alerts.length === 0 ? (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-12 text-center">
+        <div className="card p-12 text-center">
           <div className="w-20 h-20 mx-auto mb-6 bg-gray-100 rounded-full flex items-center justify-center">
             <svg className="w-12 h-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
@@ -196,8 +196,8 @@ function Alerts() {
           {alerts.map((alert) => (
             <div
               key={alert.id}
-              className={`${getSeverityColor(alert.severity)} border-2 rounded-2xl p-6 transition-all ${
-                !alert.read ? 'shadow-md' : 'opacity-75'
+              className={`${getSeverityColor(alert.severity)} border rounded-2xl p-6 transition-all ${
+                !alert.read ? 'shadow-card' : 'opacity-75'
               }`}
             >
               <div className="flex items-start justify-between">
@@ -210,12 +210,12 @@ function Alerts() {
                   {/* Content */}
                   <div className="flex-1">
                     <div className="flex flex-wrap items-center gap-2 mb-2">
-                      <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${getSeverityBadge(alert.severity).className}`}>
+                      <span className={`badge ${getSeverityBadge(alert.severity).className}`}>
                         {getSeverityBadge(alert.severity).label}
                       </span>
                       <h3 className="text-lg font-semibold text-gray-900">{alert.title}</h3>
                       {!alert.read && (
-                        <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">New</span>
+                        <span className="badge badge-brand">New</span>
                       )}
                       <span className="text-sm text-gray-500">{formatDate(alert.created_at)}</span>
                     </div>
@@ -225,7 +225,7 @@ function Alerts() {
                     {alert.action_url && (
                       <a
                         href={alert.action_url}
-                        className="inline-flex items-center text-primary-600 hover:text-primary-700 font-semibold text-sm"
+                        className="inline-flex items-center min-h-[44px] text-accent-600 hover:text-accent-700 font-semibold text-sm"
                       >
                         {alert.action_text || 'Take Action'}
                         <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">

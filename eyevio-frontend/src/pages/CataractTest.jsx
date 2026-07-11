@@ -453,27 +453,27 @@ const CataractTest = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8 px-4">
+    <div className="test-shell">
       <div className="max-w-4xl mx-auto">
         {/* Instructions */}
         {testState === 'instructions' && (
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+          <div className="card p-8">
             <div className="text-center mb-8">
-              <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <svg className="w-8 h-8 text-orange-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="w-16 h-16 bg-accent-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-8 h-8 text-accent-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
                 </svg>
               </div>
-              <h1 className="text-3xl font-serif font-bold text-gray-900 mb-2">
+              <h1 className="page-title mb-2">
                 Glare Sensitivity Test
               </h1>
-              <p className="text-sm text-orange-600 font-medium mb-4">
+              <p className="text-sm text-accent-600 font-medium mb-4">
                 See how much bright light and glare bother your eyes
               </p>
             </div>
 
             <div className="space-y-6 text-left">
-              <div className="bg-orange-50 border-l-4 border-orange-500 p-6">
+              <div className="bg-accent-50 border-l-4 border-accent-500 p-6">
                 <h3 className="font-semibold text-orange-900 mb-2 flex items-center">
                   <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
@@ -573,7 +573,7 @@ const CataractTest = () => {
               </button>
               <button
                 onClick={startTest}
-                className="flex-1 px-6 py-3 bg-orange-600 hover:bg-orange-700 text-white rounded-full font-semibold transition-colors"
+                className="flex-1 px-6 py-3 bg-accent-600 hover:bg-accent-700 text-white rounded-full font-semibold transition-colors"
               >
                 Start Test
               </button>
@@ -583,7 +583,7 @@ const CataractTest = () => {
 
         {/* Testing Phase */}
         {testState === 'testing' && currentStimulus && (
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+          <div className="card p-8">
             {/* Progress */}
             <div className="mb-8">
               <div className="flex justify-between text-sm text-gray-600 mb-2">
@@ -592,7 +592,7 @@ const CataractTest = () => {
               </div>
               <div className="w-full bg-gray-200 rounded-full h-2">
                 <div
-                  className="bg-orange-600 h-2 rounded-full transition-all duration-300"
+                  className="bg-accent-600 h-2 rounded-full transition-all duration-300"
                   style={{ width: `${((currentTrial + 1) / TOTAL_TRIALS) * 100}%` }}
                 />
               </div>
@@ -645,7 +645,7 @@ const CataractTest = () => {
                     key={direction}
                     type="button"
                     onClick={() => handleResponse(direction)}
-                    className="px-4 py-4 bg-orange-600 hover:bg-orange-700 text-white rounded-xl font-semibold text-sm transition-colors"
+                    className="px-4 py-4 bg-accent-600 hover:bg-accent-700 text-white rounded-xl font-semibold text-sm transition-colors"
                   >
                     {label}
                   </button>
@@ -653,13 +653,13 @@ const CataractTest = () => {
               </div>
 
               {currentStimulus.withGlare && (
-                <p className="text-sm text-orange-600 font-medium mb-4">
+                <p className="text-sm text-accent-600 font-medium mb-4">
                   Try to see the bars through the glare
                 </p>
               )}
 
               {transcript && (
-                <div className="mb-4 text-sm font-medium text-orange-700">
+                <div className="mb-4 text-sm font-medium text-accent-700">
                   {transcript}
                 </div>
               )}
@@ -683,9 +683,9 @@ const CataractTest = () => {
                   ) : (
                     <div>
                       <div className={`inline-flex items-center gap-3 px-5 py-3 rounded-2xl ${
-                        isListening ? 'bg-orange-100 border-2 border-orange-400' : 'bg-gray-100 border-2 border-gray-300'
+                        isListening ? 'bg-accent-50 border-2 border-accent-400' : 'bg-gray-100 border-2 border-gray-300'
                       }`}>
-                        <div className={`w-3 h-3 rounded-full ${isListening ? 'bg-orange-600 animate-pulse' : 'bg-gray-400'}`} />
+                        <div className={`w-3 h-3 rounded-full ${isListening ? 'bg-accent-600 animate-pulse' : 'bg-gray-400'}`} />
                         <span className="text-sm font-semibold text-gray-800">
                           {isListening ? 'Listening… say the direction' : 'Voice ready'}
                         </span>
@@ -695,7 +695,7 @@ const CataractTest = () => {
                           <button
                             type="button"
                             onClick={startListening}
-                            className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-full text-sm font-semibold transition-colors"
+                            className="px-4 py-2 bg-accent-600 hover:bg-accent-700 text-white rounded-full text-sm font-semibold transition-colors"
                           >
                             Start speaking
                           </button>
@@ -724,7 +724,7 @@ const CataractTest = () => {
 
         {/* Results */}
         {testState === 'results' && (
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+          <div className="card p-8">
             <div className="text-center mb-8">
               <div className={`w-20 h-20 bg-${getRiskInterpretation().color}-100 rounded-full flex items-center justify-center mx-auto mb-4`}>
                 <span className="text-4xl">{getRiskInterpretation().icon}</span>
@@ -736,9 +736,9 @@ const CataractTest = () => {
             </div>
 
             {/* Score Display */}
-            <div className="bg-gradient-to-br from-orange-50 to-yellow-50 rounded-2xl p-8 mb-8">
+            <div className="bg-amber-50 rounded-2xl p-8 mb-8">
               <div className="text-center">
-                <div className="text-6xl font-bold text-orange-700 mb-2">
+                <div className="text-6xl font-bold text-accent-700 mb-2">
                   {score}
                 </div>
                 <div className="text-sm text-gray-600 mb-4">Glare Recovery Score</div>
@@ -769,7 +769,7 @@ const CataractTest = () => {
               </div>
               <div className="bg-gray-50 rounded-xl p-6">
                 <div className="text-sm text-gray-600 mb-1">With Glare</div>
-                <div className="text-3xl font-bold text-orange-700">
+                <div className="text-3xl font-bold text-accent-700">
                   {Math.round((responses.filter(r => r.withGlare && r.correct).length / 
                     responses.filter(r => r.withGlare).length) * 100)}%
                 </div>
@@ -813,7 +813,7 @@ const CataractTest = () => {
                   setCurrentTrial(0)
                   setScore(0)
                 }}
-                className="flex-1 px-6 py-3 bg-orange-600 hover:bg-orange-700 text-white rounded-full font-semibold transition-colors"
+                className="flex-1 px-6 py-3 bg-accent-600 hover:bg-accent-700 text-white rounded-full font-semibold transition-colors"
               >
                 Take Again
               </button>

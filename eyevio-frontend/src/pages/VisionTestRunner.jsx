@@ -699,7 +699,7 @@ function VisionTestRunner() {
 
   if (testComplete) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-teal-50 -m-6">
+      <div className="min-h-[60vh] flex items-center justify-center bg-brand-soft -m-6">
         <div className="bg-white rounded-2xl shadow-xl p-12 max-w-md text-center">
           <div className="w-20 h-20 mx-auto mb-6 bg-green-100 rounded-full flex items-center justify-center">
             <svg className="w-12 h-12 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -746,7 +746,7 @@ function VisionTestRunner() {
   return (
     <div className="min-h-screen bg-white -m-6">
       {/* Header */}
-      <div className="bg-gradient-to-r from-blue-600 to-teal-500 text-white p-6">
+      <div className="bg-brand-gradient text-white p-6">
         <div className="max-w-4xl mx-auto">
           <button
             onClick={() => navigate('/vision-tests')}
@@ -759,8 +759,8 @@ function VisionTestRunner() {
           </button>
           
           <div className="flex items-center space-x-4">
-            <div className="w-12 h-12 bg-primary-100 rounded-full flex items-center justify-center">
-              <svg className="w-6 h-6 text-primary-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="w-12 h-12 bg-accent-50 rounded-full flex items-center justify-center">
+              <svg className="w-6 h-6 text-accent-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
               </svg>

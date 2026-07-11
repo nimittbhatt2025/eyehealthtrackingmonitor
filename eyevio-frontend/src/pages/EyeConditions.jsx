@@ -23,6 +23,7 @@ import {
   Frown,
 } from 'lucide-react'
 import { CONDITION_DATABASE, EYE_CONDITIONS, getConditionsByCategory, searchConditions } from '../utils/comprehensiveEyeConditions'
+import { resolveAppTests } from '../utils/visionTestRoutes'
 
 const EyeConditions = () => {
   const navigate = useNavigate()
@@ -118,7 +119,7 @@ const EyeConditions = () => {
   // Detail View
   if (selectedCondition) {
     return (
-      <div className="min-h-screen bg-gray-50 pb-20">
+      <div className="bg-app-bg pb-20">
         <div className="bg-white shadow-sm border-b sticky top-0 z-10">
           <div className="max-w-7xl mx-auto px-4 py-4">
             <button
@@ -133,11 +134,11 @@ const EyeConditions = () => {
 
         <div className="max-w-4xl mx-auto px-4 py-8">
           {/* Header */}
-          <div className="bg-gradient-to-br from-primary-500 to-primary-700 text-white rounded-2xl p-8 mb-8">
+          <div className="bg-brand-gradient text-white rounded-2xl p-8 mb-8 shadow-elevated">
             <div className="flex items-start justify-between mb-4">
               <div>
-                <h1 className="text-3xl font-bold mb-2">{selectedCondition.name}</h1>
-                <p className="text-primary-100 text-lg">{selectedCondition.description}</p>
+                <h1 className="text-3xl font-bold mb-2 text-white">{selectedCondition.name}</h1>
+                <p className="text-white/80 text-lg">{selectedCondition.description}</p>
               </div>
               <span
                 className={`px-3 py-1 rounded-full text-sm font-semibold border ${getSeverityColor(
@@ -150,7 +151,7 @@ const EyeConditions = () => {
           </div>
 
           {/* Common Symptoms */}
-          <div className="bg-white rounded-2xl shadow-sm p-6 mb-6">
+          <div className="bg-white rounded-2xl shadow-card border border-gray-100/80 p-6 mb-6">
             <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center">
               <AlertCircle className="w-6 h-6 mr-2 text-red-600" />
               Common Symptoms
@@ -166,20 +167,20 @@ const EyeConditions = () => {
           </div>
 
           {/* Risk Factors */}
-          <div className="bg-white rounded-2xl shadow-sm p-6 mb-6">
+          <div className="bg-white rounded-2xl shadow-card border border-gray-100/80 p-6 mb-6">
             <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center">
-              <Shield className="w-6 h-6 mr-2 text-yellow-600" />
+              <Shield className="w-6 h-6 mr-2 text-amber-600" />
               Risk Factors
             </h2>
             <div className="space-y-3">
               {selectedCondition.riskFactors.map((factor, idx) => (
-                <div key={idx} className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                <div key={idx} className="bg-amber-50 border border-amber-200 rounded-lg p-4">
                   <div className="flex items-start space-x-3">
-                    <AlertCircle className="w-5 h-5 text-yellow-600 mt-0.5 flex-shrink-0" />
+                    <AlertCircle className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
                     <div>
                       <div className="font-semibold text-gray-900 mb-1">{factor.factor}</div>
                       <div className="text-sm text-gray-600">{factor.description}</div>
-                      <div className="text-xs text-yellow-700 mt-2">
+                      <div className="text-xs text-amber-700 mt-2">
                         Impact: {factor.impact} | Threshold: {factor.threshold}
                       </div>
                     </div>
@@ -190,7 +191,7 @@ const EyeConditions = () => {
           </div>
 
           {/* Prevention Tips */}
-          <div className="bg-white rounded-2xl shadow-sm p-6 mb-6">
+          <div className="bg-white rounded-2xl shadow-card border border-gray-100/80 p-6 mb-6">
             <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center">
               <BookOpen className="w-6 h-6 mr-2 text-green-600" />
               Prevention & Management
@@ -235,26 +236,43 @@ const EyeConditions = () => {
           </div>
 
           {/* Recommended Tests */}
-          <div className="bg-white rounded-2xl shadow-sm p-6">
+          <div className="bg-white rounded-2xl shadow-card border border-gray-100/80 p-6">
             <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center">
-              <Eye className="w-6 h-6 mr-2 text-blue-600" />
+              <Eye className="w-6 h-6 mr-2 text-accent-600" />
               Recommended Tests
             </h2>
             <div className="grid md:grid-cols-2 gap-4">
-              <button
-                onClick={() => navigate('/vision-tests')}
-                className="bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg p-4 text-left transition-colors"
-              >
-                <div className="font-semibold text-blue-900 mb-1">Vision Tests</div>
-                <div className="text-sm text-blue-700">Check your visual acuity and health</div>
-              </button>
-              <button
-                onClick={() => navigate('/eye-tracking-analysis')}
-                className="bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-lg p-4 text-left transition-colors"
-              >
-                <div className="font-semibold text-purple-900 mb-1">Eye Tracking Analysis</div>
-                <div className="text-sm text-purple-700">Monitor blink patterns and fatigue</div>
-              </button>
+              {resolveAppTests(selectedCondition.appTests)
+                .filter((test) => test.implemented)
+                .slice(0, 4)
+                .map((test) => (
+                  <button
+                    key={test.route}
+                    onClick={() => navigate(test.route)}
+                    className="bg-accent-50 hover:bg-accent-100 border border-accent-100 rounded-xl p-4 text-left transition-colors"
+                  >
+                    <div className="font-semibold text-accent-900 mb-1">{test.title}</div>
+                    <div className="text-sm text-accent-700">{test.description}</div>
+                  </button>
+                ))}
+              {resolveAppTests(selectedCondition.appTests).filter((t) => t.implemented).length === 0 && (
+                <>
+                  <button
+                    onClick={() => navigate('/vision-tests')}
+                    className="bg-accent-50 hover:bg-accent-100 border border-accent-100 rounded-xl p-4 text-left transition-colors"
+                  >
+                    <div className="font-semibold text-accent-900 mb-1">Vision Tests</div>
+                    <div className="text-sm text-accent-700">Check your visual acuity and health</div>
+                  </button>
+                  <button
+                    onClick={() => navigate('/eye-tracking-analysis')}
+                    className="bg-accent-50 hover:bg-accent-100 border border-accent-100 rounded-xl p-4 text-left transition-colors"
+                  >
+                    <div className="font-semibold text-accent-900 mb-1">Eye Tracking Analysis</div>
+                    <div className="text-sm text-accent-700">Monitor blink patterns and fatigue</div>
+                  </button>
+                </>
+              )}
             </div>
           </div>
 
@@ -274,22 +292,22 @@ const EyeConditions = () => {
 
   // Library View
   return (
-    <div className="min-h-screen bg-gray-50 pb-20">
+    <div className="bg-app-bg pb-20">
       {/* Header */}
-      <div className="bg-gradient-to-r from-primary-600 to-primary-800 text-white">
+      <div className="bg-brand-gradient text-white">
         <div className="max-w-7xl mx-auto px-4 py-12">
           <button
             onClick={() => navigate(-1)}
-            className="flex items-center text-primary-100 hover:text-white mb-6"
+            className="flex items-center text-white/80 hover:text-white mb-6"
           >
             <ArrowLeft className="w-5 h-5 mr-2" />
             Back
           </button>
           <div className="flex items-center mb-4">
             <BookOpen className="w-10 h-10 mr-4" />
-            <h1 className="text-4xl font-bold">Eye Conditions Library</h1>
+            <h1 className="text-4xl font-bold text-white">Eye Conditions Library</h1>
           </div>
-          <p className="text-primary-100 text-lg max-w-3xl">
+          <p className="text-white/80 text-lg max-w-3xl">
             Learn about common eye conditions, their symptoms, risk factors, and how to prevent
             them. Knowledge is the first step to better eye health.
           </p>
@@ -298,7 +316,7 @@ const EyeConditions = () => {
 
       <div className="max-w-7xl mx-auto px-4 py-8">
         {/* Search and Filter */}
-        <div className="bg-white rounded-2xl shadow-sm p-6 mb-8">
+        <div className="bg-white rounded-2xl shadow-card border border-gray-100/80 p-6 mb-8">
           <div className="flex flex-col md:flex-row space-y-4 md:space-y-0 md:space-x-4">
             {/* Search */}
             <div className="flex-1 relative">
@@ -314,7 +332,7 @@ const EyeConditions = () => {
                   fontSize: '16px',
                   fontWeight: '500'
                 }}
-                className="w-full pl-10 pr-10 py-3 border-2 border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white placeholder-gray-400"
+                className="input pl-10 pr-10"
               />
               {searchQuery && (
                 <button
@@ -336,7 +354,7 @@ const EyeConditions = () => {
                     onClick={() => setSelectedCategory(category.value)}
                     className={`flex items-center space-x-2 px-4 py-3 rounded-xl font-medium transition-colors whitespace-nowrap flex-shrink-0 ${
                       selectedCategory === category.value
-                        ? 'bg-primary-600 text-white'
+                        ? 'bg-accent-600 text-white'
                         : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                     }`}
                   >
@@ -366,7 +384,7 @@ const EyeConditions = () => {
 
         {/* Conditions Grid */}
         {filteredConditions.length === 0 ? (
-          <div className="bg-white rounded-2xl shadow-sm p-12 text-center">
+          <div className="bg-white rounded-2xl shadow-card border border-gray-100/80 p-12 text-center">
             <Eye className="w-16 h-16 text-gray-300 mx-auto mb-4" />
             <h3 className="text-xl font-semibold text-gray-900 mb-2">No conditions found</h3>
             <p className="text-gray-600">Try adjusting your search or filter criteria</p>
@@ -382,8 +400,8 @@ const EyeConditions = () => {
                 <div
                   key={condition.id}
                   onClick={() => hasFullDetails ? setSelectedCondition(displayData) : null}
-                  className={`bg-white rounded-2xl shadow-sm hover:shadow-md transition-shadow overflow-hidden flex flex-col ${
-                    hasFullDetails ? 'cursor-pointer' : 'cursor-default'
+                  className={`bg-white rounded-2xl shadow-card border border-gray-100/80 transition-all duration-300 overflow-hidden flex flex-col ${
+                    hasFullDetails ? 'cursor-pointer hover:shadow-elevated hover:-translate-y-0.5' : 'cursor-default'
                   }`}
                 >
                   <div className="p-6 flex-1 flex flex-col">
@@ -464,7 +482,7 @@ const EyeConditions = () => {
                   {/* Footer - always at bottom */}
                   {hasFullDetails && (
                     <div className="bg-gray-50 px-6 py-3 text-center">
-                      <span className="text-sm font-medium text-primary-600">Learn More →</span>
+                      <span className="text-sm font-medium text-accent-600">Learn More →</span>
                     </div>
                   )}
                 </div>
@@ -474,7 +492,7 @@ const EyeConditions = () => {
         )}
 
         {/* Educational Banner */}
-        <div className="bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-2xl p-8 mt-12">
+        <div className="bg-brand-soft border border-accent-100 rounded-2xl p-8 mt-12">
           <div className="max-w-3xl">
             <h2 className="text-2xl font-bold text-gray-900 mb-3">
               Knowledge is Prevention
@@ -487,13 +505,13 @@ const EyeConditions = () => {
             <div className="flex flex-wrap gap-4">
               <button
                 onClick={() => navigate('/vision-tests')}
-                className="bg-primary-600 text-white px-6 py-3 rounded-xl font-semibold hover:bg-primary-700 transition-colors"
+                className="btn-primary transition-colors"
               >
                 Take a Vision Test
               </button>
               <button
                 onClick={() => navigate('/eye-tracking-analysis')}
-                className="bg-white text-primary-600 border-2 border-primary-600 px-6 py-3 rounded-xl font-semibold hover:bg-primary-50 transition-colors"
+                className="bg-white text-accent-600 border-2 border-accent-600 px-6 py-3 rounded-xl font-semibold hover:bg-accent-50 transition-colors"
               >
                 Analyze Eye Fatigue
               </button>
