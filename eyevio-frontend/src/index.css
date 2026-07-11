@@ -360,4 +360,91 @@ textarea:focus-visible,
   .spinner {
     @apply animate-spin rounded-full h-12 w-12 border-4 border-accent-100 border-t-accent-600;
   }
+
+  /* Compact test prep — sticky CTA, less scrolling */
+  .test-prep {
+    @apply max-w-2xl mx-auto flex flex-col;
+    max-height: calc(100dvh - 7rem);
+  }
+  .test-prep-scroll {
+    @apply flex-1 overflow-y-auto pr-1 space-y-3;
+  }
+  .test-panel-compact {
+    @apply bg-white rounded-2xl shadow-card border border-gray-100/80 p-5 md:p-6 space-y-4;
+  }
+  .test-prep-header {
+    @apply text-center;
+  }
+  .test-prep-title {
+    @apply text-2xl md:text-3xl font-serif font-bold text-gray-900 mb-1;
+  }
+  .test-prep-subtitle {
+    @apply text-sm text-gray-500;
+  }
+  .test-prep-steps {
+    @apply text-sm text-gray-700 space-y-1.5 list-decimal list-inside bg-accent-50/80 rounded-xl p-4 border border-accent-100;
+  }
+  .test-prep-bar {
+    @apply sticky bottom-0 z-20 flex gap-3 pt-3 pb-1 mt-3 border-t border-gray-200/80;
+    background-color: rgba(248, 247, 244, 0.95);
+    backdrop-filter: blur(8px);
+  }
+  .test-prep-footnote {
+    @apply text-xs text-center text-gray-500 px-2 pb-2;
+  }
+  .test-details {
+    @apply rounded-xl border border-gray-200 bg-gray-50/80 text-sm;
+  }
+  .test-details summary {
+    @apply cursor-pointer select-none font-semibold text-gray-800 px-4 py-3 list-none;
+  }
+  .test-details summary::-webkit-details-marker {
+    display: none;
+  }
+  .test-details-body {
+    @apply px-4 pb-4 pt-0 text-gray-600 space-y-2 border-t border-gray-200/80;
+  }
+
+  /* Compact active test — stimulus + answers on one screen */
+  .test-active {
+    @apply max-w-3xl mx-auto px-3 py-3 flex flex-col gap-3;
+  }
+  .test-active-bar {
+    @apply flex items-center gap-2 bg-white rounded-xl border border-gray-100 shadow-sm px-3 py-2;
+  }
+  .test-stimulus-wrap {
+    @apply flex justify-center items-center rounded-xl bg-white border border-gray-100 p-2 mx-auto;
+    width: min(100%, 300px);
+    aspect-ratio: 1 / 1;
+    min-height: 200px;
+    max-height: min(42vh, 300px);
+  }
+  .test-stimulus-wrap > div {
+    @apply relative w-full h-full min-h-[180px];
+  }
+  .test-stimulus-wrap svg {
+    @apply block w-full h-full;
+  }
+  .test-letter-display {
+    @apply font-bold select-none text-center leading-none;
+    font-size: clamp(4rem, 18vw, 8rem);
+  }
+  .test-answer-grid {
+    @apply grid grid-cols-5 sm:grid-cols-10 gap-1.5 sm:gap-2;
+  }
+  .test-answer-btn {
+    @apply min-h-[44px] rounded-lg font-bold text-sm sm:text-base bg-gray-100 text-gray-900 border border-gray-200 hover:bg-accent-50 hover:border-accent-300 transition-colors;
+  }
+  .test-answer-btn-selected {
+    @apply bg-accent-600 text-white border-accent-600 ring-2 ring-accent-300;
+  }
+  .test-mode-row {
+    @apply grid grid-cols-3 gap-2;
+  }
+  .test-mode-chip {
+    @apply rounded-xl border-2 p-3 text-center cursor-pointer transition-all hover:border-accent-400 hover:bg-accent-50/50;
+  }
+  .test-mode-chip-active {
+    @apply border-accent-500 bg-accent-50 ring-2 ring-accent-200;
+  }
 }

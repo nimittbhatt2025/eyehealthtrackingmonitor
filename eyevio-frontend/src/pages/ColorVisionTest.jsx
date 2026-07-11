@@ -3,8 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { useCalibration } from '../context/CalibrationContext'
 import { visionTestAPI } from '../services/api'
 import voiceRecognition from '../utils/voiceRecognition'
-import VoiceControl from '../components/VoiceControl'
 import InlineDistanceCalibration from '../components/InlineDistanceCalibration'
+import { TestPrepLayout, TestDetails, TestActiveBar } from '../components/TestPrepLayout'
 import { 
   generateDeficiencyColors, 
   poissonDiskSampling,
@@ -643,469 +643,51 @@ const ColorVisionTest = () => {
 
   // Render Instructions
   const renderInstructions = () => (
-    <div className="test-shell">
-      <div className="max-w-4xl mx-auto space-y-4">
-        
-        {/* Header Section */}
-        <div className="text-center mb-6">
-          <div className="icon-tile bg-accent-50 text-accent-600 w-16 h-16 mx-auto mb-4">
-            <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-            </svg>
-          </div>
-          <h1 className="page-title mb-3">
-            Color Vision Test
-          </h1>
-          <p className="page-subtitle max-w-2xl mx-auto">
-            Screen for red-green color deficiencies using Ishihara-inspired plates
-          </p>
-        </div>
-
-        {/* MEDICAL DISCLAIMER */}
-        <div className="bg-white rounded-xl shadow-lg border-l-4 border-red-500 p-5 mb-6">
-          <div className="flex items-start gap-3">
-            <div className="flex-shrink-0">
-              <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
-                <svg className="w-6 h-6 text-red-600" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                </svg>
-              </div>
-            </div>
-            <div className="flex-1">
-              <h3 className="text-lg font-bold text-gray-900 mb-2">Medical Disclaimer: Screening Tool Only</h3>
-              <p className="text-gray-700 mb-3 text-sm font-medium">This is a SCREENING tool for casual home monitoring, NOT a clinical diagnosis.</p>
-              
-              <div className="grid md:grid-cols-2 gap-3 mb-3">
-                <div className="bg-green-50 rounded-lg p-3 border border-green-200">
-                  <p className="font-semibold text-green-900 mb-1 text-sm">Good for:</p>
-                  <p className="text-xs text-green-800">Early warning screening at home, detecting major red-green issues</p>
-                </div>
-                <div className="bg-red-50 rounded-lg p-3 border border-red-200">
-                  <p className="font-semibold text-red-900 mb-1 text-sm">NOT suitable for:</p>
-                  <p className="text-xs text-red-800">Clinical diagnosis, job requirements, legal purposes</p>
-                </div>
-              </div>
-              
-              <div className="bg-gray-50 rounded-lg p-3 border border-gray-200 mb-3">
-                <p className="font-semibold text-gray-900 mb-1 text-sm">Why this is NOT a clinical test:</p>
-                <ul className="space-y-1 text-xs text-gray-700">
-                  <li className="flex gap-2"><span className="text-red-500">•</span><span><strong>Screen inconsistency:</strong> Monitor brightness and color settings alter results</span></li>
-                  <li className="flex gap-2"><span className="text-red-500">•</span><span><strong>Lighting variation:</strong> Clinical tests use standardized daylight in controlled environments</span></li>
-                  <li className="flex gap-2"><span className="text-red-500">•</span><span><strong>Limited scope:</strong> Cannot check for rarer blue-yellow color trouble</span></li>
-                  <li className="flex gap-2"><span className="text-red-500">•</span><span><strong>No severity measurement:</strong> Cannot determine mild vs severe accurately</span></li>
-                </ul>
-              </div>
-              
-              <p className="text-xs text-gray-700 bg-yellow-50 border border-yellow-200 rounded-lg p-2">
-                <strong>For clinical diagnosis or job requirements:</strong> You MUST be tested with a physical Ishihara booklet by a licensed eye care professional.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* How This Test Works */}
-        <div className="card">
-          <h2 className="section-title mb-4 text-center">How This Test Works</h2>
-          
-          <div className="grid md:grid-cols-3 gap-4">
-            <div className="text-center">
-              <div className="w-12 h-12 bg-accent-50 rounded-full flex items-center justify-center mx-auto mb-3">
-                <span className="text-2xl font-bold text-accent-600">1</span>
-              </div>
-              <h3 className="font-bold text-base text-gray-900 mb-1">View Each Plate</h3>
-              <p className="text-sm text-gray-600">You'll see 10 colored dot patterns, each containing a hidden number.</p>
-            </div>
-
-            <div className="text-center">
-              <div className="w-12 h-12 bg-accent-50 rounded-full flex items-center justify-center mx-auto mb-3">
-                <span className="text-2xl font-bold text-accent-600">2</span>
-              </div>
-              <h3 className="font-bold text-base text-gray-900 mb-1">Identify the Number</h3>
-              <p className="text-sm text-gray-600">Select the number you see, or choose "Nothing" if you can't see any.</p>
-            </div>
-
-            <div className="text-center">
-              <div className="w-12 h-12 bg-accent-50 rounded-full flex items-center justify-center mx-auto mb-3">
-                <span className="text-2xl font-bold text-accent-600">3</span>
-              </div>
-              <h3 className="font-bold text-base text-gray-900 mb-1">Get Results</h3>
-              <p className="text-sm text-gray-600">Receive screening results for red and green deficiencies.</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Best Practices */}
-        <div className="card">
-          <h3 className="text-xl font-bold text-gray-900 mb-4">Best Practices for Reliable Results</h3>
-          
-          <div className="grid md:grid-cols-2 gap-4">
-            <div className="flex gap-3">
-              <div className="flex-shrink-0 w-6 h-6 bg-amber-100 rounded-full flex items-center justify-center">
-                <span className="text-amber-600 font-bold text-sm">1</span>
-              </div>
-              <div>
-                <p className="font-semibold text-gray-900">Consistent Device</p>
-                <p className="text-sm text-gray-600">Use the same device and screen every time</p>
-              </div>
-            </div>
-            
-            <div className="flex gap-3">
-              <div className="flex-shrink-0 w-6 h-6 bg-amber-100 rounded-full flex items-center justify-center">
-                <span className="text-amber-600 font-bold text-sm">2</span>
-              </div>
-              <div>
-                <p className="font-semibold text-gray-900">Standardized Lighting</p>
-                <p className="text-sm text-gray-600">Test in natural daylight or bright white light</p>
-              </div>
-            </div>
-            
-            <div className="flex gap-3">
-              <div className="flex-shrink-0 w-6 h-6 bg-amber-100 rounded-full flex items-center justify-center">
-                <span className="text-amber-600 font-bold text-sm">3</span>
-              </div>
-              <div>
-                <p className="font-semibold text-gray-900">Screen Brightness</p>
-                <p className="text-sm text-gray-600">Set to 70-80% (same level each time)</p>
-              </div>
-            </div>
-            
-            <div className="flex gap-3">
-              <div className="flex-shrink-0 w-6 h-6 bg-amber-100 rounded-full flex items-center justify-center">
-                <span className="text-amber-600 font-bold text-sm">4</span>
-              </div>
-              <div>
-                <p className="font-semibold text-gray-900">Disable Filters</p>
-                <p className="text-sm text-gray-600">Turn OFF Night Shift and blue light filters</p>
-              </div>
-            </div>
-            
-            <div className="flex gap-3">
-              <div className="flex-shrink-0 w-6 h-6 bg-amber-100 rounded-full flex items-center justify-center">
-                <span className="text-amber-600 font-bold text-sm">5</span>
-              </div>
-              <div>
-                <p className="font-semibold text-gray-900">Fixed Timing</p>
-                <p className="text-sm text-gray-600">8 seconds per plate for all tests</p>
-              </div>
-            </div>
-            
-            <div className="flex gap-3">
-              <div className="flex-shrink-0 w-6 h-6 bg-amber-100 rounded-full flex items-center justify-center">
-                <span className="text-amber-600 font-bold text-sm">6</span>
-              </div>
-              <div>
-                <p className="font-semibold text-gray-900">Track Baseline</p>
-                <p className="text-sm text-gray-600">Test monthly to detect changes over time</p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Glasses/Contacts Guidance */}
-        <div className="bg-green-50 border-2 border-green-300 rounded-xl p-6">
-          <h3 className="font-bold text-green-900 mb-3 flex items-center gap-2">
-            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-              <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
-              <path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" />
-            </svg>
-            Glasses/Contacts: CLEAR LENSES ONLY
-          </h3>
-          <div className="space-y-3">
-            <div className="bg-white rounded-lg p-4 border border-green-200">
-              <p className="text-green-900 font-semibold mb-2"> Safe to wear:</p>
-              <ul className="text-sm text-green-800 space-y-1 ml-4">
-                <li>• Standard prescription glasses (nearsighted/farsighted correction)</li>
-                <li>• Clear contact lenses</li>
-                <li>• Reading glasses with clear lenses</li>
-              </ul>
-            </div>
-            <div className="bg-white rounded-lg p-4 border border-red-300">
-              <p className="text-red-900 font-semibold mb-2">[X] REMOVE these:</p>
-              <ul className="text-sm text-red-800 space-y-1 ml-4">
-                <li>• Sunglasses or tinted lenses (any color)</li>
-                <li>• Blue-light blocking glasses</li>
-                <li>• "Color blind correction" glasses (EnChroma, etc.)</li>
-                <li>• Red-tinted contact lenses (X-Chrome)</li>
-                <li>• Photochromic/transition lenses (if darkened)</li>
-              </ul>
-            </div>
-          </div>
-          <p className="text-xs text-green-800 mt-3 italic">
-            💡 Tinted lenses filter specific wavelengths and will cause false results
-          </p>
-        </div>
-
-        {/* Input Method Selection */}
-        <div className="card">
-          <h3 className="text-xl font-bold text-gray-900 mb-4 text-center">Choose Your Input Method</h3>
-          
-          <div className="grid md:grid-cols-2 gap-4 mb-4">
-            <button
-              onClick={() => setInputMethod('type')}
-              className={`relative overflow-hidden rounded-xl p-4 transition-all duration-200 ${
-                inputMethod === 'type'
-                  ? 'bg-accent-600 text-white shadow-card scale-105'
-                  : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border-2 border-gray-200'
-              }`}
-            >
-              <div className="flex flex-col items-center gap-2">
-                <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
-                  inputMethod === 'type' ? 'bg-white bg-opacity-20' : 'bg-accent-50'
-                }`}>
-                  <svg className={`w-6 h-6 ${inputMethod === 'type' ? 'text-white' : 'text-accent-600'}`} fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M6 2a2 2 0 00-2 2v12a2 2 0 002 2h8a2 2 0 002-2V7.414A2 2 0 0015.414 6L12 2.586A2 2 0 0010.586 2H6zm5 6a1 1 0 10-2 0v3.586l-1.293-1.293a1 1 0 10-1.414 1.414l3 3a1 1 0 001.414 0l3-3a1 1 0 00-1.414-1.414L11 11.586V8z" clipRule="evenodd" />
-                  </svg>
-                </div>
-                <div className="text-center">
-                  <p className="text-lg font-bold mb-0.5">Tap Numbers (Recommended)</p>
-                  <p className="text-xs opacity-90 mb-1">Select from buttons on screen</p>
-                  <p className="text-xs opacity-75 px-2 py-0.5 rounded-full bg-black bg-opacity-10">
-                    Works offline — most reliable
-                  </p>
-                </div>
-              </div>
-              {inputMethod === 'type' && (
-                <div className="absolute top-2 right-2">
-                  <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                  </svg>
-                </div>
-              )}
-            </button>
-
-            <button
-              onClick={() => setInputMethod('voice')}
-              className={`relative overflow-hidden rounded-xl p-4 transition-all duration-200 ${
-                inputMethod === 'voice'
-                  ? 'bg-accent-600 text-white shadow-card scale-105'
-                  : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border-2 border-gray-200'
-              }`}
-            >
-              <div className="flex flex-col items-center gap-2">
-                <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
-                  inputMethod === 'voice' ? 'bg-white bg-opacity-20' : 'bg-accent-50'
-                }`}>
-                  <svg className={`w-6 h-6 ${inputMethod === 'voice' ? 'text-white' : 'text-accent-600'}`} fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
-                  </svg>
-                </div>
-                <div className="text-center">
-                  <p className="text-lg font-bold mb-0.5">Voice Input (Optional)</p>
-                  <p className="text-xs opacity-90 mb-1">Speak numbers aloud</p>
-                  <p className="text-xs opacity-75 px-2 py-0.5 rounded-full bg-black bg-opacity-10">
-                    Requires internet in most browsers
-                  </p>
-                </div>
-              </div>
-              {inputMethod === 'voice' && (
-                <div className="absolute top-2 right-2">
-                  <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                  </svg>
-                </div>
-              )}
-            </button>
-          </div>
-
-          {inputMethod === 'voice' && voiceSupported && (
-            <div className="bg-accent-50 border border-accent-100 rounded-lg p-4 flex items-start gap-3">
-              <svg className="w-6 h-6 text-accent-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-              </svg>
-              <p className="text-sm text-gray-700">
-                <strong>Voice is optional.</strong> You can always tap a number below. Voice may need internet in Edge/Chrome.
-              </p>
-            </div>
-          )}
-
-          {inputMethod === 'voice' && !voiceSupported && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-start gap-3">
-              <svg className="w-6 h-6 text-red-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-              </svg>
-              <p className="text-sm text-red-900">
-                <strong>Voice not supported:</strong> Your browser doesn't support voice recognition. Please use Click/Type mode.
-              </p>
-            </div>
-          )}
-        </div>
-
-        {/* What This Test Can/Cannot Detect */}
-        <div className="card">
-          <h3 className="text-2xl font-bold text-gray-900 mb-6">What This Test Detects</h3>
-          
-          <div className="grid md:grid-cols-2 gap-6">
-            <div className="bg-green-50 border-2 border-green-200 rounded-xl p-6">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 bg-green-600 rounded-full flex items-center justify-center">
-                  <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                  </svg>
-                </div>
-                <h4 className="font-bold text-lg text-green-900">CAN Detect</h4>
-              </div>
-              <ul className="space-y-2 text-sm text-green-800">
-                <li className="flex gap-2">
-                  <span className="font-bold"></span>
-                  <span>Red-green color deficiencies</span>
-                </li>
-                <li className="flex gap-2">
-                  <span className="font-bold"></span>
-                  <span>Late-stage eye health issues</span>
-                </li>
-                <li className="flex gap-2">
-                  <span className="font-bold"></span>
-                  <span>Macular degeneration signs</span>
-                </li>
-                <li className="flex gap-2">
-                  <span className="font-bold"></span>
-                  <span>Optic nerve disorders</span>
-                </li>
-              </ul>
-            </div>
-
-            <div className="bg-red-50 border-2 border-red-200 rounded-xl p-6">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 bg-red-600 rounded-full flex items-center justify-center">
-                  <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-                  </svg>
-                </div>
-                <h4 className="font-bold text-lg text-red-900">CANNOT Detect</h4>
-              </div>
-              <ul className="space-y-2 text-sm text-red-800">
-                <li className="flex gap-2">
-                  <span className="font-bold">✗</span>
-                  <span>Rarer blue-yellow color trouble</span>
-                </li>
-                <li className="flex gap-2">
-                  <span className="font-bold">✗</span>
-                  <span>Early vision problems</span>
-                </li>
-                <li className="flex gap-2">
-                  <span className="font-bold">✗</span>
-                  <span>Precise severity measurement</span>
-                </li>
-                <li className="flex gap-2">
-                  <span className="font-bold">✗</span>
-                  <span>Clinical-grade accuracy</span>
-                </li>
-              </ul>
-            </div>
-          </div>
-        </div>
-
-        {/* Important Requirements */}
-        <div className="card">
-          <h3 className="text-2xl font-bold text-gray-900 mb-6">Important Requirements</h3>
-          
-          <div className="grid md:grid-cols-2 gap-4">
-            <div className="flex items-start gap-3">
-              <div className="flex-shrink-0 w-8 h-8 bg-accent-50 rounded-full flex items-center justify-center">
-                <svg className="w-5 h-5 text-accent-600" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                </svg>
-              </div>
-              <p className="text-gray-700">Remove sunglasses or tinted lenses</p>
-            </div>
-            
-            <div className="flex items-start gap-3">
-              <div className="flex-shrink-0 w-8 h-8 bg-accent-50 rounded-full flex items-center justify-center">
-                <svg className="w-5 h-5 text-accent-600" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                </svg>
-              </div>
-              <p className="text-gray-700">Trust your first impression</p>
-            </div>
-            
-            <div className="flex items-start gap-3">
-              <div className="flex-shrink-0 w-8 h-8 bg-accent-50 rounded-full flex items-center justify-center">
-                <svg className="w-5 h-5 text-accent-600" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                </svg>
-              </div>
-              <p className="text-gray-700">View from arm's length (20-24 inches)</p>
-            </div>
-            
-            <div className="flex items-start gap-3">
-              <div className="flex-shrink-0 w-8 h-8 bg-accent-50 rounded-full flex items-center justify-center">
-                <svg className="w-5 h-5 text-accent-600" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                </svg>
-              </div>
-              <p className="text-gray-700">Avoid eye strain before testing</p>
-            </div>
-          </div>
-        </div>
-
-        {/* What We Test For */}
-        <div className="card">
-          <h3 className="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-2">
-            <svg className="w-7 h-7 text-accent-600" fill="currentColor" viewBox="0 0 20 20">
-              <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" />
-              <path fillRule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm9.707 5.707a1 1 0 00-1.414-1.414L9 12.586l-1.293-1.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-            </svg>
-            What We Test For
-          </h3>
-          
-          <div className="grid md:grid-cols-2 gap-6">
-            <div className="bg-gradient-to-br from-red-50 to-red-100 border-2 border-red-200 rounded-xl p-6">
-              <div className="flex items-center gap-3 mb-3">
-                <div className="w-12 h-12 bg-red-600 rounded-full flex items-center justify-center">
-                  <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 20 20">
-                    <circle cx="10" cy="10" r="7" />
-                  </svg>
-                </div>
-                <h4 className="font-bold text-xl text-red-900">Trouble seeing red</h4>
-              </div>
-              <p className="text-gray-700 mb-2">Reds can look dull or hard to tell apart from green. (Doctors call this "protan".)</p>
-              <p className="text-sm text-gray-600">Affects about 1 in 100 boys/men</p>
-            </div>
-
-            <div className="bg-gradient-to-br from-green-50 to-green-100 border-2 border-green-200 rounded-xl p-6">
-              <div className="flex items-center gap-3 mb-3">
-                <div className="w-12 h-12 bg-green-600 rounded-full flex items-center justify-center">
-                  <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 20 20">
-                    <circle cx="10" cy="10" r="7" />
-                  </svg>
-                </div>
-                <h4 className="font-bold text-xl text-green-900">Trouble seeing green</h4>
-              </div>
-              <p className="text-gray-700 mb-2">Greens can look dull or hard to tell apart from red. (Doctors call this "deutan".)</p>
-              <p className="text-sm text-gray-600">Affects about 5 in 100 boys/men</p>
-            </div>
-          </div>
-
-          <div className="mt-6 bg-accent-50 border border-accent-100 rounded-lg p-4">
-            <p className="text-sm text-gray-700">
-              <strong>Note:</strong> This test checks for red-green color trouble, which is the most common kind.
-              Blue-yellow trouble is rare and needs a special test at the eye doctor.
-            </p>
-          </div>
-        </div>
-
-        {/* Action Buttons */}
-        <div className="flex gap-4 pt-4">
-          <button
-            onClick={() => navigate('/vision-tests')}
-            className="flex-1 btn-secondary min-h-[44px]"
-          >
-             Back to Tests
-          </button>
-          <button
-            onClick={() => startTest()}
-            className="flex-1 btn-primary min-h-[44px]"
-          >
-            Start Test 
-          </button>
-        </div>
+    <TestPrepLayout
+      title="Color Vision Test"
+      subtitle="Tap the number you see on each plate (~3 min)"
+      steps={[
+        'Look at each colored dot pattern.',
+        'Tap the number you see (or Nothing).',
+        'Get a red-green screening result.',
+      ]}
+      onBack={() => navigate('/vision-tests')}
+      onPrimary={startTest}
+      primaryLabel="Start Test"
+      footerNote="Screening only — not a clinical diagnosis."
+    >
+      <div className="flex gap-2 justify-center">
+        <button
+          type="button"
+          onClick={() => setInputMethod('type')}
+          className={`flex-1 rounded-lg px-3 py-2 text-sm font-semibold border-2 transition-colors ${
+            inputMethod === 'type' ? 'border-accent-500 bg-accent-50 text-accent-900' : 'border-gray-200 text-gray-600'
+          }`}
+        >
+          Tap numbers
+        </button>
+        <button
+          type="button"
+          onClick={() => setInputMethod('voice')}
+          disabled={!voiceSupported}
+          className={`flex-1 rounded-lg px-3 py-2 text-sm font-semibold border-2 transition-colors ${
+            inputMethod === 'voice' ? 'border-accent-500 bg-accent-50 text-accent-900' : 'border-gray-200 text-gray-600'
+          } ${!voiceSupported ? 'opacity-50' : ''}`}
+        >
+          Voice (optional)
+        </button>
       </div>
-
-      <p className="max-w-5xl mx-auto text-center text-sm text-gray-500 italic mt-6">
-         This is a screening tool, not a diagnostic device. Results should be discussed with an eye care professional.
-      </p>
-    </div>
+      <TestDetails summary="Quick prep">
+        <ul className="list-disc list-inside space-y-1 text-xs">
+          <li>Bright, even light — remove tinted or blue-light glasses</li>
+          <li>Screen brightness ~70–80%, Night Shift off</li>
+          <li>Hold device at arm's length</li>
+        </ul>
+      </TestDetails>
+      <TestDetails summary="Disclaimer & limits">
+        <p className="text-xs">Home screening for red-green color trouble — not for clinical diagnosis, jobs, or legal use. See an eye care professional for official testing.</p>
+      </TestDetails>
+    </TestPrepLayout>
   )
 
   // Generate pseudoisochromatic plate (simplified visual representation)
@@ -1301,8 +883,8 @@ const ColorVisionTest = () => {
     console.log(`   ${numberDotsCount} orange (number) | ${bgDotsCount} green (background)`)
     
     const svg = (
-      <div className="relative w-full h-full">
-        <svg viewBox="0 0 400 400" className="w-full h-full">
+      <div className="relative w-full h-full min-h-[180px]">
+        <svg viewBox="0 0 400 400" className="w-full h-full block" preserveAspectRatio="xMidYMid meet">
           <circle cx="200" cy="200" r="195" fill="#F5F5F5" />
           <g>
             {dots.map(dot => {
@@ -1382,134 +964,78 @@ const ColorVisionTest = () => {
     if (!currentPlate) return null
 
     const numberChoices = ['2', '3', '5', '6', '7', '8', '9', '12', '15', '16', '26', '29', '35', '42', '45', '57', '73', '74', '83', '96', 'Nothing']
-    
-    // Timer progress percentage (fixed 5 seconds)
     const timerPercent = (timeRemaining / FIXED_TIME_LIMIT) * 100
     const isLowTime = timeRemaining <= 1
+    const last = responses[responses.length - 1]
 
     return (
-      <div className="max-w-4xl mx-auto space-y-4 py-4">
-        <div className="flex justify-between items-center">
-          <h2 className="text-2xl font-bold text-gray-900">
-            Plate {currentPlateIndex + 1} of {testPlates.length}
-          </h2>
+      <div className="test-active">
+        <TestActiveBar
+          left={`Plate ${currentPlateIndex + 1}/${testPlates.length}`}
+          center={(
+            <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+              <div
+                className={`h-full transition-all duration-100 ${isLowTime ? 'bg-red-500' : 'bg-accent-600'}`}
+                style={{ width: `${timerPercent}%` }}
+              />
+            </div>
+          )}
+          right={`${timeRemaining.toFixed(0)}s`}
+        />
+
+        {voiceNotice && (
+          <div className="text-xs text-center bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-amber-900">
+            {voiceNotice}
+          </div>
+        )}
+
+        <div className="test-stimulus-wrap">
+          {generatedPlateSVG || (
+            <div className="flex flex-col items-center justify-center text-gray-400 text-sm gap-3">
+              <div className="spinner w-10 h-10" />
+              <span>Loading plate…</span>
+            </div>
+          )}
         </div>
-        
-        {/* Simple Timer Display - 8 seconds for all plates */}
-        <div className="card">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-semibold text-gray-700">
-              Time Remaining: <span className={isLowTime ? 'text-red-600' : 'text-accent-600'}>{timeRemaining.toFixed(1)}s</span>
-            </span>
-            <span className="text-xs text-gray-500">
-              8 seconds per plate
-            </span>
+
+        {showFeedback && last && (
+          <div className={`text-center text-sm font-semibold py-2 rounded-lg ${
+            last.errorType === 'timeout' ? 'bg-yellow-50 text-yellow-800' :
+            last.correct ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
+          }`}>
+            {last.errorType === 'timeout' ? 'Time expired' : last.correct ? 'Correct' : 'Incorrect'}
           </div>
-          <div className="w-full h-3 bg-gray-200 rounded-full overflow-hidden">
-            <div 
-              className={`h-full transition-all duration-100 ${
-                isLowTime ? 'bg-red-500' : 'bg-accent-600'
-              }`}
-              style={{ width: `${timerPercent}%` }}
-            />
-          </div>
-        </div>
+        )}
 
-        {/* Plate Display */}
-        <div className="card">
-          <div className="flex justify-center mb-4">
-            {generatedPlateSVG}
-          </div>
-
-          {/* Answer Input — tap buttons always available */}
-          <div className="space-y-4">
-            {voiceNotice && (
-              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-sm text-amber-900 text-center">
-                {voiceNotice}
-              </div>
-            )}
-
-            {inputMethod === 'voice' && voiceEnabled && voiceSupported && (
-              <div className="text-center">
-                <p className="text-gray-600 mb-2 text-sm">
-                  {isListening ? 'Listening… or tap a number below' : 'Voice active — tap a number if speech fails'}
-                </p>
-                {userInput && (
-                  <p className="text-sm text-gray-900">
-                    Heard: <strong>{userInput}</strong>
-                  </p>
-                )}
-              </div>
-            )}
-
-            <div className="grid grid-cols-4 sm:grid-cols-7 gap-2 sm:gap-3">
+        {!showFeedback && (
+          <>
+            <div className="grid grid-cols-4 sm:grid-cols-7 gap-1.5">
               {numberChoices.map((choice) => (
                 <button
                   key={choice}
-                  disabled={showFeedback || timeRemaining <= 0}
+                  type="button"
+                  disabled={timeRemaining <= 0}
                   onClick={() => {
                     setSelectedAnswer(choice)
                     setUserInput(choice)
                     submitAnswerWithValue(choice === 'Nothing' ? 'nothing' : choice)
                   }}
-                  className={`py-3 sm:py-4 rounded-xl font-bold text-sm sm:text-lg transition-all min-h-[44px] ${
-                    selectedAnswer === choice
-                      ? 'bg-accent-600 text-white ring-4 ring-accent-300'
-                      : 'bg-gray-100 text-gray-900 hover:bg-gray-200'
-                  }`}
+                  className={`test-answer-btn ${selectedAnswer === choice ? 'test-answer-btn-selected' : ''}`}
                 >
                   {choice}
                 </button>
               ))}
             </div>
-          </div>
-
-          {/* Manual submit fallback if voice filled input without auto-submit */}
-          {(selectedAnswer || userInput) && !showFeedback && timeRemaining > 0 && inputMethod === 'voice' && (
             <button
-              onClick={handleAnswerSubmit}
-              data-submit-answer
-              className="w-full mt-6 bg-accent-600 text-white py-5 rounded-xl font-bold text-lg hover:bg-accent-700 transition-all transform hover:scale-[1.02] shadow-card flex items-center justify-center gap-3 animate-pulse"
+              type="button"
+              onClick={() => submitAnswerWithValue('nothing')}
+              disabled={timeRemaining <= 0}
+              className="w-full text-sm text-gray-500 hover:text-gray-700 py-2"
             >
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              {voiceEnabled ? (
-                <>Submit: <span className="font-black text-xl">{userInput}</span></>
-              ) : (
-                <>Submit Answer</>
-              )}
+              Can't see a number
             </button>
-          )}
-          
-          {/* Timeout message */}
-          {timeRemaining <= 0 && !showFeedback && (
-            <div className="mt-6 p-4 bg-yellow-50 border-2 border-yellow-400 rounded-2xl text-center">
-              <p className="text-yellow-800 font-semibold">Time expired. Moving to next plate...</p>
-            </div>
-          )}
-
-          {/* Feedback */}
-          {showFeedback && (
-            <div className={`mt-6 p-6 rounded-2xl ${
-              responses[responses.length - 1]?.errorType === 'timeout' 
-                ? 'bg-yellow-50 border-2 border-yellow-400' 
-                : responses[responses.length - 1]?.correct
-                  ? 'bg-green-50 border-2 border-green-400'
-                  : 'bg-red-50 border-2 border-red-400'
-            }`}>
-              <p className="text-center text-lg font-semibold mb-2">
-                {responses[responses.length - 1]?.errorType === 'timeout' ? 'Time Expired' :
-                 responses[responses.length - 1]?.correct ? 'Correct!' : 'Incorrect'}
-              </p>
-              {responses[responses.length - 1]?.responseTime && (
-                <p className="text-center text-sm text-gray-600">
-                  Response time: {responses[responses.length - 1].responseTime.toFixed(1)}s
-                </p>
-              )}
-            </div>
-          )}
-        </div>
+          </>
+        )}
       </div>
     )
   }
@@ -1564,13 +1090,11 @@ const ColorVisionTest = () => {
   }
 
   return (
-    <div className="test-shell">
-      <div className="max-w-7xl mx-auto">
-        {testState === 'distance-gate' && renderDistanceGate()}
-        {testState === 'instructions' && renderInstructions()}
-        {testState === 'testing' && renderTesting()}
-        {testState === 'results' && renderResults()}
-      </div>
+    <div className="px-2 pb-4">
+      {testState === 'distance-gate' && renderDistanceGate()}
+      {testState === 'instructions' && renderInstructions()}
+      {testState === 'testing' && renderTesting()}
+      {testState === 'results' && renderResults()}
     </div>
   )
 }

@@ -5,6 +5,7 @@ import EyeCoverageVerification from '../components/EyeCoverageVerification'
 import UnifiedCalibration from '../components/UnifiedCalibration'
 import { visionTestAPI } from '../services/api'
 import removeEmojis from '../utils/removeEmojis.js'
+import { TestPrepLayout, TestDetails, TestActiveBar } from '../components/TestPrepLayout'
 
 /**
  * WORLD-CLASS CONTRAST SENSITIVITY TEST
@@ -949,434 +950,117 @@ const ContrastSensitivityTest = () => {
 
   // 2. Gamma/Black Point Calibration (CLINICAL GRADE - normalizes across all screens)
   const renderGammaCalibration = () => (
-    <div className="min-h-screen bg-black flex items-center justify-center p-8">
-      <div className="max-w-4xl w-full space-y-8">
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-white mb-4">Black Point Calibration</h1>
-          <p className="text-lg text-gray-300">
-            Clinical-grade gamma 2.2 normalization for accurate contrast measurement
-          </p>
+    <div className="test-prep max-w-xl">
+      <div className="test-prep-scroll space-y-4">
+        <div className="test-panel-compact text-center">
+          <h1 className="test-prep-title text-gray-900">Screen check</h1>
+          <p className="test-prep-subtitle">Adjust brightness until only Box A is barely visible</p>
         </div>
-
-        {/* CRITICAL: System Settings Warnings */}
-        <div className="bg-red-900 border-2 border-red-600 rounded-xl p-5">
-          <p className="text-red-200 font-bold mb-3 flex items-center gap-2 text-lg">
-            <span className="text-2xl">[WARNING]</span>
-            REQUIRED: Disable These Settings First
-          </p>
-          <ul className="text-red-200 space-y-2">
-            <li className="flex items-start gap-2">
-              <span className="font-bold min-w-[140px]">Auto-Brightness:</span>
-              <span>Must be OFF (screen will dim mid-test and ruin calibration)</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="font-bold min-w-[140px]">True Tone / Night Shift:</span>
-              <span>Must be OFF (changes color temperature)</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="font-bold min-w-[140px]">Dark Mode:</span>
-              <span>Can interfere - switch to Light Mode if available</span>
-            </li>
-          </ul>
-        </div>
-
-        {/* Room Lighting Warning */}
-        <div className="bg-yellow-900 border-2 border-yellow-600 rounded-xl p-5">
-          <p className="text-yellow-200 font-bold mb-2 flex items-center gap-2 text-lg">
-            <span className="text-2xl">💡</span>
-            Room Lighting Matters
-          </p>
-          <p className="text-yellow-200">
-            <span className="font-semibold">Dim your room lights</span> and avoid glare on the screen. 
-            Contrast sensitivity is highly dependent on ambient light. Test in the same lighting conditions 
-            you'd experience during night driving for accurate safety assessment.
-          </p>
-        </div>
-
-        {/* Pure black background container for accurate calibration */}
-        <div className="rounded-2xl p-10" style={{ backgroundColor: '#000000' }}>
-          <h3 className="text-xl font-bold text-white mb-6 text-center">
-            Adjust Screen Brightness Until You See Box A Only
-          </h3>
-          
-          <div className="flex justify-center gap-16 mb-8 py-12">
+        <TestDetails summary="Turn off auto-brightness & Night Shift">
+          <p className="text-xs">Auto-brightness and True Tone will change contrast mid-test. Use a dim room with no glare on the screen.</p>
+        </TestDetails>
+        <div className="rounded-2xl p-6 bg-black">
+          <div className="flex justify-center gap-10 mb-4">
             <div className="text-center">
-              {/* Box A: The "Glow" box - should become visible when brightness is correct */}
-              <div 
-                className="w-32 h-32 mb-4"
-                style={{ 
-                  backgroundColor: 'rgb(10, 10, 10)', // ~4% brightness - the threshold target
-                  border: '1px solid rgba(255, 255, 255, 0.1)' // Very faint border to help locate it
-                }}
-              />
-              <p className="text-sm text-gray-400">
-                Box A<br />
-                <span className="text-white font-semibold text-base">(Should be BARELY visible)</span>
-              </p>
-              <p className="text-xs text-gray-500 mt-1">RGB(10, 10, 10)</p>
+              <div className="w-20 h-20 mb-2 mx-auto" style={{ backgroundColor: 'rgb(10, 10, 10)', border: '1px solid rgba(255,255,255,0.1)' }} />
+              <p className="text-xs text-gray-400">Box A — barely visible</p>
             </div>
             <div className="text-center">
-              {/* Box B: The "Black" box - should remain invisible even when Box A is visible */}
-              <div 
-                className="w-32 h-32 mb-4"
-                style={{ 
-                  backgroundColor: 'rgb(2, 2, 2)', // ~0.8% brightness - should be invisible
-                  border: '1px solid rgba(255, 255, 255, 0.05)' // Ultra-faint border
-                }}
-              />
-              <p className="text-sm text-gray-400">
-                Box B<br />
-                <span className="text-red-400 font-semibold text-base">(Should be INVISIBLE)</span>
-              </p>
-              <p className="text-xs text-gray-500 mt-1">RGB(2, 2, 2)</p>
+              <div className="w-20 h-20 mb-2 mx-auto bg-black border border-gray-800" />
+              <p className="text-xs text-gray-400">Box B — invisible</p>
             </div>
           </div>
-
-          <div className="bg-gray-800 border border-gray-600 rounded-xl p-6 mb-6">
-            <p className="text-white font-semibold mb-3 text-lg">Calibration Steps:</p>
-            <ol className="text-gray-300 space-y-3">
-              <li className="flex gap-3">
-                <span className="font-bold text-blue-400">1.</span>
-                <span><span className="font-semibold">Look away for 3 seconds</span> - Let your eyes adjust to the dark screen</span>
-              </li>
-              <li className="flex gap-3">
-                <span className="font-bold text-blue-400">2.</span>
-                <span><span className="font-semibold">Increase screen brightness</span> until Box A begins to glow faintly</span>
-              </li>
-              <li className="flex gap-3">
-                <span className="font-bold text-blue-400">3.</span>
-                <span><span className="font-semibold">Box B must stay invisible</span> - Should blend perfectly with black background</span>
-              </li>
-              <li className="flex gap-3">
-                <span className="font-bold text-blue-400">4.</span>
-                <span><span className="font-semibold">If both are invisible at 100%:</span> Increase room lighting slightly</span>
-              </li>
-              <li className="flex gap-3">
-                <span className="font-bold text-blue-400">5.</span>
-                <span><span className="font-semibold text-red-400">DO NOT change brightness</span> during the test!</span>
-              </li>
-            </ol>
-          </div>
-
-          <div className="bg-blue-900 border border-blue-700 rounded-xl p-5 mb-6">
-            <p className="text-blue-200 text-sm">
-              <span className="font-bold text-base">Why This Matters:</span> Every screen shows dark shades a little differently.
-              This quick step sets up your screen so the faint letters look the same for you as they would for anyone else —
-              which keeps your score accurate.
-            </p>
-          </div>
-
-          <div className="bg-green-900 border border-green-700 rounded-xl p-5 mb-6">
-            <p className="text-green-200 text-sm">
-              <span className="font-bold text-base">How This Feeds Into Scoring:</span> Since you've proven you can see Box A (~4% brightness), 
-              the test establishes your contrast baseline. Level 1 (100% contrast) = white on black. Level 24 (extreme difficulty) = 
-              text only 0.5% brighter than black. Your proven threshold ensures accurate adaptive difficulty scaling throughout the test.
-            </p>
-          </div>
-
-          {/* Troubleshooting Guide */}
-          <div className="bg-yellow-900 border border-yellow-700 rounded-xl p-5 mb-6">
-            <p className="text-yellow-200 font-semibold mb-2">Can't see the boxes? Common issues:</p>
-            <ul className="text-yellow-200 text-xs space-y-1">
-              <li>• <span className="font-semibold">Monitor Quality:</span> Older TN panels may show washed-out blacks (both boxes look gray)</li>
-              <li>• <span className="font-semibold">Brightness Too Low:</span> If laptop brightness is at 10%, both boxes will appear as pure black</li>
-              <li>• <span className="font-semibold">True Tone/Night Shift ON:</span> Warms the screen, turning deep blacks into muddy browns</li>
-              <li>• <span className="font-semibold">Room Too Bright:</span> Ambient light reflection on screen masks subtle differences</li>
-            </ul>
-          </div>
-
-          <button
-            onClick={() => {
-              setGammaCalibrated(true)
-              setTestState('instructions')
-            }}
-            className="btn-primary w-full py-5 text-xl"
-          >
-            ✓ I Can See Box A Only (Continue)
-          </button>
-
-          <p className="text-gray-400 text-sm text-center mt-4">
-            If you cannot see Box A even at 100% brightness, increase room lighting or test on a different display
-          </p>
         </div>
+      </div>
+      <div className="test-prep-bar">
+        <button
+          type="button"
+          onClick={() => { setGammaCalibrated(true); setTestState('instructions') }}
+          className="btn-primary w-full min-h-[44px]"
+        >
+          Box A only — Continue
+        </button>
       </div>
     </div>
   )
 
   // 3. Instructions
   const renderInstructions = () => (
-    <div className="test-shell">
-      <div className="max-w-4xl mx-auto space-y-6">
-        <div className="bg-white rounded-2xl shadow-xl p-8 border-2 border-purple-100">
-          <h1 className="text-4xl font-bold text-gray-900 mb-4 text-center">Faint Shapes Test</h1>
-          <p className="text-lg text-gray-600 text-center mb-8">
-            See how well you spot faint shapes in dim light
-          </p>
-
-          {/* Quick-start summary so users can begin without reading everything */}
-          <div className="bg-purple-600 text-white rounded-2xl p-6 mb-8">
-            <h2 className="font-bold text-lg mb-3">In short</h2>
-            <ol className="space-y-2 text-purple-50">
-              <li><span className="font-bold">1.</span> Faint letters appear one eye at a time — say each one you see.</li>
-              <li><span className="font-bold">2.</span> They slowly fade until you can't read them.</li>
-              <li><span className="font-bold">3.</span> That's it — about a minute per eye.</li>
-            </ol>
-            <p className="text-sm text-purple-100 mt-3">Want more detail? Keep reading below.</p>
-          </div>
-
-          <div className="space-y-6">
-            <div className="bg-blue-50 border-2 border-blue-200 rounded-xl p-6">
-              <h3 className="font-bold text-blue-900 mb-3 text-lg flex items-center gap-2">
-                <span className="text-2xl"></span>
-                What This Test Does:
-              </h3>
-              <ul className="space-y-2 text-blue-800">
-                <li>• Measures ability to see faded or low-contrast objects</li>
-                <li>• Predicts <span className="font-bold">night driving safety</span> and <span className="font-bold">fall risk</span></li>
-                <li>• Detects early <span className="font-bold">cataracts, glaucoma, and MS</span></li>
-                <li>• More important than 20/20 vision for real-world function</li>
-                <li>• You can have "perfect" acuity but fail this test</li>
-              </ul>
-            </div>
-
-            <div className="bg-purple-50 border-2 border-purple-200 rounded-xl p-6">
-              <h3 className="font-bold text-purple-900 mb-3 text-lg flex items-center gap-2">
-                <span className="text-2xl">📋</span>
-                How It Works:
-              </h3>
-              <ol className="space-y-2 text-purple-800">
-                <li>1. You'll see faint letters (from the set C, D, H, K, N, O, R, S, V, Z)</li>
-                <li>2. Each round shows 3 letters - say each one out loud</li>
-                <li>3. Get 2 out of 3 right to pass a level</li>
-                <li>4. The letters get fainter or clearer to find your limit — big steps first, then small ones</li>
-                <li>5. Starts easy and finds your level in about <span className="font-bold">8-12 rounds</span> (about a minute)</li>
-                <li>6. Each eye is checked on its own</li>
-              </ol>
-            </div>
-            
-            <div className="bg-blue-50 border-2 border-blue-200 rounded-xl p-6">
-              <h3 className="font-bold text-blue-900 mb-3 text-lg">[mic] Voice Recognition Tips:</h3>
-              <ul className="text-sm text-blue-800 space-y-2">
-                <li>✓ Say ONLY the letter: "C" or "K" or "Z"</li>
-                <li>✓ You can also say phonetic names: "See" "Kay" "Zed"</li>
-                <li>✗ Don't say: "The letter C" or "I think it's C"</li>
-                <li>💡 If unparsable for 3+ tries, helpful tips will appear</li>
-                <li>⏱️ Faster responses (under 3s) = more confident scoring</li>
-              </ul>
-              <div className="mt-4 flex items-center gap-4">
-                <label className="flex items-center gap-2 text-sm text-blue-800">
-                  <input type="checkbox" checked={phoneticEnabled} onChange={(e) => setPhoneticEnabled(e.target.checked)} />
-                  <span>Enable phonetic parsing</span>
-                </label>
-                {voiceDebug && (
-                  <span className="text-xs text-gray-500">(voiceDebug active — showing alternatives)</span>
-                )}
-              </div>
-              {voiceDebug && (
-                <div className="mt-3 bg-gray-50 border rounded p-2 text-xs text-gray-700">
-                  <div className="font-semibold mb-1">Last recognition alternatives:</div>
-                  <pre className="whitespace-pre-wrap break-words text-xs">{JSON.stringify(voiceAlts, null, 2)}</pre>
-                </div>
-              )}
-              {/* Audio input picker and mic test controls (always visible when in testing state) */}
-              {testState === 'instructions' && (
-                <div className="mt-3 bg-gray-50 border rounded p-3 text-xs text-gray-700">
-                  <div className="font-semibold text-sm mb-1">Microphone</div>
-                  <select
-                    className="w-full text-sm p-1 border rounded"
-                    value={selectedMicId || ''}
-                    onChange={(e) => setSelectedMicId(e.target.value)}
-                  >
-                    {audioDevices.length === 0 && <option value="">Default microphone</option>}
-                    {audioDevices.map(d => (
-                      <option key={d.deviceId} value={d.deviceId}>{d.label || `Mic ${d.deviceId.slice(-4)}`}</option>
-                    ))}
-                  </select>
-                  <div className="mt-2 flex gap-2">
-                    <button
-                      onClick={() => {
-                        (async () => {
-                          try {
-                            const constraints = selectedMicId ? { audio: { deviceId: { exact: selectedMicId } } } : { audio: true }
-                            const s = await navigator.mediaDevices.getUserMedia(constraints)
-                            const mr = new MediaRecorder(s)
-                            const chunks = []
-                            mr.ondataavailable = (ev) => chunks.push(ev.data)
-                            mr.start()
-                            setTimeout(() => mr.stop(), 1500)
-                            await new Promise(resolve => mr.onstop = resolve)
-                            const blob = new Blob(chunks, { type: 'audio/webm' })
-                            const url = URL.createObjectURL(blob)
-                            const a = new Audio(url)
-                            a.play()
-                            s.getTracks().forEach(t => t.stop())
-                          } catch (e) {
-                            console.error('Mic test failed', e)
-                          }
-                        })()
-                      }}
-                      className="px-2 py-1 bg-gray-100 rounded border">Test mic</button>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="bg-green-50 border-2 border-green-200 rounded-xl p-6">
-              <h3 className="font-bold text-green-900 mb-3 text-lg flex items-center gap-2">
-                <span className="text-2xl"></span>
-                What your score means:
-              </h3>
-              <div className="space-y-2 text-sm text-green-800">
-                <div className="flex justify-between p-2 bg-white rounded">
-                  <span className="font-bold">Excellent</span>
-                  <span className="text-green-600 font-semibold">Great vision in all lighting</span>
-                </div>
-                <div className="flex justify-between p-2 bg-white rounded">
-                  <span className="font-bold">Normal</span>
-                  <span className="text-blue-600 font-semibold">Typical for a healthy adult</span>
-                </div>
-                <div className="flex justify-between p-2 bg-white rounded">
-                  <span className="font-bold">A little low</span>
-                  <span className="text-yellow-600 font-semibold">May struggle driving at night</span>
-                </div>
-                <div className="flex justify-between p-2 bg-white rounded">
-                  <span className="font-bold">Low</span>
-                  <span className="text-red-600 font-semibold">Worth an eye exam</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-amber-50 border-2 border-amber-300 rounded-xl p-6">
-              <h3 className="font-bold text-amber-900 mb-2">Real-World Impact:</h3>
-              <p className="text-sm text-amber-800">
-                A person with 20/20 vision but poor contrast sensitivity may:
-              </p>
-              <ul className="text-sm text-amber-800 mt-2 space-y-1">
-                <li>• Struggle to see pedestrians at night</li>
-                <li>• Miss curbs and stairs (fall hazard)</li>
-                <li>• Have difficulty reading in dim light</li>
-                <li>• Be unsafe to drive in fog or rain</li>
-              </ul>
-            </div>
-          </div>
-
-          <button
-            onClick={() => setTestState('mode-select')}
-            className="w-full mt-8 btn-primary py-4 text-lg"
-          >
-            Continue to Mode Selection
-          </button>
-        </div>
+    <TestPrepLayout
+      title="Faint Shapes Test"
+      subtitle="Tap each letter you see — one eye at a time (~2 min per eye)"
+      steps={[
+        'Faint letters appear in groups of 3.',
+        'Tap C, D, H, K, N, O, R, S, V, or Z.',
+        'Letters get fainter until you reach your limit.',
+      ]}
+      onBack={() => navigate('/vision-tests')}
+      onPrimary={() => {
+        setTestMode('standard')
+        startTest()
+      }}
+      primaryLabel="Start Test"
+      footerNote="More important than 20/20 for night driving and low light."
+    >
+      <div className="test-mode-row">
+        <button type="button" onClick={() => { setTestMode('standard'); startTest() }} className="test-mode-chip test-mode-chip-active">
+          <div className="font-bold text-sm">Standard</div>
+        </button>
+        <button type="button" onClick={() => { setTestMode('glare'); startTest() }} className="test-mode-chip border-yellow-200">
+          <div className="font-bold text-sm">Night glare</div>
+        </button>
+        <button type="button" onClick={() => { setTestMode('fog'); startTest() }} className="test-mode-chip border-gray-300">
+          <div className="font-bold text-sm">Weather</div>
+        </button>
       </div>
-    </div>
+      <TestDetails summary="How scoring works">
+        <p className="text-xs">Get 2 of 3 letters right to pass a level. The test finds your faintest readable contrast, then checks your other eye.</p>
+      </TestDetails>
+      <TestDetails summary="Optional voice">
+        <p className="text-xs">Tap letters is recommended. Use the mic button during the test only if you prefer speaking.</p>
+      </TestDetails>
+    </TestPrepLayout>
   )
 
   // 4. Mode Selection (Standard, Glare, Fog)
   const renderModeSelect = () => (
-    <div className="test-shell">
-      <div className="max-w-5xl mx-auto space-y-6">
-        <div className="text-center mb-8">
-          <h2 className="text-3xl font-bold text-gray-900 mb-2">Select Test Mode</h2>
-          <p className="text-gray-600">Choose how you want to be challenged</p>
-          <p className="text-sm text-purple-600 mt-2">
-            Recommendation: Start with Standard, then try Glare for night driving assessment
-          </p>
-        </div>
-
-        <div className="grid md:grid-cols-3 gap-6">
-          {/* Standard Mode */}
-          <div 
-            onClick={() => {
-              setTestMode('standard')
-              startTest()
-            }}
-            className="bg-white rounded-2xl p-8 border-2 border-blue-200 hover:border-blue-400 cursor-pointer transition-all hover:shadow-xl hover:scale-105"
-          >
-            <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mb-4 mx-auto">
-              <span className="text-3xl font-bold text-blue-600">A</span>
-            </div>
-            <h3 className="text-xl font-bold text-gray-900 mb-2 text-center">Standard Mode</h3>
-            <p className="text-sm text-gray-600 mb-4 text-center">
-              Clean testing environment. Best for baseline screening.
-            </p>
-            <ul className="text-xs text-gray-600 space-y-1">
-              <li>• Faint letters that fade into the background</li>
-              <li>• Difficulty adjusts to you automatically</li>
-              <li>• 3-5 minutes per eye</li>
-              <li>• Based on the method eye doctors use</li>
-            </ul>
-            <div className="mt-4 text-center">
-              <span className="inline-block bg-blue-100 text-blue-700 text-xs font-semibold px-3 py-1 rounded-full">
-                Recommended
-              </span>
-            </div>
-          </div>
-
-          {/* Glare Mode (Night Driving) */}
-          <div 
-            onClick={() => {
-              setTestMode('glare')
-              startTest()
-            }}
-            className="bg-white rounded-2xl p-8 border-2 border-yellow-200 hover:border-yellow-400 cursor-pointer transition-all hover:shadow-xl hover:scale-105"
-          >
-            <div className="w-16 h-16 bg-yellow-100 rounded-full flex items-center justify-center mb-4 mx-auto">
-              <span className="text-3xl"></span>
-            </div>
-            <h3 className="text-xl font-bold text-gray-900 mb-2 text-center">Night Drive Mode</h3>
-            <p className="text-sm text-gray-600 mb-4 text-center">
-              Simulates oncoming headlights with intense glare. Tests disability glare.
-            </p>
-            <ul className="text-xs text-gray-600 space-y-1">
-              <li>• Cataract screening tool</li>
-              <li>• Bright peripheral glare</li>
-              <li>• Driving safety rating</li>
-              <li>• Scattered light simulation</li>
-            </ul>
-            <div className="mt-4 text-center">
-              <span className="inline-block bg-yellow-100 text-yellow-700 text-xs font-semibold px-3 py-1 rounded-full">
-                Advanced
-              </span>
-            </div>
-          </div>
-
-          {/* Fog Mode (Weather Simulation) */}
-          <div 
-            onClick={() => {
-              setTestMode('fog')
-              startTest()
-            }}
-            className="bg-white rounded-2xl p-8 border-2 border-gray-300 hover:border-gray-400 cursor-pointer transition-all hover:shadow-xl hover:scale-105"
-          >
-            <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4 mx-auto">
-              <span className="text-3xl"></span>
-            </div>
-            <h3 className="text-xl font-bold text-gray-900 mb-2 text-center">Weather Mode</h3>
-            <p className="text-sm text-gray-600 mb-4 text-center">
-              Heavy fog/rain simulation with reduced visibility.
-            </p>
-            <ul className="text-xs text-gray-600 space-y-1">
-              <li>• Low visibility conditions</li>
-              <li>• Functional vision test</li>
-              <li>• Safety score rating</li>
-              <li>• Real-world challenge</li>
-            </ul>
-            <div className="mt-4 text-center">
-              <span className="inline-block bg-gray-200 text-gray-700 text-xs font-semibold px-3 py-1 rounded-full">
-                Challenge
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-blue-50 border-2 border-blue-200 rounded-xl p-6 text-center">
-          <p className="text-sm text-blue-800">
-            <span className="font-bold">Pro Tip:</span> Complete Standard mode first to get your baseline,
-            then try Glare mode if you're concerned about night driving safety.
-          </p>
-        </div>
+    <TestPrepLayout
+      title="Pick a mode"
+      subtitle="Standard is best for your first run"
+      onBack={() => setTestState('instructions')}
+      onPrimary={() => {
+        setTestMode('standard')
+        startTest()
+      }}
+      primaryLabel="Start — Standard"
+    >
+      <div className="test-mode-row">
+        <button
+          type="button"
+          onClick={() => { setTestMode('standard'); startTest() }}
+          className="test-mode-chip test-mode-chip-active"
+        >
+          <div className="font-bold text-gray-900 text-sm">Standard</div>
+          <div className="text-xs text-gray-500 mt-1">Baseline</div>
+        </button>
+        <button
+          type="button"
+          onClick={() => { setTestMode('glare'); startTest() }}
+          className="test-mode-chip border-yellow-200"
+        >
+          <div className="font-bold text-gray-900 text-sm">Night glare</div>
+          <div className="text-xs text-gray-500 mt-1">Driving</div>
+        </button>
+        <button
+          type="button"
+          onClick={() => { setTestMode('fog'); startTest() }}
+          className="test-mode-chip border-gray-300"
+        >
+          <div className="font-bold text-gray-900 text-sm">Weather</div>
+          <div className="text-xs text-gray-500 mt-1">Fog/rain</div>
+        </button>
       </div>
-    </div>
+    </TestPrepLayout>
   )
 
   // 5. Eye Coverage Verification
@@ -1431,7 +1115,7 @@ const ContrastSensitivityTest = () => {
     }
     
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center p-8 relative overflow-hidden">
+      <div className="min-h-0 bg-white flex items-start justify-center py-3 px-2 relative overflow-hidden">
         {/* Night Driving Glare Overlay - MUCH MORE VISIBLE */}
         {testMode === 'glare' && (
           <>
@@ -1538,250 +1222,93 @@ const ContrastSensitivityTest = () => {
           </>
         )}
 
-        <div className="max-w-4xl w-full space-y-8 relative z-20">
-          {/* Header - Shows progress and current state */}
-          <div className="text-center">
-            <h2 className="text-2xl font-bold text-gray-900 mb-2">
-              Testing: {currentEye === 'left' ? 'LEFT Eye' : 'RIGHT Eye'}
-            </h2>
-            <div className="flex justify-center items-center gap-4 text-sm text-gray-600">
-              <span>Trial {trialNumber}</span>
-              <span>•</span>
-              <span>Faintness {contrastPercent}%</span>
-              <span>•</span>
-              <span>Reversals: {reversals}/3</span>
-              <span>•</span>
-              <span>Letter {tripletAnswers.length + 1}/3</span>
-            </div>
-            {/* Push-to-listen enforced — single-mode UI (no toggle) */}
-            <p className="text-sm text-purple-600 font-semibold mt-1">
-              Mode: {testMode === 'glare' ? 'Night Driving' : testMode === 'fog' ? 'Weather' : 'Standard'} 
-              {bayesianPhaseRef.current === 'discovery' && ' • [target] Discovery (±0.6)'}
-              {bayesianPhaseRef.current === 'convergence' && ' • � Convergence (±0.2)'}
-              {bayesianPhaseRef.current === 'precision' && ' • 🎓 Precision (±0.05)'}
-              {currentLevel >= 25 && ' • 🔬 Dithered'}
+        <div className="test-active relative z-20 w-full max-w-2xl">
+          <TestActiveBar
+            left={`${currentEye === 'left' ? 'Left' : 'Right'} eye`}
+            center={(
+              <div className="flex items-center justify-center gap-2 text-xs text-gray-500">
+                <span>T{trialNumber}</span>
+                <span>·</span>
+                <span>{contrastPercent}%</span>
+                <span>·</span>
+                <span>L{tripletAnswers.length + 1}/3</span>
+                <span className="flex gap-1 ml-1">
+                  {[0, 1, 2].map((i) => (
+                    <span
+                      key={i}
+                      className={`w-2 h-2 rounded-full ${
+                        i < tripletAnswers.length
+                          ? (tripletAnswers[i].correct ? 'bg-green-500' : 'bg-red-500')
+                          : 'bg-gray-300'
+                      }`}
+                    />
+                  ))}
+                </span>
+              </div>
+            )}
+            right={`Rev ${reversals}/3`}
+          />
+
+          {voiceNotice && (
+            <p className="text-xs text-center bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 text-amber-900">{voiceNotice}</p>
+          )}
+
+          <div className="test-stimulus-wrap min-h-[120px]">
+            <span
+              className="test-letter-display"
+              style={{
+                color: `rgb(${grayValue}, ${grayValue}, ${grayValue})`,
+                fontFamily: 'Sloan, Arial, sans-serif',
+                fontWeight: 700,
+                ...getDitheredStyle(),
+              }}
+            >
+              {currentLetter}
+            </span>
+          </div>
+
+          {lastResponse && (
+            <p className={`text-center text-sm font-semibold py-1.5 rounded-lg ${
+              lastResponse.correct ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
+            }`}>
+              {lastResponse.correct ? 'Correct' : lastResponse.answer === 'UNSEEN' ? 'Skipped' : `Incorrect — was ${lastResponse.letter}`}
             </p>
-            {/* Show triplet progress - only when actively answering (not during feedback) */}
-            {!lastResponse && (
-              <div className="flex justify-center gap-2 mt-2">
-                {[0, 1, 2].map(i => (
-                  <div key={i} className={`w-3 h-3 rounded-full ${
-                    i < tripletAnswers.length 
-                      ? (tripletAnswers[i].correct ? 'bg-green-500' : 'bg-red-500')
-                      : 'bg-gray-300'
-                  }`} />
-                ))}
-              </div>
-            )}
-            {/* Microphone status indicator */}
-            {isListening && (
-              <div className="mt-2 text-xs text-gray-500">
-                [mic] Microphone active - {transcript ? `Heard: "${transcript}"` : 'Say a letter (C, K, X, etc.)'}
-              </div>
-            )}
-            {!isListening && pushToListenEnabled && testState === 'testing' && (
-              <div className="mt-2 text-xs text-gray-500">
-                Push-to-listen is enabled — press the Listen button or press Space/Enter
-              </div>
-            )}
-          </div>
+          )}
 
-          {/* Letter Display - The stimulus (Pelli-Robson style: blends with background) */}
-          <div className="flex justify-center">
-            <div className="w-96 h-96 flex items-center justify-center">
-              <span 
-                className="font-bold select-none"
-                style={{
-                  fontSize: '200px',
-                  color: `rgb(${grayValue}, ${grayValue}, ${grayValue})`,
-                  fontFamily: 'Sloan, Arial, sans-serif',
-                  textShadow: 'none',
-                  letterSpacing: '0',
-                  fontWeight: '700',
-                  lineHeight: '1',
-                  ...getDitheredStyle() // Apply dithering if level >= 25
-                }}
-              >
-                {currentLetter}
-              </span>
-            </div>
-          </div>
-
-          {/* Tap-to-answer letter buttons (primary input — works offline) */}
           {currentLetter && !lastResponse && (
-            <div className="text-center space-y-3">
-              {voiceNotice && (
-                <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-900">
-                  {voiceNotice}
-                </div>
-              )}
-              <p className="text-sm font-semibold text-gray-700">Tap the letter you see</p>
-              <div className="flex flex-wrap justify-center gap-2 max-w-lg mx-auto">
+            <>
+              <div className="test-answer-grid">
                 {testLetters.map((letter) => (
                   <button
                     key={letter}
                     type="button"
                     onClick={() => handleAnswer(letter)}
-                    className="min-w-[44px] min-h-[44px] w-12 h-12 rounded-xl bg-white border-2 border-gray-200 text-lg font-bold text-gray-900 hover:bg-accent-50 hover:border-accent-400 transition-colors shadow-sm"
+                    className="test-answer-btn"
                     aria-label={`Answer ${letter}`}
                   >
                     {letter}
                   </button>
                 ))}
               </div>
-            </div>
-          )}
-
-          {/* Voice Recognition Indicator with Feedback */}
-          <div className="text-center min-h-[120px] flex flex-col items-center justify-center gap-2">
-            {showUnparsableHint && !lastResponse && (
-              <div className="bg-yellow-50 border-2 border-yellow-300 px-6 py-3 rounded-xl mb-2">
-                {showUnparsableHint === 'tips' ? (
-                  <>
-                    <p className="text-yellow-800 font-semibold">💡 Having trouble understanding. Tips:</p>
-                    <p className="text-sm text-yellow-900 mt-1">• Say just the letter clearly</p>
-                    <p className="text-sm text-yellow-900">• Speak a bit louder</p>
-                    <p className="text-sm text-yellow-900">• Try phonetic: "See" instead of "C"</p>
-                  </>
-                ) : (
-                  <p className="text-yellow-800 font-semibold text-lg">{showUnparsableHint}</p>
-                )}
-              </div>
-            )}
-            {isListening && !lastResponse && !showUnparsableHint && (
-              <div className="inline-flex items-center gap-2 bg-red-50 border-2 border-red-200 px-6 py-3 rounded-xl">
-                <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
-                <span className="text-red-700 font-semibold">Listening...</span>
-              </div>
-            )}
-            {transcript && !lastResponse && !showUnparsableHint && (
-              <div className="mt-2 text-lg text-purple-600 font-semibold">
-                Heard: "{transcript}"
-              </div>
-            )}
-            {/* Large circular Listen control for push-to-listen mode */}
-            {currentLetter && !lastResponse && (
-              <>
-                {/* Floating Listen button (bottom-left to avoid chatbot overlap) */}
+              <div className="flex items-center justify-between gap-2">
                 <button
+                  type="button"
+                  onClick={() => handleAnswer('UNSEEN')}
+                  className="text-xs text-gray-500 hover:text-gray-700 py-2"
+                >
+                  Can't see it
+                </button>
+                <button
+                  type="button"
                   onClick={() => startListening('button')}
-                  disabled={isListening}
-                  aria-label={isListening ? 'Listening' : 'Start listening'}
-                  aria-pressed={isListening}
-                  role="button"
-                  className={`fixed bottom-28 right-6 z-50 w-16 h-16 rounded-full flex items-center justify-center text-white shadow-2xl transition-transform focus:outline-none ${isListening ? 'bg-gray-300 text-gray-600' : 'bg-indigo-600 hover:bg-indigo-700'}`}
-                  style={listenFlash ? { transform: 'scale(1.12)' } : undefined}
+                  disabled={isListening || voiceFatalErrorRef.current}
+                  className="text-xs font-medium text-indigo-600 hover:text-indigo-800 py-2 px-3 rounded-lg border border-indigo-200"
+                  aria-label="Optional voice input"
                 >
-                  {/* Inline SVG mic icon (filled when active) */}
-                    {!isListening ? (
-                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
-                      <path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3z" fill="currentColor"/>
-                      <path d="M19 11a1 1 0 0 0-2 0 5 5 0 0 1-10 0 1 1 0 0 0-2 0 7 7 0 0 0 6 6.92V21a1 1 0 0 0 2 0v-3.08A7 7 0 0 0 19 11z" fill="currentColor"/>
-                    </svg>
-                  ) : (
-                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
-                      <path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3z" fill="currentColor"/>
-                      <path d="M19 11a1 1 0 0 0-2 0 5 5 0 0 1-10 0 1 1 0 0 0-2 0 7 7 0 0 0 6 6.92V21a1 1 0 0 0 2 0v-3.08A7 7 0 0 0 19 11z" fill="currentColor"/>
-                      {/* small active ring */}
-                      <circle cx="12" cy="12" r="10" stroke="rgba(255,255,255,0.14)" strokeWidth="2" />
-                    </svg>
-                  )}
+                  {isListening ? 'Listening…' : 'Mic'}
                 </button>
-
-                {/* Mic level indicator (small bar) */}
-                <div className="fixed bottom-24 right-6 z-50 flex items-center gap-2 pointer-events-none">
-                  <div aria-hidden="true" style={{ width: 36, height: 8, background: '#111', borderRadius: 4, opacity: 0.18 }}>
-                    <div style={{ width: `${Math.min(100, Math.round((micLevel / 255) * 100))}%`, height: '100%', background: micLevel > 40 ? '#10B981' : '#EF4444', borderRadius: 4 }} />
-                  </div>
-                  <div className="sr-only" aria-live="polite">Microphone level {Math.round((micLevel / 255) * 100)} percent</div>
-                </div>
-
-              </>
-            )}
-            {lastResponse && (
-              <div className={`inline-flex items-center gap-3 border-2 px-8 py-4 rounded-xl ${
-                lastResponse.correct 
-                  ? 'bg-green-50 border-green-300' 
-                  : 'bg-red-50 border-red-300'
-              }`}>
-                <div className={`text-3xl ${lastResponse.correct ? 'text-green-600' : 'text-red-600'}`}>
-                  {lastResponse.correct ? '✓' : '✗'}
-                </div>
-                <div className="text-left">
-                  <p className={`font-bold text-lg ${lastResponse.correct ? 'text-green-700' : 'text-red-700'}`}>
-                    {lastResponse.correct ? 'Correct!' : lastResponse.answer === 'UNSEEN' ? 'Skipped' : 'Incorrect'}
-                  </p>
-                  <p className="text-sm text-gray-600">
-                    {lastResponse.answer === 'UNSEEN' ? (
-                      <>You couldn't see it • Letter was: <span className="font-semibold">{lastResponse.letter}</span></>
-                    ) : (
-                      <>
-                        You said: <span className="font-semibold">{lastResponse.answer}</span>
-                        {!lastResponse.correct && (
-                          <span> • Correct was: <span className="font-semibold">{lastResponse.letter}</span></span>
-                        )}
-                      </>
-                    )}
-                  </p>
-                </div>
               </div>
-            )}
-            {!isListening && !transcript && !lastResponse && (
-              <p className="text-sm text-gray-400">
-                Tap a letter above, or use the mic button for optional voice input
-              </p>
-            )}
-          </div>
-
-          {/* Instructions */}
-          <div className="bg-blue-50 border-2 border-blue-200 rounded-xl p-6 text-center">
-            <p className="text-blue-900 font-semibold mb-2">
-              Letters used: C, D, H, K, N, O, R, S, V, Z
-            </p>
-            <p className="text-sm text-blue-700 mb-2">
-              <span className="font-bold">Just say:</span> "C" or "K" or "Z" • <span className="font-bold">Don't say:</span> "The letter C" or full sentences
-            </p>
-            <p className="text-xs text-blue-600">
-              Phonetic works: "See" for C, "Kay" for K, "Zed" for Z, "Dee" for D, "Aitch" for H
-            </p>
-            <p className="text-xs text-gray-500 mt-2">
-              {/* Better time estimation: ends after 5 reversals OR 25 trials, ~8s per trial */}
-              Estimated time remaining: {
-                reversals >= 4 ? '~30 seconds' : 
-                reversals >= 3 ? '~1 minute' :
-                trialNumber > 20 ? '~1 minute' :
-                trialNumber > 15 ? '~1-2 minutes' :
-                '~2 minutes'
-              } • Trial {trialNumber}/25 • Reversals {reversals}/5
-            </p>
-          </div>
-
-          {/* Can't See It Button (Clinical "False Negative" response) */}
-          {!lastResponse && currentLetter && (
-            <div className="text-center">
-              <div className="flex flex-col items-center gap-3">
-                <button
-                  onClick={() => {
-                    console.log(`👁️ User cannot see letter: ${currentLetter}`)
-                    // Treat as incorrect answer (user reached their threshold)
-                    handleAnswer('UNSEEN') // Will be marked as incorrect
-                  }}
-                  className="bg-gray-100 hover:bg-gray-200 border-2 border-gray-300 text-gray-700 px-6 py-3 rounded-xl font-semibold transition-colors"
-                >
-                  👁️ Can't See It (Skip)
-                </button>
-
-                {/* Small helper when push-to-listen is enabled (big Listen button is above) */}
-                {pushToListenEnabled && (
-                  <div className="text-center">
-                    <p className="text-xs text-gray-500 mt-2">Press Space / Enter or tap the Listen button below</p>
-                  </div>
-                )}
-              </div>
-              <p className="text-xs text-gray-500 mt-2">
-                Click if the letter is invisible or too faint to identify
-              </p>
-            </div>
+            </>
           )}
         </div>
 
