@@ -141,7 +141,10 @@ const ContrastSensitivityTest = () => {
   // Push-to-listen: explicit per-trial listen button. Default ON for more robust UX.
   // Force push-to-listen mode (single, robust mode)
   const PUSH_TO_LISTEN_KEY = 'cs_pushToListen'
-  const [pushToListenEnabled, setPushToListenEnabled] = useState(false)
+  const [pushToListenEnabled, setPushToListenEnabled] = useState(true)
+  const voiceFatalErrorRef = useRef(false)
+  const voiceSessionActiveRef = useRef(false)
+  const [voiceNotice, setVoiceNotice] = useState('')
   
   // Calibration
   const [gammaCalibrated, setGammaCalibrated] = useState(false)
@@ -263,6 +266,11 @@ const ContrastSensitivityTest = () => {
     }
 
     console.log(`[mic] startListening (source=${triggerSource ?? 'button'}) letter=${currentLetterRef.current}`)
+    if (voiceFatalErrorRef.current) {
+      setVoiceNotice('Voice unavailable. Tap a letter below to answer.')
+      return
+    }
+    voiceSessionActiveRef.current = true
     setShowUnparsableHint(false)
     setTranscript('')
 
@@ -423,37 +431,35 @@ const ContrastSensitivityTest = () => {
       }
 
       r.onerror = (event) => {
-        console.error('[X] Speech recognition error:', event.error)
         recognitionBusyRef.current = false
-        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-          alert('Microphone access denied. Please allow microphone access in your browser settings.')
+        setIsListening(false)
+
+        const fatalErrors = ['network', 'not-allowed', 'service-not-allowed', 'audio-capture', 'aborted']
+        if (fatalErrors.includes(event.error)) {
+          voiceFatalErrorRef.current = true
+          voiceSessionActiveRef.current = false
+          try { r.stop() } catch { /* ignore */ }
+          const messages = {
+            network: 'Voice needs internet. Tap a letter below to answer.',
+            'not-allowed': 'Microphone blocked. Tap a letter below to answer.',
+            'service-not-allowed': 'Voice unavailable. Tap a letter below to answer.',
+            'audio-capture': 'No microphone found. Tap a letter below to answer.',
+          }
+          if (event.error !== 'aborted' && messages[event.error]) {
+            setVoiceNotice(messages[event.error])
+          }
+          return
         }
-        // no-speech: silently reset so user can press button again
-        // other errors: log only, user presses button to retry
+
+        if (event.error !== 'no-speech') {
+          console.warn('[mic] Speech recognition error:', event.error)
+        }
       }
 
       r.onend = () => {
-        console.log('[mic] recognition ended')
         try { if (listeningTimeoutRef.current) clearTimeout(listeningTimeoutRef.current) } catch (e) {}
         recognitionBusyRef.current = false
         setIsListening(false)
-        // Continuous mode dropped (e.g. network hiccup) — restart only if still testing
-        if (testStateRef.current === 'testing') {
-          setTimeout(() => {
-            if (testStateRef.current === 'testing' && !recognitionBusyRef.current) {
-              try {
-                recognitionRef.current = recognitionFactoryRef.current()
-                recognitionBusyRef.current = true
-                recognitionRef.current.start()
-                setIsListening(true)
-                console.log('[mic] auto-restarted after unexpected end')
-              } catch (e) {
-                console.warn('[mic] auto-restart failed:', e.message)
-                recognitionBusyRef.current = false
-              }
-            }
-          }, 200)
-        }
       }
 
       return r
@@ -472,34 +478,17 @@ const ContrastSensitivityTest = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Start/stop listening based on test state
+  // Stop recognition when leaving testing; never auto-start voice on test begin
   useEffect(() => {
-    if (testState === 'testing' && recognitionRef.current) {
-      // Always-on mode: auto-start listening immediately
-      console.log('[mic] always-on: auto-starting recognition')
-      setTimeout(() => {
-        if (testStateRef.current === 'testing' && recognitionFactoryRef.current) {
-          try {
-            recognitionRef.current = recognitionFactoryRef.current()
-            recognitionBusyRef.current = true
-            recognitionRef.current.start()
-            setIsListening(true)
-          } catch (e) {
-            console.warn('[mic] initial start failed:', e.message)
-            recognitionBusyRef.current = false
-          }
+    if (testState !== 'testing') {
+      voiceSessionActiveRef.current = false
+      setIsListening(false)
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.stop()
+        } catch (e) {
+          // already stopped
         }
-      }, 300)
-      return
-    }
-    // When not testing, ensure recognition is stopped
-    console.log('🛑 Stopping voice recognition')
-    setIsListening(false)
-    if (recognitionRef.current) {
-      try {
-        recognitionRef.current.stop()
-      } catch (e) {
-        console.log('Recognition already stopped')
       }
     }
   }, [testState, pushToListenEnabled])
@@ -622,19 +611,14 @@ const ContrastSensitivityTest = () => {
     setShowUnparsableHint(false) // Clear hint
     setTrialNumber(prev => prev + 1)
     
-    // CRITICAL FIX: Restart recognition with clean buffer for each new letter
+    // Voice is optional — tap letters to answer; mic only when user presses Listen
     setTimeout(() => {
-      if (testState === 'testing') {
+      if (testState === 'testing' && !pushToListenEnabled && voiceSessionActiveRef.current && !voiceFatalErrorRef.current) {
         try {
-          // If push-to-listen is enabled, do not auto-start; wait for user to press Listen
-          if (!pushToListenEnabled) {
-            safeStartRecognition()
-          } else {
-            console.log('[mic] Push-to-listen enabled: skipping auto-start for this trial')
-          }
+          safeStartRecognition()
         } catch (e) {
-          if (e.name === 'InvalidStateError') {
-            console.log('Recognition already running')
+          if (e.name !== 'InvalidStateError') {
+            console.warn('[mic] trial start failed:', e.message)
           }
         }
       }
@@ -692,12 +676,7 @@ const ContrastSensitivityTest = () => {
       setTimeout(() => {
         lastResponseRef.current = null
         setLastResponse(null)
-        // Auto-restart listening — user only needs to press once per triplet.
-        // 650 ms gives the browser speech engine time to fully reset after the
-        // previous recognition session ends, preventing an immediate no-speech error.
-        if (testStateRef.current === 'testing') {
-          startListeningRef.current?.('auto-next-letter')
-        }
+        // Voice only: user can press Listen again for next letter in triplet
       }, 650)
       
       return // Don't process algorithm yet
@@ -1628,6 +1607,31 @@ const ContrastSensitivityTest = () => {
             </div>
           </div>
 
+          {/* Tap-to-answer letter buttons (primary input — works offline) */}
+          {currentLetter && !lastResponse && (
+            <div className="text-center space-y-3">
+              {voiceNotice && (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-900">
+                  {voiceNotice}
+                </div>
+              )}
+              <p className="text-sm font-semibold text-gray-700">Tap the letter you see</p>
+              <div className="flex flex-wrap justify-center gap-2 max-w-lg mx-auto">
+                {testLetters.map((letter) => (
+                  <button
+                    key={letter}
+                    type="button"
+                    onClick={() => handleAnswer(letter)}
+                    className="min-w-[44px] min-h-[44px] w-12 h-12 rounded-xl bg-white border-2 border-gray-200 text-lg font-bold text-gray-900 hover:bg-accent-50 hover:border-accent-400 transition-colors shadow-sm"
+                    aria-label={`Answer ${letter}`}
+                  >
+                    {letter}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Voice Recognition Indicator with Feedback */}
           <div className="text-center min-h-[120px] flex flex-col items-center justify-center gap-2">
             {showUnparsableHint && !lastResponse && (
@@ -1724,7 +1728,7 @@ const ContrastSensitivityTest = () => {
             )}
             {!isListening && !transcript && !lastResponse && (
               <p className="text-sm text-gray-400">
-                Press the mic button (bottom-right) or Space/Enter to answer
+                Tap a letter above, or use the mic button for optional voice input
               </p>
             )}
           </div>

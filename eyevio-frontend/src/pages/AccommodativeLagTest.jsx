@@ -30,8 +30,13 @@ const AccommodativeLagTest = () => {
   const [accommodativeLag, setAccommodativeLag] = useState(0)
   const [fatigueLevel, setFatigueLevel] = useState('low')
   const [breakRecommendation, setBreakRecommendation] = useState('')
+  const userResponsesRef = useRef([])
 
-  // Test parameters
+  const clampScore = (value, fallback = 50) => {
+    const n = Number(value)
+    if (!Number.isFinite(n)) return fallback
+    return Math.max(0, Math.min(100, Math.round(n)))
+  }
   const TEST_DURATION = 30 // seconds
   const BLUR_STEPS = 10
   const PUPIL_SAMPLE_RATE = 100 // ms
@@ -76,6 +81,8 @@ const AccommodativeLagTest = () => {
     const video = videoRef.current
     const canvas = canvasRef.current
     const ctx = canvas.getContext('2d')
+
+    if (!video.videoWidth || !video.videoHeight) return null
 
     canvas.width = video.videoWidth
     canvas.height = video.videoHeight
@@ -130,6 +137,7 @@ const AccommodativeLagTest = () => {
     setTestState('testing')
     setCurrentBlurLevel(0)
     setPupilData([])
+    userResponsesRef.current = []
     setUserResponses([])
     setTestProgress(0)
 
@@ -174,37 +182,54 @@ const AccommodativeLagTest = () => {
 
   // User reports if they can see the target
   const handleCanSee = useCallback((canSee) => {
-    setUserResponses(prev => [...prev, {
+    const entry = {
       blurLevel: currentBlurLevel,
-      canSee: canSee,
-      timestamp: Date.now()
-    }])
+      canSee,
+      timestamp: Date.now(),
+    }
+    userResponsesRef.current = [...userResponsesRef.current, entry]
+    setUserResponses(userResponsesRef.current)
   }, [currentBlurLevel])
+
+  // Re-attach camera stream when testing view mounts (setup video is unmounted)
+  useEffect(() => {
+    if (testState === 'testing' && streamRef.current && videoRef.current) {
+      videoRef.current.srcObject = streamRef.current
+      videoRef.current.play().catch(() => {})
+    }
+  }, [testState, cameraReady])
 
   // Analyze test results
   const analyzeResults = useCallback((pupilMeasurements) => {
     setTestState('analyzing')
 
     setTimeout(() => {
-      // Calculate pupillary response
-      const initialPupilSize = pupilMeasurements.slice(0, 10).reduce((sum, m) => sum + m.size, 0) / 10
-      const finalPupilSize = pupilMeasurements.slice(-10).reduce((sum, m) => sum + m.size, 0) / 10
-      
-      // Miosis = pupil constriction (should happen with accommodation)
-      const pupilConstriction = ((initialPupilSize - finalPupilSize) / initialPupilSize) * 100
-      
-      // Calculate accommodative lag based on pupil response and user clarity reports
-      const clarityThreshold = userResponses.findIndex(r => !r.canSee)
-      const accommodationScore = Math.max(0, 100 - (clarityThreshold * 10))
-      
-      // Focusing capacity = combination of pupil response + subjective clarity
+      const responses = userResponsesRef.current
+
+      const initialSamples = pupilMeasurements.slice(0, 10)
+      const finalSamples = pupilMeasurements.slice(-10)
+      const avg = (samples) =>
+        samples.length ? samples.reduce((sum, m) => sum + m.size, 0) / samples.length : 0
+
+      const initialPupilSize = avg(initialSamples)
+      const finalPupilSize = avg(finalSamples)
+
+      const pupilConstriction = initialPupilSize > 0
+        ? ((initialPupilSize - finalPupilSize) / initialPupilSize) * 100
+        : 0
+
+      const clarityThreshold = responses.findIndex((r) => !r.canSee)
+      const accommodationScore = clarityThreshold === -1
+        ? 100
+        : Math.max(0, 100 - clarityThreshold * 10)
+
       const pupilScore = Math.max(0, Math.min(100, pupilConstriction * 10))
-      const capacity = Math.round((pupilScore * 0.4 + accommodationScore * 0.6))
-      
-      // Determine fatigue level
+      const capacity = clampScore(pupilScore * 0.4 + accommodationScore * 0.6, 50)
+      const lag = clampScore(100 - capacity, 50)
+
       let fatigue = 'low'
       let recommendation = ''
-      
+
       if (capacity < 40) {
         fatigue = 'severe'
         recommendation = 'Please take a 20-minute break now. Your eyes are very tired, and pushing on could bring on a headache or eye strain.'
@@ -218,42 +243,40 @@ const AccommodativeLagTest = () => {
         fatigue = 'low'
         recommendation = 'Your eyes are doing well! Continue taking regular breaks to maintain good eye health.'
       }
-      
-      const lag = Math.round(100 - capacity)
-      
+
       setFocusingCapacity(capacity)
       setAccommodativeLag(lag)
       setFatigueLevel(fatigue)
       setBreakRecommendation(recommendation)
-      
+
       stopCamera()
       setTestState('results')
-      
-      // Submit to backend
+
       submitResults({
         focusingCapacity: capacity,
         accommodativeLag: lag,
         fatigueLevel: fatigue,
         pupilData: pupilMeasurements,
-        userResponses: userResponses
+        userResponses: responses,
       })
     }, 2000)
-  }, [userResponses, stopCamera])
+  }, [stopCamera])
 
   // Submit results to backend
   const submitResults = async (results) => {
+    const score = clampScore(results.focusingCapacity, 50)
     try {
       await visionTestAPI.submit({
         test_type: 'accommodative_lag',
-        score: results.focusingCapacity,
+        score,
         test_details: {
-          focusing_capacity: results.focusingCapacity,
-          accommodative_lag: results.accommodativeLag,
+          focusing_capacity: score,
+          accommodative_lag: clampScore(results.accommodativeLag, 50),
           fatigue_level: results.fatigueLevel,
-          pupil_data_points: results.pupilData.length,
-          user_responses: results.userResponses,
-          timestamp: new Date().toISOString()
-        }
+          pupil_data_points: results.pupilData?.length ?? 0,
+          user_responses: results.userResponses ?? [],
+          timestamp: new Date().toISOString(),
+        },
       })
     } catch (err) {
       console.error('Failed to submit results:', err)
