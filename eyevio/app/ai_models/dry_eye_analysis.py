@@ -89,7 +89,7 @@ def _crop_eye_regions(frame: np.ndarray) -> Dict[str, Any]:
         crops[side] = frame[y0:y1, x0:x1].copy()
         crops[f'{side}_bbox'] = [x0, y0, x1, y1]
 
-    return {'crops': crops, 'face_detected': True}
+    return {'crops': crops, 'face_detected': True, 'landmarks': landmarks}
 
 
 def _sclera_mask(bgr: np.ndarray) -> np.ndarray:
@@ -195,6 +195,137 @@ def _risk_message(risk: str) -> str:
     return messages.get(risk, messages['moderate'])
 
 
+def assess_photo_lighting(frame: np.ndarray, face_landmarks: Any = None) -> Dict[str, Any]:
+    """
+    Check whether lighting is suitable for reliable eye-surface photo analysis.
+
+    Returns quality (good | fair | poor), acceptable flag, issues, and recommendations.
+    """
+    if frame is None or frame.size == 0:
+        return {
+            'quality': 'poor',
+            'acceptable': False,
+            'score': 0,
+            'issues': ['Could not read image'],
+            'recommendations': ['Capture the photo again with your camera working and permissions enabled.'],
+            'message': 'Could not assess lighting — please retake the photo.',
+        }
+
+    h, w = frame.shape[:2]
+
+    if face_landmarks:
+        xs = [lm.x * w for lm in face_landmarks]
+        ys = [lm.y * h for lm in face_landmarks]
+        pad_x = (max(xs) - min(xs)) * 0.12
+        pad_y = (max(ys) - min(ys)) * 0.18
+        x0 = int(max(0, min(xs) - pad_x))
+        y0 = int(max(0, min(ys) - pad_y))
+        x1 = int(min(w, max(xs) + pad_x))
+        y1 = int(min(h, max(ys) + pad_y))
+    else:
+        x0, y0 = int(w * 0.2), int(h * 0.12)
+        x1, y1 = int(w * 0.8), int(h * 0.88)
+
+    region = frame[y0:y1, x0:x1]
+    if region.size == 0:
+        region = frame
+
+    gray = cv2.cvtColor(region, cv2.COLOR_BGR2GRAY)
+    mean_luma = float(np.mean(gray))
+    std_luma = float(np.std(gray))
+    underexposed_ratio = float(np.mean(gray < 40))
+    overexposed_ratio = float(np.mean(gray > 245))
+
+    mid = max(1, gray.shape[1] // 2)
+    left_mean = float(np.mean(gray[:, :mid]))
+    right_mean = float(np.mean(gray[:, mid:]))
+    lr_delta = abs(left_mean - right_mean)
+
+    issues: List[str] = []
+    recommendations: List[str] = []
+    quality = 'good'
+    acceptable = True
+    score = 100.0
+
+    if mean_luma < 55:
+        issues.append('Photo is too dark')
+        recommendations.append('Turn on soft room lights or use indirect daylight facing you')
+        quality = 'poor'
+        acceptable = False
+        score -= 45
+    elif mean_luma < 78:
+        issues.append('Lighting is dim')
+        recommendations.append('Add more even front-facing light before capturing')
+        quality = 'fair'
+        score -= 22
+
+    if mean_luma > 215:
+        issues.append('Photo is overexposed or has harsh glare')
+        recommendations.append('Reduce direct light on your face and avoid bright windows behind you')
+        quality = 'poor'
+        acceptable = False
+        score -= 40
+    elif mean_luma > 188:
+        issues.append('Lighting may be too bright on your face')
+        recommendations.append('Use softer, indirect lighting instead of a lamp pointed at your eyes')
+        if quality == 'good':
+            quality = 'fair'
+        score -= 18
+
+    if overexposed_ratio > 0.07:
+        issues.append('Bright glare spots detected')
+        recommendations.append('Tilt slightly away from overhead lights or windows causing shine on your skin')
+        quality = 'poor'
+        acceptable = False
+        score -= 28
+
+    if underexposed_ratio > 0.22:
+        issues.append('Large shadow areas on your face')
+        recommendations.append('Use even lighting from the front, not from one side only')
+        if acceptable and quality == 'good':
+            quality = 'fair'
+        score -= 20
+
+    if lr_delta > 32:
+        issues.append('Uneven lighting across your face')
+        recommendations.append('Face the light source — avoid strong side lighting')
+        if quality == 'good':
+            quality = 'fair'
+        score -= 16
+
+    if std_luma < 16 and mean_luma < 95:
+        issues.append('Very low contrast — details may not be visible')
+        quality = 'poor'
+        acceptable = False
+        score -= 22
+
+    score = float(np.clip(score, 0, 100))
+
+    if not issues:
+        recommendations = [
+            'Lighting looks suitable. Keep your face evenly lit and avoid backlighting.',
+        ]
+        message = 'Lighting looks good for an eye photo.'
+    elif not acceptable:
+        message = issues[0] + '. Fix lighting and retake for reliable results.'
+    else:
+        message = issues[0] + '. You can retake for better accuracy, or continue with caution.'
+
+    return {
+        'quality': quality,
+        'acceptable': acceptable,
+        'score': round(score, 1),
+        'mean_brightness': round(mean_luma, 1),
+        'contrast': round(std_luma, 1),
+        'overexposed_ratio': round(overexposed_ratio * 100, 1),
+        'underexposed_ratio': round(underexposed_ratio * 100, 1),
+        'left_right_imbalance': round(lr_delta, 1),
+        'issues': issues,
+        'recommendations': recommendations,
+        'message': message,
+    }
+
+
 def analyze_eye_patch(eye_bgr: np.ndarray) -> Dict[str, Any]:
     redness = measure_sclera_redness(eye_bgr)
     surface = analyze_tear_film_surface(eye_bgr)
@@ -216,6 +347,8 @@ def analyze_dry_eye_frame(frame: np.ndarray) -> Dict[str, Any]:
     crop_result = _crop_eye_regions(frame)
     if crop_result.get('error'):
         return crop_result
+
+    lighting = assess_photo_lighting(frame, crop_result.get('landmarks'))
 
     crops = crop_result['crops']
     left = analyze_eye_patch(crops['left'])
@@ -248,6 +381,7 @@ def analyze_dry_eye_frame(frame: np.ndarray) -> Dict[str, Any]:
         'findings': findings,
         'left_eye': left,
         'right_eye': right,
+        'lighting': lighting,
         'metrics': {
             'avg_sclera_redness': round(avg_redness, 1),
             'avg_tear_film_quality': round(avg_tear, 1),
@@ -264,6 +398,29 @@ def analyze_dry_eye_from_base64(image_data: str) -> Dict[str, Any]:
     if frame is None:
         return {'error': 'Could not decode image. Please capture again.'}
     return analyze_dry_eye_frame(frame)
+
+
+def check_photo_lighting_from_base64(image_data: str) -> Dict[str, Any]:
+    """Lighting-only check for live preview or pre-submit validation."""
+    frame = decode_base64_image(image_data)
+    if frame is None:
+        return {'error': 'Could not decode image. Please capture again.'}
+
+    crop_result = _crop_eye_regions(frame)
+    if crop_result.get('error'):
+        # Still assess whole-frame lighting when face is not detected
+        lighting = assess_photo_lighting(frame)
+        return {
+            'lighting': lighting,
+            'face_detected': False,
+            'warning': crop_result.get('error'),
+        }
+
+    lighting = assess_photo_lighting(frame, crop_result.get('landmarks'))
+    return {
+        'lighting': lighting,
+        'face_detected': True,
+    }
 
 
 # Re-export for eye_analysis module

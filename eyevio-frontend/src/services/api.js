@@ -68,7 +68,10 @@ api.interceptors.response.use(
         toast.error('Session expired. Please login again.')
       }
     } else if (error.response?.data?.error) {
-      toast.error(error.response.data.error)
+      const code = error.response.data.error
+      if (code !== 'poor_lighting') {
+        toast.error(error.response.data.message || error.response.data.error)
+      }
     } else {
       toast.error('An error occurred. Please try again.')
     }
@@ -95,6 +98,7 @@ export const visionTestAPI = {
   getHistory: (params) => api.get('/vision-test/', { params }),
   getStats: (params) => api.get('/vision-test/stats', { params }),
   analyzeDryEye: (data) => api.post('/vision-test/analyze-dry-eye', data),
+  checkPhotoLighting: (data) => api.post('/vision-test/check-photo-lighting', data),
 }
 
 // Webcam API
@@ -150,6 +154,18 @@ export const calibrationAPI = {
   finalize: () => api.post('/calibration/finalize'),
   getStatus: () => api.get('/calibration/status'),
   test: (data) => api.post('/calibration/test', data),
+}
+
+// Eye photo monitoring API
+export const eyePhotoAPI = {
+  capture: (data) => api.post('/eye-photos/', data),
+  checkLighting: (data) => api.post('/eye-photos/check-lighting', data),
+  list: (params) => api.get('/eye-photos/', { params }),
+  getById: (id) => api.get(`/eye-photos/${id}`),
+  delete: (id) => api.delete(`/eye-photos/${id}`),
+  getStatus: (params) => api.get('/eye-photos/status', { params }),
+  getTimeline: (params) => api.get('/eye-photos/timeline', { params }),
+  compare: (params) => api.get('/eye-photos/compare', { params }),
 }
 
 export default api

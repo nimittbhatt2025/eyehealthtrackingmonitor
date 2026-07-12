@@ -44,6 +44,7 @@ import Profile from './pages/Profile'
 import Reports from './pages/Reports'
 import BlinkCalibration from './pages/BlinkCalibration'
 import EyeTrackingAnalysis from './pages/EyeTrackingAnalysis'
+import EyeHealthMonitor from './pages/EyeHealthMonitor'
 import UniversalCalibration from './components/UniversalCalibration'
 import IPDDistanceCalibration from './components/IPDDistanceCalibration'
 import VisualAcuityTest from './pages/VisualAcuityTest'
@@ -156,6 +157,7 @@ function App() {
                 
                 {/* Eye Tracking / Health Monitoring - Consolidated */}
                 <Route path="/eye-tracking-analysis" element={<EyeTrackingAnalysis />} />
+                <Route path="/eye-health-monitor" element={<EyeHealthMonitor />} />
                 <Route path="/webcam" element={<Navigate to="/eye-tracking-analysis" replace />} /> {/* Redirect old route */}
                 <Route path="/calibrate-blink" element={<BlinkCalibration />} />
                 <Route path="/blink-calibration" element={<Navigate to="/calibrate-blink" replace />} />

@@ -8,6 +8,8 @@ import {
   calculateOsdiLite,
   combineDryEyeScores,
 } from '../utils/dryEyeQuestionnaire'
+import assessVideoLighting from '../utils/photoLightingCheck'
+import PhotoLightingBanner from '../components/PhotoLightingBanner'
 
 /**
  * Dry Eye Screening Test (Option B + OSDI-lite)
@@ -20,6 +22,7 @@ const DryEyeTest = () => {
   const navigate = useNavigate()
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
+  const lightingCanvasRef = useRef(null)
   const streamRef = useRef(null)
 
   const [testState, setTestState] = useState('instructions')
@@ -29,6 +32,8 @@ const DryEyeTest = () => {
   const [results, setResults] = useState(null)
   const [symptomResults, setSymptomResults] = useState(null)
   const [submitting, setSubmitting] = useState(false)
+  const [liveLighting, setLiveLighting] = useState(null)
+  const [lightingError, setLightingError] = useState(null)
   const [answers, setAnswers] = useState(() =>
     Object.fromEntries(OSDI_LITE_QUESTIONS.map((q) => [q.id, null]))
   )
@@ -82,6 +87,21 @@ const DryEyeTest = () => {
     }
   }, [testState, initializeCamera, stopCamera])
 
+  useEffect(() => {
+    if (testState !== 'capture' || !cameraReady) {
+      setLiveLighting(null)
+      return undefined
+    }
+
+    const sampleLighting = () => {
+      setLiveLighting(assessVideoLighting(videoRef.current, lightingCanvasRef.current))
+    }
+
+    sampleLighting()
+    const intervalId = setInterval(sampleLighting, 500)
+    return () => clearInterval(intervalId)
+  }, [testState, cameraReady])
+
   const capturePhoto = useCallback(() => {
     const video = videoRef.current
     const canvas = canvasRef.current
@@ -100,6 +120,7 @@ const DryEyeTest = () => {
   const analyzePhoto = useCallback(async (dataUrl, symptoms) => {
     setTestState('analyzing')
     setError(null)
+    setLightingError(null)
     stopCamera()
 
     try {
@@ -141,6 +162,7 @@ const DryEyeTest = () => {
           metrics: cvData.metrics,
           left_eye: cvData.left_eye,
           right_eye: cvData.right_eye,
+          lighting: cvData.lighting,
           disclaimer: cvData.disclaimer,
         },
         notes: 'Dry eye screening (OSDI-lite + photo CV)',
@@ -148,8 +170,16 @@ const DryEyeTest = () => {
       setTestState('results')
     } catch (err) {
       console.error('Analysis failed:', err)
-      const msg = err.response?.data?.error || 'Analysis failed. Please try again in brighter, even lighting.'
-      setError(msg)
+      const poorLighting = err.response?.data?.error === 'poor_lighting'
+      const lighting = err.response?.data?.lighting
+
+      if (poorLighting && lighting) {
+        setLightingError(lighting)
+        setError(lighting.message || 'Lighting is not suitable. Adjust lighting and try again.')
+      } else {
+        const msg = err.response?.data?.message || err.response?.data?.error || 'Analysis failed. Please try again in brighter, even lighting.'
+        setError(msg)
+      }
       setTestState('capture')
       initializeCamera()
     } finally {
@@ -174,6 +204,7 @@ const DryEyeTest = () => {
     setResults(null)
     setSymptomResults(null)
     setError(null)
+    setLightingError(null)
     setAnswers(Object.fromEntries(OSDI_LITE_QUESTIONS.map((q) => [q.id, null])))
     setTestState('questionnaire')
   }
@@ -311,10 +342,16 @@ const DryEyeTest = () => {
             )}
 
             {error && (
-              <div className="bg-red-50 border border-red-200 text-red-800 rounded-xl p-4 mb-4 text-sm">
-                {error}
+              <div className="bg-red-50 border border-red-200 text-red-800 rounded-xl p-4 mb-4 text-sm space-y-2">
+                <p>{error}</p>
+                {lightingError?.recommendations?.map((tip) => (
+                  <p key={tip} className="text-xs">• {tip}</p>
+                ))}
               </div>
             )}
+
+            <PhotoLightingBanner lighting={liveLighting} />
+            <canvas ref={lightingCanvasRef} className="hidden" aria-hidden />
 
             <div className="relative rounded-2xl overflow-hidden bg-gray-900 mb-6 aspect-video">
               <video
@@ -340,8 +377,9 @@ const DryEyeTest = () => {
               <button
                 type="button"
                 onClick={handleCapture}
-                disabled={!cameraReady}
-                className="test-btn"
+                disabled={!cameraReady || (liveLighting && !liveLighting.acceptable)}
+                className="test-btn disabled:opacity-50"
+                title={liveLighting && !liveLighting.acceptable ? 'Improve lighting before capturing' : undefined}
               >
                 Capture & Analyze
               </button>
@@ -376,6 +414,12 @@ const DryEyeTest = () => {
               <div className="text-5xl font-bold text-gray-900">{results.score}</div>
               <div className="text-sm text-gray-500 mt-1">Combined health score (higher is better)</div>
             </div>
+
+            {results.lighting?.quality === 'fair' && (
+              <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-xl p-4 mb-6 text-sm">
+                <strong>Lighting note:</strong> {results.lighting.message}
+              </div>
+            )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
               <div className="card text-center">

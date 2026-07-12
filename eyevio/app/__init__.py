@@ -46,6 +46,7 @@ def create_app(config_name='development'):
     from app.routes.alert import alert_bp
     from app.routes.report import report_bp
     from app.routes.calibration import bp as calibration_bp
+    from app.routes.eye_photo import eye_photo_bp
     
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(vision_test_bp, url_prefix='/api/vision-test')
@@ -56,6 +57,7 @@ def create_app(config_name='development'):
     app.register_blueprint(alert_bp, url_prefix='/api/alerts')
     app.register_blueprint(report_bp, url_prefix='/api/report')
     app.register_blueprint(calibration_bp)
+    app.register_blueprint(eye_photo_bp, url_prefix='/api/eye-photos')
     
     # Health check endpoint
     @app.route('/health')

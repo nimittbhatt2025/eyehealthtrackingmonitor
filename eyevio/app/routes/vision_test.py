@@ -103,6 +103,25 @@ def submit_vision_test():
         return jsonify({'error': str(e)}), 500
 
 
+@vision_test_bp.route('/check-photo-lighting', methods=['POST'])
+@jwt_required()
+def check_photo_lighting():
+    """Validate lighting for eye photo capture (dry eye / monitor flows)."""
+    try:
+        data = request.get_json() or {}
+        image_data = data.get('image')
+        if not image_data:
+            return jsonify({'error': 'image is required (base64 data URL)'}), 400
+
+        from app.ai_models.dry_eye_analysis import check_photo_lighting_from_base64
+        result = check_photo_lighting_from_base64(image_data)
+        if result.get('error'):
+            return jsonify(result), 400
+        return jsonify(result), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @vision_test_bp.route('/analyze-dry-eye', methods=['POST'])
 @jwt_required()
 def analyze_dry_eye():
@@ -120,6 +139,15 @@ def analyze_dry_eye():
         results = analyze_dry_eye_from_base64(image_data)
         if results.get('error'):
             return jsonify(results), 400
+
+        lighting = results.get('lighting') or {}
+        if lighting and not lighting.get('acceptable') and not data.get('acknowledge_poor_lighting'):
+            return jsonify({
+                'error': 'poor_lighting',
+                'lighting': lighting,
+                'message': lighting.get('message', 'Lighting is not suitable. Please retake in better conditions.'),
+            }), 422
+
         return jsonify(results), 200
     except Exception as e:
         import traceback

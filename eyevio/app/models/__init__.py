@@ -52,6 +52,7 @@ class User(db.Model):
     lens_data = db.relationship('LensData', backref='user', lazy='dynamic', cascade='all, delete-orphan')
     lifestyle_logs = db.relationship('LifestyleLog', backref='user', lazy='dynamic', cascade='all, delete-orphan')
     alerts = db.relationship('Alert', backref='user', lazy='dynamic', cascade='all, delete-orphan')
+    eye_photos = db.relationship('EyePhoto', backref='user', lazy='dynamic', cascade='all, delete-orphan')
     
     def __repr__(self):
         return f'<User {self.email}>'
@@ -299,3 +300,56 @@ class VisionTrend(db.Model):
     
     def __repr__(self):
         return f'<VisionTrend {self.period_type} - {self.period_start}>'
+
+
+class EyePhoto(db.Model):
+    """Historical eye photos for month-over-month health monitoring"""
+    __tablename__ = 'eye_photos'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+
+    # What the patient is monitoring (dry eye, cornea scar, glaucoma, etc.)
+    condition_type = db.Column(db.String(50), nullable=False, default='general', index=True)
+
+    # Compressed JPEG thumbnail (data URL) for timeline / side-by-side comparison
+    image_thumbnail = db.Column(db.Text, nullable=False)
+
+    # Aggregated surface-health metrics from CV analysis
+    health_score = db.Column(db.Float, nullable=False)
+    sclera_redness = db.Column(db.Float)
+    tear_film_quality = db.Column(db.Float)
+    surface_irregularity = db.Column(db.Float)
+    left_eye_score = db.Column(db.Float)
+    right_eye_score = db.Column(db.Float)
+
+    # Full per-eye metrics and findings
+    analysis_details = db.Column(db.JSON)
+
+    # Optional link to a vision test record
+    vision_test_id = db.Column(db.Integer, db.ForeignKey('vision_tests.id'), nullable=True)
+
+    captured_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self, include_thumbnail=True):
+        data = {
+            'id': self.id,
+            'condition_type': self.condition_type,
+            'health_score': self.health_score,
+            'sclera_redness': self.sclera_redness,
+            'tear_film_quality': self.tear_film_quality,
+            'surface_irregularity': self.surface_irregularity,
+            'left_eye_score': self.left_eye_score,
+            'right_eye_score': self.right_eye_score,
+            'analysis_details': self.analysis_details,
+            'vision_test_id': self.vision_test_id,
+            'captured_at': self.captured_at.isoformat() if self.captured_at else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+        if include_thumbnail:
+            data['image_thumbnail'] = self.image_thumbnail
+        return data
+
+    def __repr__(self):
+        return f'<EyePhoto {self.condition_type} score={self.health_score}>'

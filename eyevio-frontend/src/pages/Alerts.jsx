@@ -1,6 +1,21 @@
 import { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { alertsAPI } from '../services/api'
 import { toast } from 'react-hot-toast'
+
+function enrichAlert(alert) {
+  const enriched = {
+    ...alert,
+    read: alert.is_read ?? alert.read,
+  }
+
+  if (alert.alert_type === 'eye_health_deterioration') {
+    enriched.action_url = '/eye-health-monitor'
+    enriched.action_text = 'Review photo comparison'
+  }
+
+  return enriched
+}
 
 function Alerts() {
   const [alerts, setAlerts] = useState([])
@@ -19,7 +34,7 @@ function Alerts() {
       if (filter === 'critical') params.severity = 'critical'
       
       const response = await alertsAPI.getAll(params)
-      setAlerts(response.data.alerts || [])
+      setAlerts((response.data.alerts || []).map(enrichAlert))
     } catch (error) {
       console.error('Failed to load alerts:', error)
       setAlerts([])
@@ -223,15 +238,15 @@ function Alerts() {
                     <p className="text-gray-700 leading-relaxed mb-4">{alert.message}</p>
 
                     {alert.action_url && (
-                      <a
-                        href={alert.action_url}
+                      <Link
+                        to={alert.action_url}
                         className="inline-flex items-center min-h-[44px] text-accent-600 hover:text-accent-700 font-semibold text-sm"
                       >
                         {alert.action_text || 'Take Action'}
                         <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                         </svg>
-                      </a>
+                      </Link>
                     )}
                   </div>
                 </div>
