@@ -49,6 +49,7 @@ import IPDDistanceCalibration from './components/IPDDistanceCalibration'
 import VisualAcuityTest from './pages/VisualAcuityTest'
 import ColorVisionTest from './pages/ColorVisionTest'
 import AmslerGridTest from './pages/AmslerGridTest'
+import VisionTestActiveLayout from './components/layout/VisionTestActiveLayout'
 
 // Protected Route Component
 function ProtectedRoute({ children }) {
@@ -136,19 +137,20 @@ function App() {
               }>
                 <Route path="/dashboard" element={<Dashboard />} />
                 <Route path="/vision-tests" element={<VisionTests />} />
-                {/* Specific test pages must come before the :testType catch-all */}
-                <Route path="/vision-tests/visual_acuity" element={<VisualAcuityTest />} />
-                <Route path="/vision-tests/color_vision" element={<ColorVisionTest />} />
-                <Route path="/vision-tests/amsler_grid" element={<AmslerGridTest />} />
-                <Route path="/vision-tests/contrast_sensitivity" element={<ContrastSensitivityTest />} />
-                <Route path="/vision-tests/glaucoma_neural" element={<GlaucomaTest />} />
-                <Route path="/vision-tests/cataract_glare" element={<CataractTest />} />
-                <Route path="/vision-tests/dry_eye" element={<DryEyeTest />} />
-                <Route path="/vision-tests/red_reflex" element={<RedReflexTest />} />
-                <Route path="/vision-tests/accommodative_lag" element={<AccommodativeLagTest />} />
-                <Route path="/vision-tests/peripheral_awareness" element={<PeripheralAwarenessTest />} />
-                <Route path="/vision-tests/ocular_ergonomics" element={<OcularErgonomicsMonitor />} />
-                <Route path="/vision-tests/:testType" element={<VisionTestRunner />} />
+                <Route element={<VisionTestActiveLayout />}>
+                  <Route path="/vision-tests/visual_acuity" element={<VisualAcuityTest />} />
+                  <Route path="/vision-tests/color_vision" element={<ColorVisionTest />} />
+                  <Route path="/vision-tests/amsler_grid" element={<AmslerGridTest />} />
+                  <Route path="/vision-tests/contrast_sensitivity" element={<ContrastSensitivityTest />} />
+                  <Route path="/vision-tests/glaucoma_neural" element={<GlaucomaTest />} />
+                  <Route path="/vision-tests/cataract_glare" element={<CataractTest />} />
+                  <Route path="/vision-tests/dry_eye" element={<DryEyeTest />} />
+                  <Route path="/vision-tests/red_reflex" element={<RedReflexTest />} />
+                  <Route path="/vision-tests/accommodative_lag" element={<AccommodativeLagTest />} />
+                  <Route path="/vision-tests/peripheral_awareness" element={<PeripheralAwarenessTest />} />
+                  <Route path="/vision-tests/ocular_ergonomics" element={<OcularErgonomicsMonitor />} />
+                  <Route path="/vision-tests/:testType" element={<VisionTestRunner />} />
+                </Route>
                 <Route path="/test-details/:testId" element={<TestDetails />} />
                 <Route path="/trends" element={<Trends />} />
                 

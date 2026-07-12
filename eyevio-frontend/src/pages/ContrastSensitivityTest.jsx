@@ -2,10 +2,9 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import InlineDistanceCalibration from '../components/InlineDistanceCalibration'
 import EyeCoverageVerification from '../components/EyeCoverageVerification'
-import UnifiedCalibration from '../components/UnifiedCalibration'
 import { visionTestAPI } from '../services/api'
 import removeEmojis from '../utils/removeEmojis.js'
-import { TestPrepLayout, TestDetails, TestActiveBar } from '../components/TestPrepLayout'
+import { TestPrepLayout, TestDetails, TestActiveBar, VisionTestShell } from '../components/TestPrepLayout'
 
 /**
  * WORLD-CLASS CONTRAST SENSITIVITY TEST
@@ -941,10 +940,14 @@ const ContrastSensitivityTest = () => {
 
   // 1. Distance Gate (16 inches = 406mm for contrast sensitivity)
   const renderDistanceGate = () => (
-    <UnifiedCalibration
-      steps={[ 'distance' ]}
+    <InlineDistanceCalibration
+      testType="contrast_sensitivity"
+      optimalDistanceMM={406}
+      toleranceMM={41}
+      splitLayout
       testName="Contrast Sensitivity Test"
-      onFinish={() => setTestState('gamma-calibration')}
+      onDistanceValid={() => setTestState('gamma-calibration')}
+      onDistanceInvalid={() => {}}
     />
   )
 
@@ -1065,10 +1068,12 @@ const ContrastSensitivityTest = () => {
 
   // 5. Eye Coverage Verification
   const renderEyeCoverage = () => (
-    <UnifiedCalibration
-      steps={[ 'eyeCoverage' ]}
+    <EyeCoverageVerification
+      expectedEye={currentEye === 'left' ? 'right' : 'left'}
+      splitLayout
       testName="Contrast Sensitivity Test"
-      onFinish={() => startTestingAfterCoverage()}
+      onVerified={() => startTestingAfterCoverage()}
+      onSkip={() => startTestingAfterCoverage()}
     />
   )
 
@@ -1115,12 +1120,10 @@ const ContrastSensitivityTest = () => {
     }
     
     return (
-      <div className="min-h-0 bg-white flex items-start justify-center py-3 px-2 relative overflow-hidden">
-        {/* Night Driving Glare Overlay - MUCH MORE VISIBLE */}
+      <div className="vision-test-shell relative overflow-hidden">
         {testMode === 'glare' && (
           <>
-            {/* Primary Headlight - BRIGHT and LARGE */}
-            <div 
+            <div
               className="absolute pointer-events-none"
               style={{
                 width: '400px',
@@ -1130,11 +1133,10 @@ const ContrastSensitivityTest = () => {
                 top: '10%',
                 left: '10%',
                 zIndex: 10,
-                animation: 'pulseGlare 3s ease-in-out infinite'
+                animation: 'pulseGlare 3s ease-in-out infinite',
               }}
             />
-            {/* Secondary Headlight */}
-            <div 
+            <div
               className="absolute pointer-events-none"
               style={{
                 width: '350px',
@@ -1144,175 +1146,130 @@ const ContrastSensitivityTest = () => {
                 top: '15%',
                 right: '15%',
                 zIndex: 10,
-                animation: 'pulseGlare 3s ease-in-out infinite 0.5s'
+                animation: 'pulseGlare 3s ease-in-out infinite 0.5s',
               }}
             />
-            {/* Veiling Glare Layer - simulates scattered light across retina */}
-            <div 
+            <div
               className="absolute top-0 left-0 w-full h-full pointer-events-none"
               style={{
                 background: 'rgba(255, 255, 255, 0.25)',
                 backdropFilter: 'contrast(0.6) brightness(1.3)',
-                zIndex: 5
+                zIndex: 5,
               }}
             />
-            {/* Lens Flare Effect */}
-            <div 
+            <div
               className="absolute pointer-events-none"
               style={{
                 width: '100%',
                 height: '100%',
                 background: 'radial-gradient(ellipse at 20% 20%, rgba(255,255,255,0.3) 0%, transparent 40%)',
-                zIndex: 8
+                zIndex: 8,
               }}
             />
           </>
         )}
 
-        {/* Fog/Rain Weather Overlay - MUCH MORE VISIBLE */}
         {testMode === 'fog' && (
           <>
-            {/* Dense fog layer */}
-            <div 
+            <div
               className="absolute top-0 left-0 w-full h-full pointer-events-none"
-              style={{
-                background: 'rgba(200, 200, 200, 0.4)',
-                zIndex: 5
-              }}
+              style={{ background: 'rgba(200, 200, 200, 0.4)', zIndex: 5 }}
             />
-            {/* Moving fog particles */}
-            <div 
+            <div
               className="absolute top-0 left-0 w-full h-full pointer-events-none"
               style={{
                 background: `
-                  repeating-linear-gradient(
-                    0deg,
-                    rgba(220, 220, 220, 0.2) 0px,
-                    rgba(220, 220, 220, 0.4) 3px,
-                    rgba(220, 220, 220, 0.2) 6px
-                  ),
-                  repeating-linear-gradient(
-                    90deg,
-                    rgba(210, 210, 210, 0.2) 0px,
-                    rgba(210, 210, 210, 0.4) 4px,
-                    rgba(210, 210, 210, 0.2) 8px
-                  )
+                  repeating-linear-gradient(0deg, rgba(220, 220, 220, 0.2) 0px, rgba(220, 220, 220, 0.4) 3px, rgba(220, 220, 220, 0.2) 6px),
+                  repeating-linear-gradient(90deg, rgba(210, 210, 210, 0.2) 0px, rgba(210, 210, 210, 0.4) 4px, rgba(210, 210, 210, 0.2) 8px)
                 `,
                 backdropFilter: 'blur(2px)',
-                zIndex: 6
+                zIndex: 6,
               }}
             />
-            {/* Rain streaks */}
-            <div 
+            <div
               className="absolute top-0 left-0 w-full h-full pointer-events-none"
               style={{
-                background: `
-                  repeating-linear-gradient(
-                    110deg,
-                    transparent 0px,
-                    rgba(200, 200, 200, 0.6) 2px,
-                    transparent 4px,
-                    transparent 20px
-                  )
-                `,
+                background: 'repeating-linear-gradient(110deg, transparent 0px, rgba(200, 200, 200, 0.6) 2px, transparent 4px, transparent 20px)',
                 zIndex: 7,
-                animation: 'rainFall 1s linear infinite'
+                animation: 'rainFall 1s linear infinite',
               }}
             />
           </>
         )}
 
-        <div className="test-active relative z-20 w-full max-w-2xl">
-          <TestActiveBar
-            left={`${currentEye === 'left' ? 'Left' : 'Right'} eye`}
-            center={(
-              <div className="flex items-center justify-center gap-2 text-xs text-gray-500">
-                <span>T{trialNumber}</span>
-                <span>·</span>
-                <span>{contrastPercent}%</span>
-                <span>·</span>
-                <span>L{tripletAnswers.length + 1}/3</span>
-                <span className="flex gap-1 ml-1">
-                  {[0, 1, 2].map((i) => (
-                    <span
-                      key={i}
-                      className={`w-2 h-2 rounded-full ${
-                        i < tripletAnswers.length
-                          ? (tripletAnswers[i].correct ? 'bg-green-500' : 'bg-red-500')
-                          : 'bg-gray-300'
-                      }`}
-                    />
-                  ))}
-                </span>
-              </div>
-            )}
-            right={`Rev ${reversals}/3`}
-          />
-
-          {voiceNotice && (
-            <p className="text-xs text-center bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 text-amber-900">{voiceNotice}</p>
+        <VisionTestShell
+          className="relative z-20 bg-transparent"
+          title={`${currentEye === 'left' ? 'Left' : 'Right'} eye · ${contrastPercent}%`}
+          subtitle={`Trial ${trialNumber} · Letter ${tripletAnswers.length + 1}/3`}
+          statusBar={<span className="text-xs font-medium">Rev {reversals}/3</span>}
+          stimulus={(
+            <div className="test-stimulus-wrap min-h-[160px] border-0 shadow-none w-full h-full max-h-none">
+              <span
+                className="test-letter-display"
+                style={{
+                  color: `rgb(${grayValue}, ${grayValue}, ${grayValue})`,
+                  fontFamily: 'Sloan, Arial, sans-serif',
+                  fontWeight: 700,
+                  ...getDitheredStyle(),
+                }}
+              >
+                {currentLetter}
+              </span>
+            </div>
           )}
-
-          <div className="test-stimulus-wrap min-h-[120px]">
-            <span
-              className="test-letter-display"
-              style={{
-                color: `rgb(${grayValue}, ${grayValue}, ${grayValue})`,
-                fontFamily: 'Sloan, Arial, sans-serif',
-                fontWeight: 700,
-                ...getDitheredStyle(),
-              }}
-            >
-              {currentLetter}
-            </span>
-          </div>
-
-          {lastResponse && (
-            <p className={`text-center text-sm font-semibold py-1.5 rounded-lg ${
-              lastResponse.correct ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
-            }`}>
-              {lastResponse.correct ? 'Correct' : lastResponse.answer === 'UNSEEN' ? 'Skipped' : `Incorrect — was ${lastResponse.letter}`}
-            </p>
-          )}
-
-          {currentLetter && !lastResponse && (
+          controls={(
             <>
-              <div className="test-answer-grid">
-                {testLetters.map((letter) => (
-                  <button
-                    key={letter}
-                    type="button"
-                    onClick={() => handleAnswer(letter)}
-                    className="test-answer-btn"
-                    aria-label={`Answer ${letter}`}
-                  >
-                    {letter}
-                  </button>
-                ))}
-              </div>
-              <div className="flex items-center justify-between gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleAnswer('UNSEEN')}
-                  className="text-xs text-gray-500 hover:text-gray-700 py-2"
-                >
-                  Can't see it
-                </button>
-                <button
-                  type="button"
-                  onClick={() => startListening('button')}
-                  disabled={isListening || voiceFatalErrorRef.current}
-                  className="text-xs font-medium text-indigo-600 hover:text-indigo-800 py-2 px-3 rounded-lg border border-indigo-200"
-                  aria-label="Optional voice input"
-                >
-                  {isListening ? 'Listening…' : 'Mic'}
-                </button>
-              </div>
+              {voiceNotice && (
+                <p className="text-xs bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 text-amber-900">{voiceNotice}</p>
+              )}
+
+              {lastResponse && (
+                <p className={`text-center text-sm font-semibold py-1.5 rounded-lg ${
+                  lastResponse.correct ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
+                }`}>
+                  {lastResponse.correct ? 'Correct' : lastResponse.answer === 'UNSEEN' ? 'Skipped' : `Incorrect — was ${lastResponse.letter}`}
+                </p>
+              )}
+
+              {currentLetter && !lastResponse && (
+                <>
+                  <div className="grid grid-cols-5 gap-1.5">
+                    {testLetters.map((letter) => (
+                      <button
+                        key={letter}
+                        type="button"
+                        onClick={() => handleAnswer(letter)}
+                        className="test-answer-btn"
+                        aria-label={`Answer ${letter}`}
+                      >
+                        {letter}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex items-center justify-between gap-2 mt-auto">
+                    <button
+                      type="button"
+                      onClick={() => handleAnswer('UNSEEN')}
+                      className="text-xs text-gray-500 hover:text-gray-700 py-2"
+                    >
+                      Can't see it
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => startListening('button')}
+                      disabled={isListening || voiceFatalErrorRef.current}
+                      className="text-xs font-medium text-indigo-600 hover:text-indigo-800 py-2 px-3 rounded-lg border border-indigo-200"
+                      aria-label="Optional voice input"
+                    >
+                      {isListening ? 'Listening…' : 'Mic'}
+                    </button>
+                  </div>
+                </>
+              )}
             </>
           )}
-        </div>
+        />
 
-        {/* CSS Animations */}
         <style>{`
           @keyframes pulseGlare {
             0%, 100% { opacity: 0.7; transform: scale(1); }

@@ -4,7 +4,15 @@ import EyeCoverageVerification from './EyeCoverageVerification'
 
 // UnifiedCalibration orchestrates one or more calibration steps in sequence.
 // steps: array of 'distance' | 'eyeCoverage' | 'gamma' (gamma not yet implemented)
-const UnifiedCalibration = ({ steps = ['distance'], onFinish = () => {}, testName = '' }) => {
+const UnifiedCalibration = ({
+  steps = ['distance'],
+  onFinish = () => {},
+  testName = '',
+  splitLayout = false,
+  testType = 'default',
+  optimalDistanceMM,
+  toleranceMM,
+}) => {
   const [currentStepIndex, setCurrentStepIndex] = useState(0)
 
   const currentStep = steps[currentStepIndex]
@@ -20,8 +28,9 @@ const UnifiedCalibration = ({ steps = ['distance'], onFinish = () => {}, testNam
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-50 to-blue-50 py-6 px-4">
-      <div className="max-w-4xl mx-auto">
+    <div className={splitLayout ? '' : 'min-h-screen bg-gradient-to-br from-purple-50 to-blue-50 py-6 px-4'}>
+      <div className={splitLayout ? '' : 'max-w-4xl mx-auto'}>
+        {!splitLayout && (
         <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
           <div className="flex items-center justify-between">
             <div>
@@ -29,14 +38,19 @@ const UnifiedCalibration = ({ steps = ['distance'], onFinish = () => {}, testNam
               <p className="text-sm text-gray-600">Step {currentStepIndex + 1} of {steps.length}: <span className="font-semibold">{stepNames[currentStepIndex]}</span></p>
             </div>
             <div>
-              <button onClick={() => onFinish()} className="text-sm text-gray-500 hover:underline">Skip all</button>
+              <button type="button" onClick={() => onFinish()} className="text-sm text-gray-500 hover:underline">Skip all</button>
             </div>
           </div>
         </div>
+        )}
 
-        <div className="bg-white rounded-2xl shadow p-6">
+        <div className={splitLayout ? '' : 'bg-white rounded-2xl shadow p-6'}>
           {currentStep === 'distance' && (
             <InlineDistanceCalibration
+              testType={testType}
+              optimalDistanceMM={optimalDistanceMM}
+              toleranceMM={toleranceMM}
+              splitLayout={splitLayout}
               testName={testName}
               onDistanceValid={() => next()}
               onDistanceInvalid={() => { /* no-op */ }}
@@ -46,9 +60,10 @@ const UnifiedCalibration = ({ steps = ['distance'], onFinish = () => {}, testNam
           {currentStep === 'eyeCoverage' && (
             <EyeCoverageVerification
               expectedEye="right"
+              splitLayout={splitLayout}
+              testName={testName}
               onVerified={() => next()}
               onSkip={() => next()}
-              testName={testName}
             />
           )}
 

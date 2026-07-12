@@ -6,8 +6,8 @@ import voiceRecognition from '../utils/voiceRecognition'
 import EyeCoverageDetector from '../utils/eyeCoverageDetector'
 import GlassesContactsCheck from '../components/GlassesContactsCheck'
 import EyeCoverageVerification from '../components/EyeCoverageVerification'
-import VoiceControl from '../components/VoiceControl'
 import InlineDistanceCalibration from '../components/InlineDistanceCalibration'
+import { VisionTestShell } from '../components/TestPrepLayout'
 
 /**
  * Visual Acuity Test (Snellen/LogMAR)
@@ -24,7 +24,7 @@ const VisualAcuityTest = () => {
   const navigate = useNavigate()
   const { isCalibrated, needsRecalibration, getConfidence } = useCalibration()
   
-  const [testState, setTestState] = useState('distance-gate') // distance-gate, instructions, glasses-check, eye-coverage-setup, testing, switch-eyes, results
+  const [testState, setTestState] = useState('distance-gate') // distance-gate, instructions, voice-setup, glasses-check, eye-coverage-setup, testing, switch-eyes, results
   const [distanceValid, setDistanceValid] = useState(false)
   const [currentEye, setCurrentEye] = useState('left') // left, right
   const [currentLine, setCurrentLine] = useState(0)
@@ -35,10 +35,18 @@ const VisualAcuityTest = () => {
     right: { correctLines: 0, smallestLine: 0, letters: [] }
   })
   
-  // Voice recognition state
-  const [voiceEnabled, setVoiceEnabled] = useState(false)
-  const [isListening, setIsListening] = useState(false)
+  // Voice recognition state — default on for far-distance testing
   const [voiceSupported] = useState(voiceRecognition.isSupported())
+  const [voiceEnabled, setVoiceEnabled] = useState(voiceRecognition.isSupported())
+  const [isListening, setIsListening] = useState(false)
+  const [voiceNotice, setVoiceNotice] = useState('')
+  const [voiceSetupPassed, setVoiceSetupPassed] = useState(false)
+  const [voiceSetupHeard, setVoiceSetupHeard] = useState('')
+  const [voiceMicFailed, setVoiceMicFailed] = useState(false)
+  const voiceFatalErrorRef = useRef(false)
+  const handleLetterSelectRef = useRef(null)
+  const advanceToNextLineRef = useRef(null)
+  const finishEyeTestRef = useRef(null)
   
   // Eye coverage detection state
   const [eyeDetector, setEyeDetector] = useState(null)
@@ -103,7 +111,7 @@ const VisualAcuityTest = () => {
   }, [generateLetters])
 
   // Handle letter selection
-  const handleLetterSelect = (letter) => {
+  const handleLetterSelect = useCallback((letter) => {
     if (showFeedback) return // Prevent double-selection
     
     const correctLetter = currentLetters[currentLetter]
@@ -153,60 +161,61 @@ const VisualAcuityTest = () => {
         setCurrentLetter(prev => prev + 1)
         setSelectedAnswer(null)
         setShowFeedback(false)
-        
-        // Restart voice recognition
-        if (voiceEnabled) {
-          startVoiceRecognition()
-        }
       } else {
         // Line complete - check if we should continue
-        advanceToNextLine(isCorrect)
+        advanceToNextLineRef.current?.(isCorrect)
       }
     }, 800)
-  }
+  }, [showFeedback, currentLetters, currentLetter, currentEye, currentLine, voiceEnabled, isListening])
+
+  handleLetterSelectRef.current = handleLetterSelect
 
   // Start voice recognition
-  const startVoiceRecognition = () => {
-    if (!voiceEnabled || !voiceSupported) return
-    if (isListening) return // Already listening, don't start again
-    
-    console.log('Starting voice recognition...')
+  const startVoiceRecognition = useCallback(() => {
+    if (!voiceEnabled || !voiceSupported || voiceFatalErrorRef.current) return
+    if (showFeedback) return
+
+    setVoiceNotice('')
     setIsListening(true)
-    voiceRecognition.start(
+
+    const started = voiceRecognition.start(
       (result) => {
-        console.log('Voice heard:', result)
-        // Parse the spoken letter
-        const parsed = voiceRecognition.parseResponse(result, OPTOTYPES)
+        const parsed = voiceRecognition.parseResponse(result)
         if (parsed && OPTOTYPES.includes(parsed)) {
-          console.log('Parsed letter:', parsed)
-          handleLetterSelect(parsed)
+          setVoiceNotice(`Heard: ${parsed}`)
+          handleLetterSelectRef.current?.(parsed)
         } else {
-          console.log('Could not parse letter from:', result)
+          setVoiceNotice(`Say a letter (${OPTOTYPES.join(', ')})`)
         }
       },
       (error) => {
-        console.error('Voice recognition error:', error)
         setIsListening(false)
+        if (['network', 'not-allowed', 'service-not-allowed', 'audio-capture'].includes(error)) {
+          voiceFatalErrorRef.current = true
+          setVoiceNotice('Microphone unavailable — use the buttons on screen or move closer.')
+        }
       }
     )
-  }
+
+    if (!started) {
+      setIsListening(false)
+    }
+  }, [voiceEnabled, voiceSupported, showFeedback])
 
   // Start eye test and voice recognition
   useEffect(() => {
-    if (testState === 'testing' && voiceEnabled && !isListening) {
+    if (testState === 'testing' && voiceEnabled && !showFeedback && !voiceFatalErrorRef.current) {
       startVoiceRecognition()
     }
-    
+
     return () => {
-      if (voiceEnabled && isListening) {
-        voiceRecognition.stop()
-        setIsListening(false)
-      }
+      voiceRecognition.stop()
+      setIsListening(false)
     }
-  }, [testState, currentLetter, currentEye, voiceEnabled])
+  }, [testState, currentLetter, currentEye, voiceEnabled, showFeedback, startVoiceRecognition])
 
   // Advance to next line or finish eye
-  const advanceToNextLine = (lastLetterCorrect) => {
+  const advanceToNextLine = useCallback((lastLetterCorrect) => {
     const line = SNELLEN_LINES[currentLine]
     const eyeLetters = lineResults[currentEye].letters.filter(r => r.line === currentLine)
     const correctCount = eyeLetters.filter(r => r.correct).length
@@ -222,14 +231,14 @@ const VisualAcuityTest = () => {
     // If got < 60% correct on this line, stop (threshold reached)
     if (accuracy < 0.6) {
       console.log('Accuracy below threshold - finishing eye test')
-      finishEyeTest()
+      finishEyeTestRef.current?.()
       return
     }
     
     // If this was the last line, finish
     if (currentLine >= SNELLEN_LINES.length - 1) {
       console.log('Last line reached - finishing eye test')
-      finishEyeTest()
+      finishEyeTestRef.current?.()
       return
     }
     
@@ -241,10 +250,12 @@ const VisualAcuityTest = () => {
     setCurrentLetters(letters)
     setSelectedAnswer(null)
     setShowFeedback(false)
-  }
+  }, [currentLine, lineResults, currentEye, generateLetters])
+
+  advanceToNextLineRef.current = advanceToNextLine
 
   // Finish testing current eye
-  const finishEyeTest = () => {
+  const finishEyeTest = useCallback(() => {
     const eyeData = lineResults[currentEye]
     
     // Calculate final LogMAR score for this eye
@@ -271,7 +282,42 @@ const VisualAcuityTest = () => {
       // Both eyes complete
       setTestState('results')
     }
-  }
+  }, [currentEye, lineResults])
+
+  finishEyeTestRef.current = finishEyeTest
+
+  // Voice microphone check before far-distance testing
+  useEffect(() => {
+    if (testState !== 'voice-setup' || !voiceSupported) return undefined
+
+    setVoiceSetupHeard('')
+    const started = voiceRecognition.start(
+      (transcript) => {
+        const parsed = voiceRecognition.parseResponse(transcript)
+        if (parsed && OPTOTYPES.includes(parsed)) {
+          setVoiceSetupHeard(parsed)
+          setVoiceSetupPassed(true)
+          setVoiceNotice(`Microphone working — heard "${parsed}"`)
+          voiceRecognition.stop()
+        } else {
+          setVoiceNotice('Try saying a letter clearly, for example "E"')
+        }
+      },
+      (error) => {
+        if (['network', 'not-allowed', 'service-not-allowed', 'audio-capture'].includes(error)) {
+          setVoiceNotice('Could not access microphone. Allow mic permission in your browser, or continue without voice.')
+          voiceFatalErrorRef.current = true
+          setVoiceMicFailed(true)
+        }
+      }
+    )
+
+    if (!started) {
+      setVoiceNotice('Could not start microphone — check browser permissions.')
+    }
+
+    return () => voiceRecognition.stop()
+  }, [testState, voiceSupported])
 
   // Submit results to backend
   const submitResults = async () => {
@@ -413,16 +459,16 @@ const VisualAcuityTest = () => {
       </div>
 
       {voiceSupported && (
-        <div className="card bg-brand-soft">
+        <div className="card bg-brand-soft border-2 border-accent-200">
           <div className="flex items-start gap-4">
             <svg className="w-8 h-8 text-accent-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
             </svg>
             <div className="flex-1">
-              <h3 className="font-bold text-gray-900 mb-2">Voice Control Available</h3>
+              <h3 className="font-bold text-gray-900 mb-2">Voice control required</h3>
               <p className="text-gray-600 text-sm mb-3">
-                Since you'll be at a distance from the screen, you can use your voice to answer instead of clicking. 
-                Just say the letter you see (e.g., "E" or "P").
+                This test is taken about <strong>1 meter (40″)</strong> from the screen. You will answer by
+                saying letters aloud — for example &quot;E&quot; or &quot;P&quot; — so you do not need to walk back to click.
               </p>
               <label className="flex items-center gap-3 cursor-pointer">
                 <input
@@ -431,10 +477,18 @@ const VisualAcuityTest = () => {
                   onChange={(e) => setVoiceEnabled(e.target.checked)}
                   className="w-5 h-5 text-accent-600 rounded focus:ring-accent-500"
                 />
-                <span className="font-semibold text-gray-900">Enable voice control during test</span>
+                <span className="font-semibold text-gray-900">Enable voice control (recommended)</span>
               </label>
             </div>
           </div>
+        </div>
+      )}
+
+      {!voiceSupported && (
+        <div className="card bg-amber-50 border-2 border-amber-200">
+          <p className="text-sm text-amber-900">
+            Your browser does not support voice input. You will need to stay close enough to use the on-screen buttons.
+          </p>
         </div>
       )}
 
@@ -456,7 +510,16 @@ const VisualAcuityTest = () => {
            Back to Tests
         </button>
         <button
-          onClick={() => setTestState('glasses-check')}
+          onClick={() => {
+            if (voiceSupported && !voiceEnabled) {
+              setVoiceNotice('Please enable voice control to take this test from a distance.')
+              return
+            }
+            voiceFatalErrorRef.current = false
+            setVoiceMicFailed(false)
+            setVoiceSetupPassed(false)
+            setTestState(voiceSupported ? 'voice-setup' : 'glasses-check')
+          }}
           className="flex-1 btn-primary min-h-[44px]"
         >
           Start Test 
@@ -469,6 +532,54 @@ const VisualAcuityTest = () => {
         </svg>
         This is a screening tool, not a diagnostic device. Results should be discussed with an eye care professional.
       </p>
+    </div>
+  )
+
+  const renderVoiceSetup = () => (
+    <div className="max-w-xl mx-auto">
+      <div className="card text-center space-y-4">
+        <div className="w-16 h-16 mx-auto rounded-full bg-indigo-100 flex items-center justify-center">
+          <svg className="w-8 h-8 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+          </svg>
+        </div>
+        <h2 className="text-2xl font-bold text-gray-900">Enable your microphone</h2>
+        <p className="text-gray-600 text-sm">
+          You will stand about 1 meter from the screen. Say a letter out loud to confirm your microphone works.
+        </p>
+
+        <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 text-left text-sm text-indigo-900">
+          <p className="font-semibold mb-2">Try saying:</p>
+          <p className="text-lg font-mono font-bold">E · F · L · O · P · T · Z</p>
+        </div>
+
+        {voiceNotice && (
+          <p className="text-sm bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-amber-900">{voiceNotice}</p>
+        )}
+
+        {voiceSetupPassed && voiceSetupHeard && (
+          <p className="text-sm font-semibold text-green-700">
+            Microphone ready — heard &quot;{voiceSetupHeard}&quot;
+          </p>
+        )}
+
+        <div className="flex gap-3 pt-2">
+          <button type="button" onClick={() => setTestState('instructions')} className="flex-1 btn-secondary min-h-[44px]">
+            Back
+          </button>
+          <button
+            type="button"
+            disabled={!voiceSetupPassed && !voiceMicFailed}
+            onClick={() => {
+              if (voiceMicFailed) setVoiceEnabled(false)
+              setTestState('glasses-check')
+            }}
+            className="flex-1 btn-primary min-h-[44px] disabled:opacity-50"
+          >
+            {voiceSetupPassed ? 'Continue' : voiceMicFailed ? 'Continue without voice' : 'Waiting for voice…'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 
@@ -502,118 +613,84 @@ const VisualAcuityTest = () => {
   const renderTesting = () => {
     const line = SNELLEN_LINES[currentLine]
     const letter = currentLetters[currentLetter]
-    
-    // Calculate font size based on line size (scaled for 40cm viewing distance)
-    // Snellen size at 40cm ≈ size * 0.5 pixels (simplified)
-    const fontSize = line.size * 2 // Larger for digital display
-    
+    const fontSize = Math.min(line.size * 2, 180)
+
     return (
-      <div className="max-w-5xl mx-auto space-y-8">
-        {/* Header */}
-        <div className="text-center">
-          <div className="inline-flex items-center gap-4 bg-gray-100 rounded-full px-6 py-3 mb-4">
-            <span className={`flex items-center gap-2 ${currentEye === 'left' ? 'opacity-100 font-bold' : 'opacity-30'}`}>
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-              </svg>
-              Left
-            </span>
-            <span className="text-gray-400">|</span>
-            <span className={`flex items-center gap-2 ${currentEye === 'right' ? 'opacity-100 font-bold' : 'opacity-30'}`}>
-              Right
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-              </svg>
-            </span>
-          </div>
-          <h2 className="text-2xl font-bold text-gray-900">
-            Cover your {currentEye === 'left' ? 'RIGHT' : 'LEFT'} eye
-          </h2>
-          <p className="text-gray-600">
-            Line {currentLine + 1} of {SNELLEN_LINES.length} • {line.snellen}
-          </p>
-        </div>
-
-        {/* Letter Display */}
-        <div className="bg-white rounded-3xl p-16 border-4 border-gray-200 min-h-[400px] flex items-center justify-center">
-          <div 
-            className="font-mono font-bold text-gray-900 transition-all duration-300"
-            style={{ fontSize: `${fontSize}px` }}
-          >
-            {letter}
-          </div>
-        </div>
-
-        {/* Answer Options */}
-        <div>
-          <p className="text-center text-gray-600 mb-4">
-            {voiceEnabled ? 'Say the letter you see, or click:' : 'Select the letter you see:'}
-          </p>
-          <div className="grid grid-cols-4 gap-4 max-w-2xl mx-auto">
-            {OPTOTYPES.map(opt => (
-              <button
-                key={opt}
-                onClick={() => handleLetterSelect(opt)}
-                disabled={showFeedback}
-                className={`
-                  p-6 rounded-xl font-mono font-bold text-3xl transition-all
-                  ${selectedAnswer === opt 
-                    ? showFeedback && opt === letter
-                      ? 'bg-green-600 text-white'
-                      : showFeedback
-                        ? 'bg-red-600 text-white'
-                        : 'bg-accent-600 text-white'
-                    : 'bg-gray-100 hover:bg-gray-200 text-gray-900'
-                  }
-                  ${showFeedback ? 'cursor-not-allowed' : 'cursor-pointer hover:scale-105'}
-                `}
-              >
-                {opt}
-              </button>
-            ))}
-          </div>
-          
-          {showFeedback && (
-            <div className={`text-center mt-4 font-semibold flex items-center justify-center gap-2 ${selectedAnswer === letter ? 'text-green-600' : 'text-red-600'}`}>
-              {selectedAnswer === letter ? (
-                <>
-                  <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                  </svg>
-                  Correct!
-                </>
-              ) : (
-                <>
-                  <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                  </svg>
-                  Incorrect - Was {letter}
-                </>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Voice Control Widget */}
-        {voiceEnabled && (
-          <VoiceControl
-            options={OPTOTYPES}
-            onAnswer={handleLetterSelect}
-            enabled={!showFeedback}
-          />
+      <VisionTestShell
+        title={`${currentEye === 'left' ? 'Left' : 'Right'} eye — cover the other eye`}
+        subtitle={`Line ${currentLine + 1}/${SNELLEN_LINES.length} · ${line.snellen}`}
+        statusBar={(
+          <span className="text-xs text-gray-500">
+            Letter {currentLetter + 1}/{line.letters}
+          </span>
         )}
-
-        {/* Progress */}
-        <div className="text-center">
-          <div className="inline-flex items-center gap-2 text-sm text-gray-500">
-            <span>Letter {currentLetter + 1} of {line.letters}</span>
-            <span>•</span>
-            <span>{lineResults[currentEye].letters.filter(r => r.correct).length} correct</span>
+        stimulus={(
+          <div className="flex items-center justify-center w-full h-full min-h-[200px] bg-white rounded-xl">
+            <div
+              className="font-mono font-bold text-gray-900 transition-all duration-300 select-none"
+              style={{ fontSize: `${fontSize}px`, lineHeight: 1 }}
+            >
+              {letter}
+            </div>
           </div>
-        </div>
-      </div>
+        )}
+        controls={(
+          <>
+            {voiceEnabled && (
+              <div className={`text-sm rounded-lg px-3 py-2 border ${
+                isListening ? 'bg-indigo-50 border-indigo-200 text-indigo-900' : 'bg-gray-50 border-gray-200 text-gray-600'
+              }`}>
+                {isListening ? (
+                  <span className="flex items-center gap-2">
+                    <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+                    Listening — say the letter you see
+                  </span>
+                ) : voiceNotice || 'Voice paused'}
+              </div>
+            )}
+
+            <p className="text-sm text-gray-600">
+              {voiceEnabled ? 'Say the letter, or tap below:' : 'Select the letter you see:'}
+            </p>
+
+            <div className="grid grid-cols-4 gap-2">
+              {OPTOTYPES.map((opt) => (
+                <button
+                  key={opt}
+                  type="button"
+                  onClick={() => handleLetterSelect(opt)}
+                  disabled={showFeedback}
+                  className={`
+                    min-h-[44px] rounded-xl font-mono font-bold text-xl transition-all
+                    ${selectedAnswer === opt
+                      ? showFeedback && opt === letter
+                        ? 'bg-green-600 text-white'
+                        : showFeedback
+                          ? 'bg-red-600 text-white'
+                          : 'bg-accent-600 text-white'
+                      : 'bg-gray-100 hover:bg-gray-200 text-gray-900'}
+                    ${showFeedback ? 'cursor-not-allowed' : 'cursor-pointer'}
+                  `}
+                >
+                  {opt}
+                </button>
+              ))}
+            </div>
+
+            {showFeedback && (
+              <div className={`text-center text-sm font-semibold py-2 rounded-lg ${
+                selectedAnswer === letter ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
+              }`}>
+                {selectedAnswer === letter ? 'Correct!' : `Incorrect — was ${letter}`}
+              </div>
+            )}
+
+            <p className="text-xs text-gray-500 text-center mt-auto">
+              {lineResults[currentEye].letters.filter((r) => r.correct).length} correct this eye
+            </p>
+          </>
+        )}
+      />
     )
   }
 
@@ -876,21 +953,22 @@ const VisualAcuityTest = () => {
     <div className="test-shell">
       <div className="max-w-7xl mx-auto">
         {testState === 'distance-gate' && (
-          <div className="max-w-4xl mx-auto">
-            <InlineDistanceCalibration
-              testType="visual_acuity"
-              optimalDistanceMM={1000} // 40 inches (1 meter) for 20/20 simulation
-              toleranceMM={100} // ±10cm tolerance
-              onDistanceValid={() => {
-                setDistanceValid(true)
-                setTestState('instructions')
-              }}
-              onDistanceInvalid={() => setDistanceValid(false)}
-              testName="Visual Acuity Test"
-            />
-          </div>
+          <InlineDistanceCalibration
+            testType="visual_acuity"
+            optimalDistanceMM={1000}
+            toleranceMM={100}
+            splitLayout
+            voiceConfirm
+            onDistanceValid={() => {
+              setDistanceValid(true)
+              setTestState('instructions')
+            }}
+            onDistanceInvalid={() => setDistanceValid(false)}
+            testName="Visual Acuity Test"
+          />
         )}
         {testState === 'instructions' && renderInstructions()}
+        {testState === 'voice-setup' && renderVoiceSetup()}
         {testState === 'glasses-check' && renderGlassesCheck()}
         {testState === 'eye-coverage-setup' && renderEyeCoverageSetup()}
         {testState === 'testing' && renderTesting()}

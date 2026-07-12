@@ -447,4 +447,88 @@ textarea:focus-visible,
   .test-mode-chip-active {
     @apply border-accent-500 bg-accent-50 ring-2 ring-accent-200;
   }
+
+  /* Immersive vision test — full width, no sidebar, split stimulus / controls */
+  .vision-test-page {
+    @apply flex flex-col min-h-0;
+  }
+  .vision-test-page .test-prep {
+    @apply max-w-4xl;
+    max-height: calc(100dvh - 6rem);
+  }
+  .vision-test-page-bar {
+    @apply flex items-center justify-start pb-2 shrink-0;
+  }
+  .test-exit-btn {
+    @apply inline-flex items-center gap-2 px-3 py-2 min-h-[44px] rounded-xl text-sm font-semibold text-gray-600 bg-white border border-gray-200 shadow-sm hover:bg-gray-50 hover:text-gray-900 transition-colors;
+  }
+  .vision-test-shell {
+    @apply flex flex-col overflow-hidden bg-app-bg;
+    height: calc(100dvh - 5.5rem);
+    max-height: calc(100dvh - 5.5rem);
+  }
+  .vision-test-header {
+    @apply flex flex-wrap items-center justify-between gap-2 px-1 pb-2 shrink-0;
+  }
+  .vision-test-title {
+    @apply text-lg sm:text-xl font-bold text-gray-900 truncate;
+  }
+  .vision-test-subtitle {
+    @apply text-xs sm:text-sm text-gray-500 truncate;
+  }
+  .vision-test-status {
+    @apply text-sm text-gray-600;
+  }
+  .vision-test-split {
+    @apply grid flex-1 min-h-0 gap-3;
+    grid-template-columns: minmax(0, 1fr) minmax(260px, 380px);
+  }
+  .vision-test-stimulus {
+    @apply flex items-center justify-center min-h-0 overflow-hidden rounded-2xl bg-white border border-gray-100 shadow-sm p-3;
+  }
+  .vision-test-stimulus-inner {
+    @apply relative flex items-center justify-center;
+    max-width: min(100%, 520px);
+    max-height: 100%;
+  }
+  .vision-test-stimulus-inner canvas {
+    @apply max-w-full max-h-full;
+    width: auto !important;
+    height: auto !important;
+    image-rendering: pixelated;
+  }
+  .vision-test-controls {
+    @apply flex flex-col gap-3 min-h-0 overflow-y-auto rounded-2xl bg-white border border-gray-100 shadow-sm p-4;
+  }
+  .vision-test-controls-actions {
+    @apply flex flex-col gap-2 mt-auto pt-2;
+  }
+  .vision-test-stimulus .test-stimulus-wrap {
+    max-height: min(72vh, 480px);
+    width: min(100%, 480px);
+    min-height: 220px;
+  }
+  .eye-coverage-video-wrap {
+    max-height: min(72vh, 420px);
+  }
+  .eye-coverage-video-wrap video {
+    max-height: 100%;
+  }
+  @media (max-width: 900px) {
+    .vision-test-split {
+      grid-template-columns: 1fr;
+      grid-template-rows: minmax(200px, 1fr) auto;
+    }
+    .vision-test-shell {
+      height: auto;
+      max-height: none;
+      overflow: visible;
+    }
+    .vision-test-stimulus {
+      max-height: min(50vh, 400px);
+    }
+    .vision-test-controls {
+      max-height: none;
+    }
+  }
 }

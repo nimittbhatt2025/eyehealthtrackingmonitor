@@ -4,7 +4,7 @@ import { useCalibration } from '../context/CalibrationContext'
 import { visionTestAPI } from '../services/api'
 import voiceRecognition from '../utils/voiceRecognition'
 import InlineDistanceCalibration from '../components/InlineDistanceCalibration'
-import { TestPrepLayout, TestDetails, TestActiveBar } from '../components/TestPrepLayout'
+import { TestPrepLayout, TestDetails, TestActiveBar, VisionTestShell } from '../components/TestPrepLayout'
 import { 
   generateDeficiencyColors, 
   poissonDiskSampling,
@@ -606,39 +606,36 @@ const ColorVisionTest = () => {
 
   // Render Distance Gate - blocks until user is at correct distance
   const renderDistanceGate = () => (
-    <div className="test-shell">
-      <div className="max-w-4xl mx-auto">
-        <InlineDistanceCalibration
-          testType="color_vision"
-          optimalDistanceMM={355} // 14 inches (35.5cm) - Ishihara standard "near" zone
-          toleranceMM={30} // ±3cm strict tolerance for color accuracy
-          testName="Color Vision Test"
-          blockUntilValid={true}
-          onDistanceValid={(valid) => {
-            if (valid && !distanceValid) {
-              setDistanceValid(true)
-              // Wait 2 seconds after successful distance lock, then proceed
-              setTimeout(() => {
-                setTestState('instructions')
-              }, 2000)
-            }
-          }}
-          onDistanceInvalid={() => {
-            setDistanceValid(false)
-          }}
-        />
-
-        {/* Skip button for testing */}
-        <div className="mt-8 text-center">
-          <button
-            onClick={() => setTestState('instructions')}
-            className="text-sm text-gray-500 hover:text-gray-700 underline"
-          >
-            Skip calibration (for testing only)
-          </button>
-        </div>
+    <>
+      <InlineDistanceCalibration
+        testType="color_vision"
+        optimalDistanceMM={355}
+        toleranceMM={30}
+        splitLayout
+        testName="Color Vision Test"
+        blockUntilValid={true}
+        onDistanceValid={(valid) => {
+          if (valid && !distanceValid) {
+            setDistanceValid(true)
+            setTimeout(() => {
+              setTestState('instructions')
+            }, 2000)
+          }
+        }}
+        onDistanceInvalid={() => {
+          setDistanceValid(false)
+        }}
+      />
+      <div className="mt-2 text-center">
+        <button
+          type="button"
+          onClick={() => setTestState('instructions')}
+          className="text-sm text-gray-500 hover:text-gray-700 underline"
+        >
+          Skip calibration (for testing only)
+        </button>
       </div>
-    </div>
+    </>
   )
 
   // Render Instructions
@@ -969,74 +966,81 @@ const ColorVisionTest = () => {
     const last = responses[responses.length - 1]
 
     return (
-      <div className="test-active">
-        <TestActiveBar
-          left={`Plate ${currentPlateIndex + 1}/${testPlates.length}`}
-          center={(
-            <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+      <VisionTestShell
+        title={`Plate ${currentPlateIndex + 1} of ${testPlates.length}`}
+        subtitle="What number do you see?"
+        statusBar={(
+          <div className="flex items-center gap-2 min-w-[120px]">
+            <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden min-w-[80px]">
               <div
                 className={`h-full transition-all duration-100 ${isLowTime ? 'bg-red-500' : 'bg-accent-600'}`}
                 style={{ width: `${timerPercent}%` }}
               />
             </div>
-          )}
-          right={`${timeRemaining.toFixed(0)}s`}
-        />
-
-        {voiceNotice && (
-          <div className="text-xs text-center bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-amber-900">
-            {voiceNotice}
+            <span className={`text-sm font-bold tabular-nums ${isLowTime ? 'text-red-600' : 'text-gray-700'}`}>
+              {timeRemaining.toFixed(0)}s
+            </span>
           </div>
         )}
-
-        <div className="test-stimulus-wrap">
-          {generatedPlateSVG || (
-            <div className="flex flex-col items-center justify-center text-gray-400 text-sm gap-3">
-              <div className="spinner w-10 h-10" />
-              <span>Loading plate…</span>
-            </div>
-          )}
-        </div>
-
-        {showFeedback && last && (
-          <div className={`text-center text-sm font-semibold py-2 rounded-lg ${
-            last.errorType === 'timeout' ? 'bg-yellow-50 text-yellow-800' :
-            last.correct ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
-          }`}>
-            {last.errorType === 'timeout' ? 'Time expired' : last.correct ? 'Correct' : 'Incorrect'}
+        stimulus={(
+          <div className="test-stimulus-wrap border-0 shadow-none max-h-none w-full h-full min-h-[200px]">
+            {generatedPlateSVG || (
+              <div className="flex flex-col items-center justify-center text-gray-400 text-sm gap-3">
+                <div className="spinner w-10 h-10" />
+                <span>Loading plate…</span>
+              </div>
+            )}
           </div>
         )}
-
-        {!showFeedback && (
+        controls={(
           <>
-            <div className="grid grid-cols-4 sm:grid-cols-7 gap-1.5">
-              {numberChoices.map((choice) => (
+            {voiceNotice && (
+              <div className="text-xs bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-amber-900">
+                {voiceNotice}
+              </div>
+            )}
+
+            {showFeedback && last && (
+              <div className={`text-center text-sm font-semibold py-2 rounded-lg ${
+                last.errorType === 'timeout' ? 'bg-yellow-50 text-yellow-800' :
+                last.correct ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
+              }`}>
+                {last.errorType === 'timeout' ? 'Time expired' : last.correct ? 'Correct' : 'Incorrect'}
+              </div>
+            )}
+
+            {!showFeedback && (
+              <>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {numberChoices.map((choice) => (
+                    <button
+                      key={choice}
+                      type="button"
+                      disabled={timeRemaining <= 0}
+                      onClick={() => {
+                        setSelectedAnswer(choice)
+                        setUserInput(choice)
+                        submitAnswerWithValue(choice === 'Nothing' ? 'nothing' : choice)
+                      }}
+                      className={`test-answer-btn text-xs sm:text-sm ${selectedAnswer === choice ? 'test-answer-btn-selected' : ''}`}
+                    >
+                      {choice}
+                    </button>
+                  ))}
+                </div>
                 <button
-                  key={choice}
                   type="button"
+                  onClick={() => submitAnswerWithValue('nothing')}
                   disabled={timeRemaining <= 0}
-                  onClick={() => {
-                    setSelectedAnswer(choice)
-                    setUserInput(choice)
-                    submitAnswerWithValue(choice === 'Nothing' ? 'nothing' : choice)
-                  }}
-                  className={`test-answer-btn ${selectedAnswer === choice ? 'test-answer-btn-selected' : ''}`}
+                  className="w-full text-sm text-gray-500 hover:text-gray-700 py-2 border border-gray-200 rounded-lg"
                 >
-                  {choice}
+                  Can't see a number
                 </button>
-              ))}
-            </div>
-            <button
-              type="button"
-              onClick={() => submitAnswerWithValue('nothing')}
-              disabled={timeRemaining <= 0}
-              className="w-full text-sm text-gray-500 hover:text-gray-700 py-2"
-            >
-              Can't see a number
-            </button>
+              </>
+            )}
           </>
         )}
-      </div>
+      />
     )
   }
 

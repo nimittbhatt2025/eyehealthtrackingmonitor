@@ -14,10 +14,15 @@ const LEFT_IRIS_INDICES = [468, 469, 470, 471, 472] // Left iris center
 const RIGHT_IRIS_INDICES = [473, 474, 475, 476, 477] // Right iris center
 
 // Thresholds
-const DEFAULT_EAR_THRESHOLD = 0.21 // Default eye closed threshold (will be replaced with calibrated value)
-const BLINK_MIN_DURATION = 80 // Minimum blink duration in ms (lowered for slim eyes)
-const BLINK_MAX_DURATION = 500 // Maximum blink duration in ms (increased for variety)
-const CONSECUTIVE_FRAMES = 1 // Frames required to confirm blink (more sensitive)
+const DEFAULT_EAR_THRESHOLD = 0.21
+const BLINK_MIN_DURATION = 50 // Minimum blink duration in ms
+const BLINK_MAX_DURATION = 800 // Maximum blink duration in ms (slower blinks)
+const CONSECUTIVE_FRAMES = 1 // Frames required to confirm blink start
+const BASELINE_RATIO = 0.72 // Closed when EAR falls below this fraction of open-eye baseline
+const EAR_DROP_MIN = 0.04 // Also count closure when EAR drops this much below baseline
+const OPEN_EAR_SAMPLE_MAX = 120
+const MIN_MS_BETWEEN_BLINKS = 120 // Debounce duplicate detections
+const WARMUP_MIN_FRAMES = 30 // ~1s before counting blinks
 
 // Fatigue thresholds
 const NORMAL_BLINK_RATE_MIN = 12
@@ -94,22 +99,10 @@ export class MediaEyeTracker {
     this.camera = null
     this.isRunning = false
 
-    // Load calibrated threshold from backend or use default
-    this.earThreshold = this.loadCalibratedThreshold()
-    console.log('[target] Using EAR threshold:', this.earThreshold)
-
-    // Blink detection state with improved tracking
-    this.blinkState = {
-      isBlinking: false,
-      blinkStartTime: null,
-      consecutiveClosedFrames: 0,
-      consecutiveOpenFrames: 0, // Track open frames too
-      totalBlinks: 0,
-      blinkDurations: [],
-      blinkTimestamps: [],
-      previousEAR: null, // Track EAR changes
-      earHistory: [], // Store recent EAR values for adaptive threshold
-    }
+    this.calibratedThreshold = this.loadStoredCalibration()
+    this.earThreshold = DEFAULT_EAR_THRESHOLD
+    this.currentEar = 0
+    this.blinkState = this.createBlinkState()
 
     // Eye movement tracking
     this.gazeHistory = []
@@ -133,24 +126,118 @@ export class MediaEyeTracker {
     this.onFaceDetected = null
   }
 
+  createBlinkState() {
+    return {
+      isBlinking: false,
+      blinkStartTime: null,
+      consecutiveClosedFrames: 0,
+      consecutiveOpenFrames: 0,
+      totalBlinks: 0,
+      blinkDurations: [],
+      blinkTimestamps: [],
+      previousEAR: null,
+      openEarSamples: [],
+      baselineOpenEar: null,
+      warmupFrames: 0,
+      lastBlinkEndTime: 0,
+    }
+  }
+
   /**
-   * Load calibrated threshold from localStorage (set by blink calibration)
+   * Load calibrated threshold from localStorage (set by blink calibration).
+   * Backend calibration uses a different MediaPipe pipeline, so this is only a hint.
    */
-  loadCalibratedThreshold() {
+  loadStoredCalibration() {
     try {
       const calibrated = localStorage.getItem('blink_calibrated') === 'true'
       const threshold = parseFloat(localStorage.getItem('blink_threshold'))
-      
+
       if (calibrated && !isNaN(threshold) && threshold > 0) {
-        console.log('[OK] Using calibrated threshold from backend:', threshold)
-        return threshold
+        const clamped = Math.min(0.28, Math.max(0.1, threshold))
+        console.log('[OK] Stored calibration hint:', clamped)
+        return clamped
       }
     } catch (error) {
       console.warn('[WARNING] Failed to load calibrated threshold:', error)
     }
-    
-    console.log('[WARNING] No calibration found, using default threshold:', DEFAULT_EAR_THRESHOLD)
-    return DEFAULT_EAR_THRESHOLD
+
+    return null
+  }
+
+  resetBlinkDetection() {
+    this.blinkState = this.createBlinkState()
+    this.calibratedThreshold = this.loadStoredCalibration()
+    this.currentEar = 0
+  }
+
+  /**
+   * Track open-eye EAR to build a per-session baseline (browser FaceMesh scale).
+   */
+  updateOpenBaseline(ear) {
+    if (this.blinkState.isBlinking) return
+
+    this.blinkState.warmupFrames++
+
+    const hint = this.calibratedThreshold || DEFAULT_EAR_THRESHOLD
+    if (ear >= hint * 0.9) {
+      this.blinkState.openEarSamples.push(ear)
+      if (this.blinkState.openEarSamples.length > OPEN_EAR_SAMPLE_MAX) {
+        this.blinkState.openEarSamples.shift()
+      }
+    }
+
+    if (this.blinkState.openEarSamples.length < 15) return
+
+    const sorted = [...this.blinkState.openEarSamples].sort((a, b) => b - a)
+    const topN = sorted.slice(0, Math.max(10, Math.floor(sorted.length * 0.55)))
+    this.blinkState.baselineOpenEar = topN.reduce((sum, value) => sum + value, 0) / topN.length
+  }
+
+  /**
+   * Adaptive threshold from live open-eye baseline; stored calibration is a fallback hint only.
+   */
+  getEffectiveThreshold() {
+    const { baselineOpenEar } = this.blinkState
+    const adaptive = baselineOpenEar ? baselineOpenEar * BASELINE_RATIO : null
+
+    let threshold = DEFAULT_EAR_THRESHOLD
+
+    if (adaptive) {
+      threshold = adaptive
+      if (this.calibratedThreshold) {
+        // Backend EAR scale can differ — never let a stored value block detection
+        if (this.calibratedThreshold < adaptive * 0.9) {
+          threshold = adaptive
+        } else {
+          threshold = Math.max(adaptive, this.calibratedThreshold)
+        }
+      }
+    } else if (this.calibratedThreshold) {
+      threshold = this.calibratedThreshold
+    }
+
+    return Math.min(0.32, Math.max(0.14, threshold))
+  }
+
+  isWarmupComplete() {
+    return (
+      this.blinkState.baselineOpenEar != null &&
+      this.blinkState.warmupFrames >= WARMUP_MIN_FRAMES
+    )
+  }
+
+  isEyesClosed(ear) {
+    const threshold = this.getEffectiveThreshold()
+    const { baselineOpenEar } = this.blinkState
+
+    if (ear < threshold) return true
+
+    if (baselineOpenEar) {
+      const drop = baselineOpenEar - ear
+      if (drop >= EAR_DROP_MIN && ear < baselineOpenEar * 0.88) return true
+    }
+
+    return false
   }
 
   /**
@@ -197,6 +284,7 @@ export class MediaEyeTracker {
         height: 480,
       })
 
+      this.resetBlinkDetection()
       this.isRunning = true
       this.sessionStartTime = Date.now()
       await this.camera.start()
@@ -244,13 +332,13 @@ export class MediaEyeTracker {
     const leftEyeLandmarks = LEFT_EYE_INDICES.map((i) => landmarks[i])
     const rightEyeLandmarks = RIGHT_EYE_INDICES.map((i) => landmarks[i])
 
-    // Calculate EAR for both eyes
+    // Use minimum EAR — either eye closing counts (more sensitive than average)
     const leftEAR = calculateEAR(leftEyeLandmarks)
     const rightEAR = calculateEAR(rightEyeLandmarks)
-    const avgEAR = (leftEAR + rightEAR) / 2
+    const ear = Math.min(leftEAR, rightEAR)
+    this.currentEar = ear
 
-    // Blink detection
-    this.detectBlink(avgEAR)
+    this.detectBlink(ear)
 
     // Eye movement tracking
     const leftIris = calculateIrisCenter(LEFT_IRIS_INDICES.map((i) => landmarks[i]))
@@ -281,66 +369,62 @@ export class MediaEyeTracker {
    */
   detectBlink(ear) {
     const now = Date.now()
+    const warmupComplete = this.isWarmupComplete()
 
-    // Store EAR history for adaptive threshold (optional future enhancement)
-    this.blinkState.earHistory.push(ear)
-    if (this.blinkState.earHistory.length > 100) {
-      this.blinkState.earHistory.shift()
+    if (!this.blinkState.isBlinking) {
+      this.updateOpenBaseline(ear)
     }
 
-    // Determine if eyes are closed using calibrated threshold
-    const eyesClosed = ear < this.earThreshold
+    this.earThreshold = this.getEffectiveThreshold()
+    const eyesClosed = warmupComplete && this.isEyesClosed(ear)
 
     if (eyesClosed) {
-      // Eye is closed
       this.blinkState.consecutiveClosedFrames++
       this.blinkState.consecutiveOpenFrames = 0
 
       if (this.blinkState.consecutiveClosedFrames >= CONSECUTIVE_FRAMES && !this.blinkState.isBlinking) {
-        // Blink start detected
         this.blinkState.isBlinking = true
         this.blinkState.blinkStartTime = now
-        console.log('👁️ Blink START - EAR:', ear.toFixed(4), 'Threshold:', this.earThreshold.toFixed(4))
       }
     } else {
-      // Eye is open
       this.blinkState.consecutiveOpenFrames++
 
       if (this.blinkState.isBlinking && this.blinkState.blinkStartTime) {
-        // Blink end detected - require at least 1 open frame to confirm
         if (this.blinkState.consecutiveOpenFrames >= 1) {
           const blinkDuration = now - this.blinkState.blinkStartTime
+          const sinceLastBlink = now - this.blinkState.lastBlinkEndTime
 
-          // Validate blink duration (more lenient for slim eyes)
-          if (blinkDuration >= BLINK_MIN_DURATION && blinkDuration <= BLINK_MAX_DURATION) {
+          if (
+            blinkDuration >= BLINK_MIN_DURATION &&
+            blinkDuration <= BLINK_MAX_DURATION &&
+            sinceLastBlink >= MIN_MS_BETWEEN_BLINKS
+          ) {
             this.blinkState.totalBlinks++
             this.blinkState.blinkDurations.push(blinkDuration)
             this.blinkState.blinkTimestamps.push(now)
+            this.blinkState.lastBlinkEndTime = now
 
-            // Keep only last 100 blinks
             if (this.blinkState.blinkDurations.length > 100) {
               this.blinkState.blinkDurations.shift()
               this.blinkState.blinkTimestamps.shift()
             }
-
-            console.log(`[OK] BLINK #${this.blinkState.totalBlinks} - Duration: ${blinkDuration}ms, EAR: ${ear.toFixed(4)}`)
 
             if (this.onBlink) {
               this.onBlink({
                 count: this.blinkState.totalBlinks,
                 duration: blinkDuration,
                 timestamp: now,
-                ear: ear,
+                ear,
               })
             }
-          } else {
-            console.log('[X] Invalid blink duration:', blinkDuration, 'ms (must be', BLINK_MIN_DURATION, '-', BLINK_MAX_DURATION, 'ms)')
           }
 
-          // Reset blink state
           this.blinkState.isBlinking = false
           this.blinkState.blinkStartTime = null
         }
+      } else if (!warmupComplete) {
+        this.blinkState.isBlinking = false
+        this.blinkState.blinkStartTime = null
       }
 
       this.blinkState.consecutiveClosedFrames = 0
@@ -421,6 +505,9 @@ export class MediaEyeTracker {
       totalBlinks: this.blinkState.totalBlinks,
       saccadeCount: this.saccadeCount,
       sessionDurationMin: Math.round(sessionDurationMin * 10) / 10,
+      currentEar: Math.round(this.currentEar * 1000) / 1000,
+      earThreshold: Math.round(this.earThreshold * 1000) / 1000,
+      isCalibrating: !this.isWarmupComplete(),
     }
 
     if (this.onMetricsUpdate) {
@@ -461,11 +548,9 @@ export class MediaEyeTracker {
    * Reload calibrated threshold (call this after user completes calibration)
    */
   reloadThreshold() {
-    const newThreshold = this.loadCalibratedThreshold()
-    if (newThreshold !== this.earThreshold) {
-      console.log('🔄 Threshold updated:', this.earThreshold, '→', newThreshold)
-      this.earThreshold = newThreshold
-    }
+    this.calibratedThreshold = this.loadStoredCalibration()
+    this.earThreshold = this.getEffectiveThreshold()
+    console.log('[blink] Reloaded threshold hint:', this.calibratedThreshold, 'effective:', this.earThreshold)
   }
 
   /**

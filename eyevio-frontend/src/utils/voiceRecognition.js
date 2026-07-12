@@ -200,6 +200,16 @@ class VoiceRecognition {
     console.warn('Could not parse voice input:', original)
     return null
   }
+
+  /** Spoken commands to confirm / continue (distance calibration, etc.) */
+  parseConfirmCommand(transcript) {
+    const t = transcript.toLowerCase().trim()
+    const phrases = [
+      'ready', 'continue', 'begin', 'start', 'proceed', 'confirm',
+      'go ahead', 'done', 'next', 'okay', 'ok',
+    ]
+    return phrases.some((phrase) => t.includes(phrase))
+  }
 }
 
 export default new VoiceRecognition()

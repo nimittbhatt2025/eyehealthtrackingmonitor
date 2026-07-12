@@ -1,3 +1,72 @@
+import { useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { FaTimes } from 'react-icons/fa'
+
+export function useVisionTestExit() {
+  const navigate = useNavigate()
+
+  return useCallback((options = {}) => {
+    const { confirm = true, message } = options
+    const goBack = () => navigate('/vision-tests')
+
+    if (confirm) {
+      if (window.confirm(message || 'Exit this test? Your progress will be lost.')) {
+        goBack()
+      }
+      return
+    }
+
+    goBack()
+  }, [navigate])
+}
+
+export function TestExitButton({ onExit, label = 'Exit test', className = '' }) {
+  return (
+    <button
+      type="button"
+      onClick={onExit}
+      className={`test-exit-btn ${className}`}
+      aria-label={label}
+    >
+      <FaTimes className="w-4 h-4 shrink-0" aria-hidden />
+      <span>{label}</span>
+    </button>
+  )
+}
+
+/**
+ * Side-by-side active test layout — stimulus left, controls right, no page scroll.
+ */
+export function VisionTestShell({
+  title,
+  subtitle,
+  onExit,
+  statusBar,
+  stimulus,
+  controls,
+  className = '',
+}) {
+  return (
+    <div className={`vision-test-shell ${className}`}>
+      <header className="vision-test-header">
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          {onExit && <TestExitButton onExit={onExit} className="shrink-0" />}
+          <div className="min-w-0">
+            {title && <h2 className="vision-test-title">{title}</h2>}
+            {subtitle && <p className="vision-test-subtitle">{subtitle}</p>}
+          </div>
+        </div>
+        {statusBar && <div className="vision-test-status shrink-0">{statusBar}</div>}
+      </header>
+
+      <div className="vision-test-split">
+        <div className="vision-test-stimulus">{stimulus}</div>
+        <div className="vision-test-controls">{controls}</div>
+      </div>
+    </div>
+  )
+}
+
 /**
  * Compact test prep shell — keeps Start/Continue visible with minimal scrolling.
  */

@@ -9,7 +9,7 @@ import {
   FaKeyboard
 } from 'react-icons/fa'
 
-function Navbar({ toggleSidebar }) {
+function Navbar({ toggleSidebar, immersiveTest = false }) {
   const { user, logout } = useAuthStore()
   const { showShortcutsHelp } = useKeyboardShortcuts()
   const [notificationCount, setNotificationCount] = useState(0)
@@ -36,7 +36,9 @@ function Navbar({ toggleSidebar }) {
             <button
               onClick={toggleSidebar}
               aria-label="Open navigation menu"
-              className="inline-flex items-center justify-center p-3 min-h-[44px] min-w-[44px] text-sm text-gray-600 rounded-xl lg:hidden hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-accent-400"
+              className={`inline-flex items-center justify-center p-3 min-h-[44px] min-w-[44px] text-sm text-gray-600 rounded-xl hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-accent-400 ${
+                immersiveTest ? 'hidden' : 'lg:hidden'
+              }`}
             >
               <FaBars className="w-6 h-6" />
             </button>

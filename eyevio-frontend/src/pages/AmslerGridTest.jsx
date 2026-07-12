@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useCalibration } from '../context/CalibrationContext'
 import InlineDistanceCalibration from '../components/InlineDistanceCalibration'
+import { VisionTestShell } from '../components/TestPrepLayout'
 import EyeCoverageVerification from '../components/EyeCoverageVerification'
 import { visionTestAPI } from '../services/api'
 
@@ -587,239 +588,160 @@ const AmslerGridTest = () => {
     </div>
   )
   
+  const renderGridCanvas = (interactive = false) => (
+    <div className="vision-test-stimulus-inner" ref={containerRef}>
+      <div className="relative" style={{ width: canvasSize.width, height: canvasSize.height }}>
+        <canvas
+          ref={canvasRef}
+          width={canvasSize.width}
+          height={canvasSize.height}
+          className="absolute top-0 left-0"
+          style={{ imageRendering: 'pixelated' }}
+        />
+        <canvas
+          ref={overlayCanvasRef}
+          width={canvasSize.width}
+          height={canvasSize.height}
+          className={`absolute top-0 left-0 ${interactive ? '' : 'pointer-events-none'}`}
+          style={{ cursor: interactive ? 'crosshair' : undefined }}
+          onMouseDown={interactive ? handleAnnotationStart : undefined}
+          onMouseMove={interactive ? handleAnnotationMove : undefined}
+          onMouseUp={interactive ? handleAnnotationEnd : undefined}
+          onMouseLeave={interactive ? handleAnnotationEnd : undefined}
+          onTouchStart={interactive ? handleAnnotationStart : undefined}
+          onTouchMove={interactive ? handleAnnotationMove : undefined}
+          onTouchEnd={interactive ? handleAnnotationEnd : undefined}
+          onMouseEnter={interactive ? () => setShowCursor(true) : undefined}
+        />
+      </div>
+    </div>
+  )
+
   const renderTesting = () => (
-    <div className="min-h-screen bg-white flex items-center justify-center p-8">
-      <div className="max-w-6xl w-full space-y-6">
-        <div className="text-center mb-8">
-          <h2 className="text-3xl font-bold text-gray-900 mb-2">
-            Testing: {currentEye === 'left' ? 'Left Eye' : 'Right Eye'}
-          </h2>
-          <p className="text-lg text-gray-600">
-            Keep your eye on the red center dot. Do you see any distortions?
-          </p>
-          <p className="text-sm text-accent-600 font-semibold mt-2">
-            Distance: 355mm (14") • Grid: 10×10 Clinical Standard
-          </p>
-        </div>
-        
-        {/* Grid Container - Pure white background, no shadows */}
-        <div className="flex justify-center" ref={containerRef}>
-          <div className="relative" style={{ width: canvasSize.width, height: canvasSize.height }}>
-            {/* Main grid canvas */}
-            <canvas
-              ref={canvasRef}
-              width={canvasSize.width}
-              height={canvasSize.height}
-              className="absolute top-0 left-0"
-              style={{ imageRendering: 'pixelated' }}
-            />
-            {/* Overlay canvas for potential annotations */}
-            <canvas
-              ref={overlayCanvasRef}
-              width={canvasSize.width}
-              height={canvasSize.height}
-              className="absolute top-0 left-0 pointer-events-none"
-            />
-          </div>
-        </div>
-        
-        {/* Instructions */}
-        <div className="bg-accent-50 border border-accent-100 rounded-xl p-6 max-w-2xl mx-auto">
-          <h4 className="font-bold text-accent-800 mb-3">While fixating on the red dot:</h4>
-          <ul className="text-sm text-gray-700 space-y-2">
-            <li>• Do all grid lines appear straight?</li>
-            <li>• Are all squares equal in size?</li>
-            <li>• Is any area missing, blurry, or distorted?</li>
-            <li>• Are there any dark or gray spots?</li>
-          </ul>
-        </div>
-
-        {/* Don't Panic Notice */}
-        <div className="bg-green-50 border-2 border-green-300 rounded-xl p-4 max-w-2xl mx-auto">
-          <div className="flex items-start gap-3">
-            <span className="text-2xl"></span>
-            <div>
-              <h4 className="font-bold text-green-900 mb-1">Don't Worry About Fuzzy Edges!</h4>
-              <p className="text-sm text-green-800">
-                It's NORMAL for the outer edges to look slightly soft or out of focus while staring at the center dot. 
-                This is how your peripheral vision works. Only mark areas if lines are <span className="font-bold">wavy, bent, or completely missing</span>.
-              </p>
-            </div>
-          </div>
-        </div>
-        
-        {/* Response buttons */}
-        <div className="flex gap-4 justify-center max-w-2xl mx-auto">
-          <button
-            onClick={() => {
-              setDistortions(prev => ({
-                ...prev,
-                [currentEye]: { ...prev[currentEye], hasIssues: false }
-              }))
-              if (currentEye === 'left') {
-                setCurrentEye('right')
-                setTestState('switch-eyes')
-              } else {
-                submitTest()
-              }
-            }}
-            className="flex-1 bg-green-600 hover:bg-green-700 text-white px-8 py-4 rounded-full font-bold shadow-soft transition-all min-h-[44px]"
-          >
-             Grid Looks Normal
-          </button>
-          <button
-            onClick={() => {
-              setDistortions(prev => ({
-                ...prev,
-                [currentEye]: { ...prev[currentEye], hasIssues: true }
-              }))
-              setTestState('marking')
-            }}
-            className="flex-1 bg-amber-500 hover:bg-amber-600 text-white px-8 py-4 rounded-full font-bold shadow-soft transition-all min-h-[44px]"
-          >
-             I See Distortions
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-  
-  const renderMarking = () => (
-    <div className="min-h-screen bg-white flex items-center justify-center p-8">
-      <div className="max-w-6xl w-full space-y-6">
-        <div className="text-center mb-8">
-          <h2 className="text-3xl font-bold text-gray-900 mb-2">
-            Mark Distorted Areas: {currentEye === 'left' ? 'Left Eye' : 'Right Eye'}
-          </h2>
-          <p className="text-lg text-gray-600">
-            Click or tap on the grid to mark areas where you see distortions
-          </p>
-        </div>
-
-        {/* Quick reminder of what to mark */}
-        <div className="grid md:grid-cols-2 gap-4 max-w-4xl mx-auto mb-6">
-          <div className="bg-yellow-50 border-2 border-yellow-400 rounded-lg p-4">
-            <h4 className="font-bold text-yellow-900 flex items-center gap-2 mb-2">
-              <span className="text-2xl"></span>
-              <span>Wavy/Distorted Lines</span>
-            </h4>
-            <p className="text-sm text-yellow-800">
-              Mark if lines appear bent, wavy, rippled, or distorted - like looking through water
+    <VisionTestShell
+      title={`${currentEye === 'left' ? 'Left' : 'Right'} eye`}
+      subtitle="Fixate on the red center dot — 355mm (14″)"
+      stimulus={renderGridCanvas(false)}
+      controls={(
+        <>
+          <div className="text-sm text-gray-700 space-y-2">
+            <p className="font-semibold text-gray-900">While fixating on the red dot:</p>
+            <ul className="space-y-1 list-disc list-inside">
+              <li>Do all grid lines appear straight?</li>
+              <li>Are all squares equal in size?</li>
+              <li>Is any area missing, blurry, or distorted?</li>
+            </ul>
+            <p className="text-xs text-green-800 bg-green-50 rounded-lg p-2 border border-green-200">
+              Fuzzy outer edges are normal — only report wavy, bent, or missing lines.
             </p>
           </div>
-          <div className="bg-red-50 border-2 border-red-400 rounded-lg p-4">
-            <h4 className="font-bold text-red-900 flex items-center gap-2 mb-2">
-              <span className="text-2xl"></span>
-              <span>Missing/Blind Spots</span>
-            </h4>
-            <p className="text-sm text-red-800">
-              Mark if grid lines disappear, dark holes appear, or areas are completely missing
-            </p>
-          </div>
-        </div>
-        
-        {/* Tool selection */}
-        <div className="flex gap-4 justify-center">
-          <button
-            onClick={() => setAnnotationMode('wavy')}
-            className={`px-6 py-3 rounded-xl font-semibold transition-all ${
-              annotationMode === 'wavy'
-                ? 'bg-yellow-500 text-white shadow-lg'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
-          >
-            <span className="mr-2"></span> Wavy Lines
-          </button>
-          <button
-            onClick={() => setAnnotationMode('blackout')}
-            className={`px-6 py-3 rounded-xl font-semibold transition-all ${
-              annotationMode === 'blackout'
-                ? 'bg-red-500 text-white shadow-lg'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
-          >
-            <span className="mr-2"></span> Blind Spots
-          </button>
-        </div>
-        
-        {/* Grid with annotation overlay */}
-        <div className="flex justify-center" ref={containerRef}>
-          <div className="relative" style={{ width: canvasSize.width, height: canvasSize.height }}>
-            <canvas
-              ref={canvasRef}
-              width={canvasSize.width}
-              height={canvasSize.height}
-              className="absolute top-0 left-0"
-              style={{
-                imageRendering: 'pixelated',
-                cursor: 'crosshair'
+          <div className="vision-test-controls-actions">
+            <button
+              type="button"
+              onClick={() => {
+                setDistortions(prev => ({
+                  ...prev,
+                  [currentEye]: { ...prev[currentEye], hasIssues: false }
+                }))
+                if (currentEye === 'left') {
+                  setCurrentEye('right')
+                  setTestState('switch-eyes')
+                } else {
+                  submitTest()
+                }
               }}
-            />
-            <canvas
-              ref={overlayCanvasRef}
-              width={canvasSize.width}
-              height={canvasSize.height}
-              className="absolute top-0 left-0"
-              onMouseDown={handleAnnotationStart}
-              onMouseMove={handleAnnotationMove}
-              onMouseUp={handleAnnotationEnd}
-              onMouseLeave={handleAnnotationEnd}
-              onTouchStart={handleAnnotationStart}
-              onTouchMove={handleAnnotationMove}
-              onTouchEnd={handleAnnotationEnd}
-              onMouseEnter={() => setShowCursor(true)}
-              style={{ cursor: 'crosshair' }}
-            />
+              className="w-full bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-xl font-bold min-h-[44px]"
+            >
+              Grid looks normal
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setDistortions(prev => ({
+                  ...prev,
+                  [currentEye]: { ...prev[currentEye], hasIssues: true }
+                }))
+                setTestState('marking')
+              }}
+              className="w-full bg-amber-500 hover:bg-amber-600 text-white px-6 py-3 rounded-xl font-bold min-h-[44px]"
+            >
+              I see distortions
+            </button>
           </div>
-        </div>
-        
-        {/* Brush size control */}
-        <div className="max-w-md mx-auto">
-          <label className="block text-center text-sm font-semibold text-gray-700 mb-2">
-            Brush Size: {brushSize}px
-          </label>
-          <input
-            type="range"
-            min="10"
-            max="40"
-            value={brushSize}
-            onChange={(e) => setBrushSize(Number(e.target.value))}
-            className="w-full"
-          />
-        </div>
-        
-        {/* Action buttons */}
-        <div className="flex gap-4 justify-center max-w-2xl mx-auto">
-          <button
-            onClick={undoLastMark}
-            className="px-6 py-3 bg-gray-200 text-gray-700 rounded-xl font-semibold hover:bg-gray-300"
-          >
-             Undo
-          </button>
-          <button
-            onClick={clearMarks}
-            className="px-6 py-3 bg-gray-200 text-gray-700 rounded-xl font-semibold hover:bg-gray-300"
-          >
-             Clear All
-          </button>
-          <button
-            onClick={() => {
-              if (currentEye === 'left') {
-                setCurrentEye('right')
-                setTestState('switch-eyes')
-              } else {
-                submitTest()
-              }
-            }}
-            className="flex-1 btn-primary min-h-[44px]"
-          >
-            Done Marking 
-          </button>
-        </div>
-      </div>
-    </div>
+        </>
+      )}
+    />
   )
-  
+
+  const renderMarking = () => (
+    <VisionTestShell
+      title={`Mark distortions — ${currentEye === 'left' ? 'left' : 'right'} eye`}
+      subtitle="Tap or click on affected areas"
+      stimulus={renderGridCanvas(true)}
+      controls={(
+        <>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setAnnotationMode('wavy')}
+              className={`flex-1 min-w-[120px] px-4 py-2 rounded-xl font-semibold text-sm ${
+                annotationMode === 'wavy' ? 'bg-yellow-500 text-white' : 'bg-gray-100 text-gray-700'
+              }`}
+            >
+              Wavy lines
+            </button>
+            <button
+              type="button"
+              onClick={() => setAnnotationMode('blackout')}
+              className={`flex-1 min-w-[120px] px-4 py-2 rounded-xl font-semibold text-sm ${
+                annotationMode === 'blackout' ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-700'
+              }`}
+            >
+              Blind spots
+            </button>
+          </div>
+
+          <label className="block text-sm font-semibold text-gray-700">
+            Brush size: {brushSize}px
+            <input
+              type="range"
+              min="10"
+              max="40"
+              value={brushSize}
+              onChange={(e) => setBrushSize(Number(e.target.value))}
+              className="w-full mt-1"
+            />
+          </label>
+
+          <div className="vision-test-controls-actions">
+            <div className="flex gap-2">
+              <button type="button" onClick={undoLastMark} className="flex-1 btn-secondary min-h-[44px] text-sm">
+                Undo
+              </button>
+              <button type="button" onClick={clearMarks} className="flex-1 btn-secondary min-h-[44px] text-sm">
+                Clear
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                if (currentEye === 'left') {
+                  setCurrentEye('right')
+                  setTestState('switch-eyes')
+                } else {
+                  submitTest()
+                }
+              }}
+              className="w-full btn-primary min-h-[44px]"
+            >
+              Done marking
+            </button>
+          </div>
+        </>
+      )}
+    />
+  )
+
   const renderSwitchEyes = () => (
     <div className="test-shell flex items-center justify-center min-h-[60vh]">
       <div className="max-w-2xl w-full bg-white rounded-2xl shadow-xl p-12 text-center space-y-8">

@@ -17,7 +17,7 @@ import {
   FaBrain
 } from 'react-icons/fa'
 
-function Sidebar({ isOpen, onClose }) {
+function Sidebar({ isOpen, onClose, hidden = false }) {
   const location = useLocation()
 
   const menuGroups = [
@@ -61,7 +61,7 @@ function Sidebar({ isOpen, onClose }) {
   return (
     <>
       {/* Mobile Overlay */}
-      {isOpen && (
+      {isOpen && !hidden && (
         <div
           className="fixed inset-0 bg-gray-900/40 backdrop-blur-sm z-40 lg:hidden"
           onClick={onClose}
@@ -70,9 +70,14 @@ function Sidebar({ isOpen, onClose }) {
 
       {/* Sidebar */}
       <aside
-        className={`fixed top-0 left-0 z-40 w-64 h-screen pt-20 transition-transform duration-300 ${
-          isOpen ? 'translate-x-0' : '-translate-x-full'
-        } bg-white/90 backdrop-blur-md border-r border-gray-200/70 lg:translate-x-0`}
+        className={`fixed top-0 left-0 z-40 w-64 h-screen pt-20 transition-transform duration-300 bg-white/90 backdrop-blur-md border-r border-gray-200/70 ${
+          hidden
+            ? '-translate-x-full'
+            : isOpen
+              ? 'translate-x-0'
+              : '-translate-x-full lg:translate-x-0'
+        }`}
+        aria-hidden={hidden}
       >
         <button
           onClick={onClose}

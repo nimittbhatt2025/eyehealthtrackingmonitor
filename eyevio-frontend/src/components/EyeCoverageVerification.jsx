@@ -1,12 +1,13 @@
 import { useState, useRef, useEffect } from 'react'
 import EyeCoverageDetector from '../utils/eyeCoverageDetector'
 import cameraManager from '../utils/cameraManager'
+import { VisionTestShell } from './TestPrepLayout'
 
 /**
  * EyeCoverageVerification Component
  * Webcam-based verification that the correct eye is covered
  */
-const EyeCoverageVerification = ({ expectedEye, onVerified, onSkip }) => {
+const EyeCoverageVerification = ({ expectedEye, onVerified, onSkip, splitLayout = false, testName = '' }) => {
   const [detector, setDetector] = useState(null)
   const [status, setStatus] = useState(null)
   const [isChecking, setIsChecking] = useState(false)
@@ -177,6 +178,106 @@ const EyeCoverageVerification = ({ expectedEye, onVerified, onSkip }) => {
     onSkip()
   }
 
+  const eyeLabel = expectedEye === 'left' ? 'LEFT' : 'RIGHT'
+
+  const renderVideoFeed = () => (
+    <div className="eye-coverage-video-wrap relative bg-black rounded-xl overflow-hidden border border-gray-200 w-full h-full min-h-[200px]">
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        muted
+        className="w-full h-full object-cover scale-x-[-1]"
+      />
+      <div className="absolute inset-0 pointer-events-none">
+        <div className="absolute left-[10%] top-[35%] bottom-[45%] w-[40%] border-2 border-blue-400 border-dashed opacity-50 flex items-center justify-center">
+          <span className="bg-blue-600 text-white px-2 py-0.5 rounded text-xs font-bold">LEFT</span>
+        </div>
+        <div className="absolute right-[10%] top-[35%] bottom-[45%] w-[40%] border-2 border-red-400 border-dashed opacity-50 flex items-center justify-center">
+          <span className="bg-red-600 text-white px-2 py-0.5 rounded text-xs font-bold">RIGHT</span>
+        </div>
+        <div className="absolute left-1/2 top-0 bottom-0 w-0.5 bg-yellow-400 opacity-50" />
+      </div>
+    </div>
+  )
+
+  const renderInstructionsList = () => (
+    <ul className="space-y-2 text-sm text-blue-900">
+      <li>Center your face in the camera with good lighting.</li>
+      <li>On screen, your right eye appears on the left (mirrored view).</li>
+      <li>Cover your <strong>{eyeLabel}</strong> eye with your palm — do not press on the eye.</li>
+      <li>Having trouble? Use Skip below to continue without detection.</li>
+    </ul>
+  )
+
+  const renderActionButtons = (compact = false) => (
+    <div className={`flex flex-col gap-2 ${compact ? '' : 'gap-4'}`}>
+      {permissionState !== 'granted' && (
+        <div className="flex gap-2">
+          <button type="button" onClick={tryAcquire} className="flex-1 btn-primary min-h-[44px] text-sm">
+            Allow camera
+          </button>
+          <button type="button" onClick={handleSkip} className="flex-1 btn-secondary min-h-[44px] text-sm">
+            Skip
+          </button>
+        </div>
+      )}
+      <div className="flex gap-2 vision-test-controls-actions">
+        <button type="button" onClick={handleSkip} className="flex-1 btn-secondary min-h-[44px] text-sm">
+          Skip
+        </button>
+        <button
+          type="button"
+          onClick={handleContinue}
+          disabled={!status?.correct}
+          className={`flex-1 min-h-[44px] text-sm rounded-xl font-bold ${
+            status?.correct ? 'btn-primary' : 'bg-gray-200 text-gray-500 cursor-not-allowed'
+          }`}
+        >
+          Continue
+        </button>
+      </div>
+    </div>
+  )
+
+  const renderStatusPanel = () => (
+    <div className={`rounded-xl border-2 p-4 ${
+      status?.correct ? 'bg-green-50 border-green-400' : 'bg-blue-50 border-blue-300'
+    }`}>
+      <p className="text-sm font-medium text-gray-800 mb-2">
+        {status?.message || 'Establishing baseline…'}
+      </p>
+      <div className="flex flex-wrap gap-2 text-xs">
+        <span className="px-2 py-1 rounded bg-white border border-gray-200">
+          Detected: <strong>{status?.detected || '…'}</strong>
+        </span>
+        <span className="px-2 py-1 rounded bg-blue-100 text-blue-800">
+          Cover: <strong>{expectedEye}</strong>
+        </span>
+      </div>
+    </div>
+  )
+
+  if (splitLayout) {
+    return (
+      <VisionTestShell
+        title="Eye coverage check"
+        subtitle={`Cover your ${eyeLabel} eye — testing ${expectedEye === 'left' ? 'right' : 'left'} eye`}
+        stimulus={renderVideoFeed()}
+        controls={(
+          <>
+            {renderStatusPanel()}
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-3">
+              <h3 className="font-bold text-blue-900 text-sm mb-2">Instructions</h3>
+              {renderInstructionsList()}
+            </div>
+            {renderActionButtons(true)}
+          </>
+        )}
+      />
+    )
+  }
+
   return (
     <div className="max-w-3xl mx-auto space-y-6">
       <div className="text-center">
@@ -184,7 +285,7 @@ const EyeCoverageVerification = ({ expectedEye, onVerified, onSkip }) => {
           Eye Coverage Verification
         </h2>
         <p className="text-lg text-gray-700 mb-2">
-          Please cover your <span className="font-bold text-blue-600">{expectedEye === 'left' ? 'LEFT' : 'RIGHT'}</span> eye with your palm
+          Please cover your <span className="font-bold text-blue-600">{eyeLabel}</span> eye with your palm
         </p>
         <p className="text-sm text-gray-500">
           Position your palm to completely block vision without pressing on the eye
@@ -237,33 +338,7 @@ const EyeCoverageVerification = ({ expectedEye, onVerified, onSkip }) => {
       </div>
 
       {/* Webcam Feed with Detection Overlay */}
-      <div className="relative bg-black rounded-2xl overflow-hidden border-4 border-gray-300">
-        <video
-          ref={videoRef}
-          autoPlay
-          playsInline
-          muted
-          className="w-full h-auto transform scale-x-[-1]"
-          style={{ maxHeight: '400px' }}
-        />
-        {/* Visual guide overlay */}
-        <div className="absolute inset-0 pointer-events-none">
-          {/* Left side of SCREEN = user's actual LEFT eye (MediaPipe reports actual positions) */}
-          <div className="absolute left-[10%] top-[35%] bottom-[45%] w-[40%] border-2 border-blue-400 border-dashed opacity-50 flex items-center justify-center">
-            <span className="bg-blue-600 text-white px-3 py-1 rounded text-sm font-bold">
-              LEFT EYE
-            </span>
-          </div>
-          {/* Right side of SCREEN = user's actual RIGHT eye */}
-          <div className="absolute right-[10%] top-[35%] bottom-[45%] w-[40%] border-2 border-red-400 border-dashed opacity-50 flex items-center justify-center">
-            <span className="bg-red-600 text-white px-3 py-1 rounded text-sm font-bold">
-              RIGHT EYE
-            </span>
-          </div>
-          {/* Center divider */}
-          <div className="absolute left-1/2 top-0 bottom-0 w-0.5 bg-yellow-400 opacity-50"></div>
-        </div>
-      </div>
+      {renderVideoFeed()}
 
       {/* Status Indicator */}
       {status && (
@@ -309,79 +384,11 @@ const EyeCoverageVerification = ({ expectedEye, onVerified, onSkip }) => {
 
       {/* Instructions */}
       <div className="bg-blue-50 border-2 border-blue-200 rounded-xl p-6">
-        <h3 className="font-bold text-blue-900 mb-4 text-lg">Instructions for Eye Coverage:</h3>
-        <ul className="space-y-3 text-blue-900">
-          <li className="flex items-start gap-3">
-            <span className="font-bold text-blue-600 text-lg mt-0.5">1.</span>
-            <div>
-              <strong className="block mb-1">Position yourself</strong>
-              <span className="text-sm text-blue-800">Center your face in the camera with good lighting</span>
-            </div>
-          </li>
-          <li className="flex items-start gap-3">
-            <span className="font-bold text-blue-600 text-lg mt-0.5">2.</span>
-            <div>
-              <strong className="block mb-1">Note the mirrored display</strong>
-              <span className="text-sm text-blue-800">Your RIGHT eye appears on the LEFT side of the screen</span>
-            </div>
-          </li>
-          <li className="flex items-start gap-3">
-            <span className="font-bold text-blue-600 text-lg mt-0.5">3.</span>
-            <div>
-              <strong className="block mb-1">Cover the indicated eye</strong>
-              <span className="text-sm text-blue-800">Use your palm to fully block vision without pressing on the eye</span>
-            </div>
-          </li>
-          <li className="flex items-start gap-3">
-            <span className="font-bold text-blue-600 text-lg mt-0.5">4.</span>
-            <div>
-              <strong className="block mb-1">Having trouble?</strong>
-              <span className="text-sm text-blue-800">Click "Skip Verification" below to proceed without detection</span>
-            </div>
-          </li>
-        </ul>
+        <h3 className="font-bold text-blue-900 mb-4 text-lg">Instructions for eye coverage</h3>
+        {renderInstructionsList()}
       </div>
 
-      {/* Action Buttons */}
-      {/* Permission / Action Buttons */}
-      <div className="flex flex-col gap-4">
-        {permissionState !== 'granted' && (
-          <div className="flex gap-4">
-            <button
-              onClick={tryAcquire}
-              className="flex-1 bg-blue-600 text-white px-6 py-4 rounded-full font-semibold hover:bg-blue-700 transition-colors"
-            >
-              Allow camera access
-            </button>
-            <button
-              onClick={handleSkip}
-              className="flex-1 bg-gray-200 text-gray-700 px-6 py-4 rounded-full font-semibold hover:bg-gray-300 transition-colors"
-            >
-              Skip Verification
-            </button>
-          </div>
-        )}
-
-        <div className="flex gap-4">
-        <button
-          onClick={handleSkip}
-          className="flex-1 bg-gray-200 text-gray-700 px-6 py-4 rounded-full font-semibold hover:bg-gray-300 transition-colors"
-        >
-          Skip Verification
-        </button>
-        <button
-          onClick={handleContinue}
-          disabled={!status || !status.correct}
-          className={`flex-1 px-6 py-4 rounded-full font-bold transition-colors ${
-            status && status.correct
-              ? 'bg-blue-600 text-white hover:bg-blue-700'
-              : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-          }`}
-        >
-          Continue to Test
-        </button>
-  </div>
-  </div>
+      {renderActionButtons()}
 
       <p className="text-center text-sm text-gray-500">
         Eye coverage verification helps ensure accurate monocular testing results

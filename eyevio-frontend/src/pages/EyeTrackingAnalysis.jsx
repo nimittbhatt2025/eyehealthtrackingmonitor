@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'react-hot-toast'
 import { Eye, Activity, Zap, TrendingUp, Clock, AlertCircle, Brain, ThumbsUp, AlertTriangle } from 'lucide-react'
@@ -6,6 +6,7 @@ import MediaEyeTracker from '../utils/mediaEyeTracker'
 import { generatePersonalizedFeedback, assessDoctorVisit } from '../utils/eyeHealthAI'
 import { useAuthStore } from '../store/authStore'
 import { authAPI, visionTestAPI, calibrationAPI } from '../services/api'
+import { VisionTestShell, TestPrepLayout, TestDetails, TestExitButton } from '../components/TestPrepLayout'
 
 /**
  * Enhanced Eye Tracking Analysis Component
@@ -32,6 +33,7 @@ export default function EyeTrackingAnalysis() {
     totalBlinks: 0,
     fatigueScore: 0,
     sessionDurationMin: 0,
+    isCalibrating: true,
   })
 
   // Session results with AI feedback
@@ -272,268 +274,177 @@ export default function EyeTrackingAnalysis() {
     return 'bg-red-100'
   }
 
-  return (
-    <div className="test-shell">
-      <div className="max-w-6xl mx-auto">
-        {/* Header */}
-        <div className="mb-6 animate-fade-in-up">
-          <button
-            onClick={() => navigate('/vision-tests')}
-            className="btn-ghost mb-4 min-h-[44px] -ml-4"
-          >
-            ← Back to Tests
-          </button>
-          <h1 className="page-title">Eye Tracking Analysis</h1>
-          <p className="page-subtitle">
-            Advanced eye movement and blink rate analysis using AI-powered computer vision
-          </p>
+  const exitSession = useCallback(() => {
+    const leave = () => {
+      if (trackerRef.current) {
+        try { trackerRef.current.stop() } catch { /* ignore */ }
+      }
+      setIsTracking(false)
+      navigate('/vision-tests')
+    }
+
+    if (sessionState === 'tracking' && isTracking) {
+      if (window.confirm('Exit this session? Your progress will be lost.')) {
+        leave()
+      }
+      return
+    }
+
+    leave()
+  }, [sessionState, isTracking, navigate])
+
+  const renderMetricCard = (label, value, suffix, hint, icon) => (
+    <div className="rounded-xl border border-gray-100 bg-gray-50/80 p-3">
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-xs text-gray-500">{label}</span>
+        <div className="icon-tile w-7 h-7 bg-accent-50 text-accent-600 rounded-lg">{icon}</div>
+      </div>
+      <div className="text-xl font-bold text-gray-900">
+        {value}
+        {suffix && <span className="text-sm text-gray-500 ml-1">{suffix}</span>}
+      </div>
+      {hint && <div className="text-xs text-gray-500 mt-1">{hint}</div>}
+    </div>
+  )
+
+  const renderVideoFeed = () => (
+    <div className="eye-coverage-video-wrap relative w-full h-full min-h-[200px] bg-black rounded-xl overflow-hidden">
+      <video
+        ref={videoRef}
+        className="w-full h-full object-cover"
+        playsInline
+        autoPlay
+        muted
+      />
+      <canvas
+        ref={canvasRef}
+        className="absolute inset-0 w-full h-full"
+        width="640"
+        height="480"
+      />
+      <div className="absolute top-3 left-3">
+        <div className={`badge shadow-soft text-xs ${faceDetected ? 'badge-success' : 'badge-danger'}`}>
+          <span className={`w-2 h-2 rounded-full ${faceDetected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
+          {faceDetected ? 'Face detected' : 'No face'}
         </div>
+      </div>
+      <div className="absolute top-3 right-3 bg-black/70 px-3 py-1.5 rounded-full flex items-center gap-2">
+        <Clock className="w-4 h-4 text-white" />
+        <span className="text-white font-mono text-sm">{formatTime(timeRemaining)}</span>
+      </div>
+    </div>
+  )
+
+  return (
+    <div className="vision-test-page">
+      <div className="vision-test-page-bar">
+        <TestExitButton
+          onExit={sessionState === 'results' ? () => navigate('/vision-tests') : exitSession}
+          label={sessionState === 'results' ? 'Back to tests' : 'Exit session'}
+        />
+      </div>
 
         {/* Instruction State */}
         {sessionState === 'instruction' && (
-          <div className="card p-8 animate-fade-in-up">
-            <div className="text-center mb-8">
-              <div className="icon-tile w-20 h-20 bg-accent-50 text-accent-600 rounded-full mx-auto mb-4">
-                <Eye className="w-10 h-10" />
-              </div>
-              <h2 className="section-title mb-2">Before We Begin</h2>
-              <p className="text-gray-500">Please read these instructions carefully</p>
-            </div>
-
-            <div className="space-y-6 mb-8">
-              <div className="flex items-start space-x-4">
-                <div className="w-8 h-8 bg-brand-gradient text-white rounded-full flex items-center justify-center flex-shrink-0 font-semibold">
-                  1
-                </div>
-                <div>
-                  <h3 className="font-semibold text-gray-900 mb-1">Position Yourself Correctly</h3>
-                  <p className="text-gray-500">Sit 50–70 cm (arm's length) from your screen</p>
-                </div>
-              </div>
-
-              <div className="flex items-start space-x-4">
-                <div className="w-8 h-8 bg-brand-gradient text-white rounded-full flex items-center justify-center flex-shrink-0 font-semibold">
-                  2
-                </div>
-                <div>
-                  <h3 className="font-semibold text-gray-900 mb-1">Ensure Good Lighting</h3>
-                  <p className="text-gray-500">
-                    Face a light source. Avoid backlighting or harsh shadows on your face
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-start space-x-4">
-                <div className="w-8 h-8 bg-brand-gradient text-white rounded-full flex items-center justify-center flex-shrink-0 font-semibold">
-                  3
-                </div>
-                <div>
-                  <h3 className="font-semibold text-gray-900 mb-1">Keep Your Head Stable</h3>
-                  <p className="text-gray-500">
-                    Minimize head movements during the test. Natural blinking is encouraged
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-start space-x-4">
-                <div className="w-8 h-8 bg-brand-gradient text-white rounded-full flex items-center justify-center flex-shrink-0 font-semibold">
-                  4
-                </div>
-                <div>
-                  <h3 className="font-semibold text-gray-900 mb-1">Duration: 5 Minutes</h3>
-                  <p className="text-gray-500">
-                    The session will automatically end after 5 minutes of continuous tracking
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-start space-x-4">
-                <div className="w-8 h-8 bg-brand-gradient text-white rounded-full flex items-center justify-center flex-shrink-0 font-semibold">
-                  5
-                </div>
-                <div>
-                  <h3 className="font-semibold text-gray-900 mb-1">Calibration Status</h3>
-                  <p className="text-gray-500">
-                    {isCalibrated === null ? (
-                      <span className="text-gray-500">Checking calibration...</span>
-                    ) : isCalibrated ? (
-                      <span className="text-green-600 font-medium">✓ Calibrated for accurate detection</span>
-                    ) : (
-                      <span className="text-amber-600 font-medium">
-                        Not calibrated (may miss blinks, especially with slim eyes)
-                      </span>
-                    )}
-                  </p>
-                </div>
-              </div>
-            </div>
+          <TestPrepLayout
+            title="Eye Tracking Analysis"
+            subtitle="5-minute blink & fatigue monitoring (~5 min)"
+            steps={[
+              'Sit 50–70 cm from the screen with good face lighting.',
+              'Keep your head still and blink naturally.',
+              'Session ends automatically after 5 minutes.',
+            ]}
+            onBack={exitSession}
+            onPrimary={startSession}
+            primaryLabel="Start session"
+            footerNote="Measures blink rate, duration, and fatigue indicators."
+          >
+            <TestDetails summary="Calibration status">
+              <p className="text-xs">
+                {isCalibrated === null ? (
+                  'Checking calibration…'
+                ) : isCalibrated ? (
+                  <span className="text-green-700 font-medium">Calibrated — best detection accuracy</span>
+                ) : (
+                  <span className="text-amber-700 font-medium">Not calibrated — may miss some blinks</span>
+                )}
+              </p>
+            </TestDetails>
 
             {isCalibrated === false && (
-              <div className="bg-amber-50 border border-amber-200 rounded-2xl p-6 mb-6">
-                <div className="flex items-start space-x-4">
-                  <AlertCircle className="w-6 h-6 text-amber-600 flex-shrink-0 mt-1" />
-                  <div>
-                    <h3 className="font-semibold text-amber-900 mb-2">Calibration Strongly Recommended</h3>
-                    <p className="text-amber-800 text-sm mb-3">
-                      <strong>Important for slim/hooded eyes:</strong> Without calibration, the system uses a generic threshold that may not detect your blinks accurately. 
-                      Calibration takes 2 minutes and dramatically improves detection for all eye shapes.
-                    </p>
-                    <div className="flex flex-wrap gap-3">
-                      <button
-                        onClick={() => navigate('/calibrate-blink')}
-                        className="btn-primary min-h-[44px]"
-                      >
-                        Calibrate Now (2 min)
-                      </button>
-                      <button
-                        onClick={() => setIsCalibrated(true)} // Allow skip
-                        className="btn-secondary min-h-[44px]"
-                      >
-                        Continue Anyway
-                      </button>
-                    </div>
-                  </div>
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-900">
+                <p className="font-semibold mb-2">Calibration recommended</p>
+                <p className="mb-3">Especially for slim or hooded eyes — takes about 2 minutes.</p>
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" onClick={() => navigate('/calibrate-blink')} className="btn-primary min-h-[44px] text-sm">
+                    Calibrate now
+                  </button>
+                  <button type="button" onClick={() => setIsCalibrated(true)} className="btn-secondary min-h-[44px] text-sm">
+                    Continue anyway
+                  </button>
                 </div>
               </div>
             )}
 
-            <div className="bg-brand-soft border border-accent-100 rounded-2xl p-4 mb-6">
-              <div className="flex items-start space-x-3">
-                <AlertCircle className="w-5 h-5 text-accent-600 mt-0.5" />
-                <div>
-                  <h4 className="font-semibold text-gray-900 mb-1">What We Measure</h4>
-                  <ul className="text-sm text-gray-600 space-y-1">
-                    <li>• Blink rate (normal: 12-20 blinks/minute)</li>
-                    <li>• Blink duration (normal: 100-300 milliseconds)</li>
-                    <li>• Eye movement patterns (saccades & fixations)</li>
-                    <li>• Eye fatigue indicators</li>
-                  </ul>
-                </div>
-              </div>
-            </div>
-
-            <button
-              onClick={startSession}
-              className="btn-primary w-full min-h-[44px] py-4"
-            >
-              Start Eye Tracking Session
-            </button>
-          </div>
+            <TestDetails summary="What we measure">
+              <ul className="text-xs space-y-1 list-disc list-inside">
+                <li>Blink rate (normal: 12–20/min)</li>
+                <li>Blink duration (normal: 100–300 ms)</li>
+                <li>Eye movement patterns</li>
+                <li>Fatigue indicators</li>
+              </ul>
+            </TestDetails>
+          </TestPrepLayout>
         )}
 
         {/* Tracking State */}
         {sessionState === 'tracking' && (
-          <div className="space-y-6 animate-fade-in-up">
-            {/* Video Feed */}
-            <div className="card p-6">
-              <div className="relative bg-black rounded-xl overflow-hidden mb-4" style={{ aspectRatio: '4/3' }}>
-                <video 
-                  ref={videoRef} 
-                  className="w-full h-full object-cover" 
-                  playsInline 
-                  autoPlay 
-                  muted
-                />
-                <canvas
-                  ref={canvasRef}
-                  className="absolute inset-0 w-full h-full"
-                  width="640"
-                  height="480"
-                />
+          <VisionTestShell
+            title="Eye tracking session"
+            subtitle="Blink naturally — keep your face in view"
+            statusBar={(
+              <span className="text-sm font-mono font-semibold text-gray-700">
+                {Math.round(sessionProgress)}%
+              </span>
+            )}
+            stimulus={renderVideoFeed()}
+            controls={(
+              <>
+                <div className="w-full bg-gray-100 rounded-full h-2 overflow-hidden">
+                  <div
+                    className="bg-accent-600 h-2 rounded-full transition-all duration-500"
+                    style={{ width: `${sessionProgress}%` }}
+                  />
+                </div>
+                <p className="text-xs text-gray-500 text-center">
+                  {formatTime(timeRemaining)} remaining
+                </p>
 
-                {/* Face Detection Indicator */}
-                <div className="absolute top-4 left-4">
-                  <div className={`badge shadow-soft ${faceDetected ? 'badge-success' : 'badge-danger'}`}>
-                    <span
-                      className={`w-2 h-2 rounded-full ${
-                        faceDetected ? 'bg-green-500 animate-pulse' : 'bg-red-500'
-                      }`}
-                    />
-                    {faceDetected ? 'Face Detected' : 'No Face Detected'}
-                  </div>
+                {metrics.isCalibrating && (
+                  <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-center">
+                    Calibrating blink detection — keep eyes open for a moment, then blink naturally.
+                  </p>
+                )}
+
+                <div className="grid grid-cols-2 gap-2">
+                  {renderMetricCard('Blink rate', metrics.blinkRate, '/min', 'Normal: 12–20', <Eye className="w-3.5 h-3.5" />)}
+                  {renderMetricCard('Total blinks', metrics.totalBlinks, '', 'Detected', <Activity className="w-3.5 h-3.5" />)}
+                  {renderMetricCard('Avg duration', metrics.avgBlinkDuration, 'ms', 'Normal: 100–300', <Zap className="w-3.5 h-3.5" />)}
+                  {renderMetricCard(
+                    'Fatigue',
+                    metrics.fatigueScore,
+                    '/100',
+                    results?.status || 'Analyzing…',
+                    <TrendingUp className={`w-3.5 h-3.5 ${getFatigueColor(metrics.fatigueScore)}`} />
+                  )}
                 </div>
 
-                {/* Timer */}
-                <div className="absolute top-4 right-4 bg-black/70 px-4 py-2 rounded-full">
-                  <div className="flex items-center space-x-2">
-                    <Clock className="w-4 h-4 text-white" />
-                    <span className="text-white font-mono text-lg">{formatTime(timeRemaining)}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Progress Bar */}
-              <div className="w-full bg-gray-100 rounded-full h-2">
-                <div
-                  className="bg-accent-600 h-2 rounded-full transition-all duration-500"
-                  style={{ width: `${sessionProgress}%` }}
-                />
-              </div>
-            </div>
-
-            {/* Real-Time Metrics */}
-            <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="card p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-gray-500 text-sm">Blink Rate</span>
-                  <div className="icon-tile w-9 h-9 bg-accent-50 text-accent-600 rounded-lg">
-                    <Eye className="w-4 h-4" />
-                  </div>
-                </div>
-                <div className="text-2xl font-bold text-gray-900">
-                  {metrics.blinkRate}
-                  <span className="text-sm text-gray-500 ml-1">/min</span>
-                </div>
-                <div className="text-xs text-gray-500 mt-1">Normal: 12-20/min</div>
-              </div>
-
-              <div className="card p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-gray-500 text-sm">Total Blinks</span>
-                  <div className="icon-tile w-9 h-9 bg-accent-50 text-accent-600 rounded-lg">
-                    <Activity className="w-4 h-4" />
-                  </div>
-                </div>
-                <div className="text-2xl font-bold text-gray-900">{metrics.totalBlinks}</div>
-                <div className="text-xs text-gray-500 mt-1">Blinks detected</div>
-              </div>
-
-              <div className="card p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-gray-500 text-sm">Avg Duration</span>
-                  <div className="icon-tile w-9 h-9 bg-accent-50 text-accent-600 rounded-lg">
-                    <Zap className="w-4 h-4" />
-                  </div>
-                </div>
-                <div className="text-2xl font-bold text-gray-900">
-                  {metrics.avgBlinkDuration}
-                  <span className="text-sm text-gray-500 ml-1">ms</span>
-                </div>
-                <div className="text-xs text-gray-500 mt-1">Normal: 100-300ms</div>
-              </div>
-
-              <div className="card p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-gray-500 text-sm">Fatigue Score</span>
-                  <div className={`icon-tile w-9 h-9 rounded-lg ${getFatigueBgColor(metrics.fatigueScore)} ${getFatigueColor(metrics.fatigueScore)}`}>
-                    <TrendingUp className="w-4 h-4" />
-                  </div>
-                </div>
-                <div className={`text-2xl font-bold ${getFatigueColor(metrics.fatigueScore)}`}>
-                  {metrics.fatigueScore}
-                  <span className="text-sm text-gray-500 ml-1">/100</span>
-                </div>
-                <div className="text-xs text-gray-500 mt-1">{results?.status || 'Analyzing...'}</div>
-              </div>
-            </div>
-
-            {/* Instructions */}
-            <div className="bg-brand-soft border border-accent-100 rounded-2xl p-4">
-              <p className="text-gray-700 text-center">
-                Keep your face in view and blink naturally. The session will complete automatically.
-              </p>
-            </div>
-          </div>
+                <p className="text-xs text-gray-600 bg-brand-soft border border-accent-100 rounded-lg px-3 py-2 mt-auto">
+                  Keep your face centered. The session completes automatically when the timer ends.
+                </p>
+              </>
+            )}
+          />
         )}
 
         {/* Results State */}
@@ -719,7 +630,6 @@ export default function EyeTrackingAnalysis() {
             </div>
           </div>
         )}
-      </div>
     </div>
   )
 }
