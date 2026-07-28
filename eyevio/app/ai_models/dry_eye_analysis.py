@@ -19,6 +19,7 @@ import cv2
 import numpy as np
 
 from app.ai_models.eye_analysis import get_face_landmarker
+from app.ai_models.eye_crop_alignment import build_aligned_crops, eye_asymmetry_metrics
 
 # Wider eye regions for sclera + lid context (MediaPipe indices)
 LEFT_EYE_REGION = [33, 133, 160, 159, 158, 157, 173, 144, 145, 153]
@@ -353,6 +354,8 @@ def analyze_dry_eye_frame(frame: np.ndarray) -> Dict[str, Any]:
     crops = crop_result['crops']
     left = analyze_eye_patch(crops['left'])
     right = analyze_eye_patch(crops['right'])
+    aligned_crops = build_aligned_crops(crops['left'], crops['right'])
+    asymmetry = eye_asymmetry_metrics(left, right)
 
     overall = round((left['health_score'] + right['health_score']) / 2, 1)
     risk = _risk_from_score(overall)
@@ -368,8 +371,10 @@ def analyze_dry_eye_frame(frame: np.ndarray) -> Dict[str, Any]:
         findings.append('Uneven tear film reflections on the eye surface')
     if avg_tear < 55:
         findings.append('Tear film may appear less smooth than typical')
-    if abs(left['health_score'] - right['health_score']) > 20:
+    if asymmetry['health_score_asymmetry'] > 20:
         findings.append('Noticeable difference between left and right eye')
+    if asymmetry['irregularity_asymmetry'] > 15:
+        findings.append('Surface texture differs between left and right eye')
 
     if not findings:
         findings.append('No strong dry-eye signs detected in this photo')
@@ -382,10 +387,14 @@ def analyze_dry_eye_frame(frame: np.ndarray) -> Dict[str, Any]:
         'left_eye': left,
         'right_eye': right,
         'lighting': lighting,
+        'aligned_crops': aligned_crops,
+        'eye_asymmetry': asymmetry,
         'metrics': {
             'avg_sclera_redness': round(avg_redness, 1),
             'avg_tear_film_quality': round(avg_tear, 1),
             'avg_surface_irregularity': round(avg_irreg, 1),
+            'health_score_asymmetry': asymmetry['health_score_asymmetry'],
+            'irregularity_asymmetry': asymmetry['irregularity_asymmetry'],
         },
         'disclaimer': (
             'Screening only — not a medical diagnosis. Lighting, makeup, and camera quality affect results.'

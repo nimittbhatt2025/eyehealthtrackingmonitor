@@ -21,22 +21,23 @@ const CONDITIONS = [
   {
     id: 'dry_eye',
     label: 'Dry eye',
-    description: 'Tracks redness, tear film smoothness, and surface irritation signs.',
+    description: 'Tracks redness, tear film smoothness, surface irregularity, and aligned eye appearance.',
   },
   {
     id: 'cornea_scar',
     label: 'Cornea / surface changes',
-    description: 'Emphasizes surface irregularity and texture changes over time.',
+    description: 'Emphasizes surface irregularity, left/right asymmetry, and aligned visual change.',
   },
   {
     id: 'glaucoma',
-    label: 'Glaucoma monitoring',
-    description: 'Surface-health proxy between visits — not a substitute for pressure checks.',
+    label: 'Between-visit surface monitoring',
+    description:
+      'Selfie photos cannot assess optic nerve or eye pressure. This tracks surface appearance only between visits.',
   },
   {
     id: 'general',
     label: 'General eye health',
-    description: 'Broad month-over-month tracking for any ongoing eye condition.',
+    description: 'Broad month-over-month surface tracking with aligned crop comparison.',
   },
 ]
 
@@ -297,6 +298,11 @@ export default function EyeHealthMonitor() {
           {selectedCondition && (
             <p className="text-xs text-gray-500 mt-1.5">{selectedCondition.description}</p>
           )}
+          {conditionType === 'glaucoma' && (
+            <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-2 py-1.5 mt-2">
+              Front-facing photos cannot monitor glaucoma progression. Use this only for surface comfort between clinic visits.
+            </p>
+          )}
         </div>
         <div>
           <label htmlFor="doctor-months" className="block text-sm font-medium text-gray-700 mb-1.5">
@@ -483,7 +489,7 @@ export default function EyeHealthMonitor() {
         <div className="card p-10 text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-4 border-accent-100 border-t-accent-600 mx-auto mb-4" />
           <p className="text-gray-700 font-medium">Analyzing your eye photo…</p>
-          <p className="text-sm text-gray-500 mt-1">Comparing to your previous months</p>
+          <p className="text-sm text-gray-500 mt-1">Aligning eye crops and comparing carefully to prior months</p>
         </div>
       )}
 
@@ -514,6 +520,19 @@ export default function EyeHealthMonitor() {
                 <p className="text-sm text-gray-700 mt-1">
                   {lastResult.comparison?.message || 'Your photo has been added to your history.'}
                 </p>
+                {lastResult.comparison?.comparison_confidence && (
+                  <p className="text-xs text-gray-500 mt-2">
+                    Comparison confidence: <strong>{lastResult.comparison.comparison_confidence}</strong>
+                    {lastResult.comparison.lighting_confidence != null && (
+                      <> · lighting weight {Math.round(lastResult.comparison.lighting_confidence * 100)}%</>
+                    )}
+                  </p>
+                )}
+                {lastResult.comparison?.condition_scope?.disclaimer && (
+                  <p className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-md px-2 py-1.5 mt-2">
+                    {lastResult.comparison.condition_scope.disclaimer}
+                  </p>
+                )}
                 {lastResult.comparison?.recommend_doctor_visit && (
                   <p className="text-sm text-red-700 font-medium mt-2">
                     Consider scheduling a visit before your next {doctorMonths}-month appointment.
@@ -592,7 +611,72 @@ export default function EyeHealthMonitor() {
                     change={lastResult.comparison.changes.surface_irregularity}
                     higherIsWorse
                   />
+                  {lastResult.comparison.changes.irregularity_asymmetry && (
+                    <MetricDelta
+                      label="L/R irregularity asymmetry"
+                      change={lastResult.comparison.changes.irregularity_asymmetry}
+                      higherIsWorse
+                    />
+                  )}
                 </div>
+              )}
+
+              {lastResult.comparison.visual_comparison?.available && (
+                <div className="mt-5 border-t border-gray-100 pt-4">
+                  <h4 className="font-semibold text-gray-900 mb-1">Aligned eye comparison (SSIM)</h4>
+                  <p className="text-xs text-gray-500 mb-3">
+                    {lastResult.comparison.visual_comparison.message}
+                    {lastResult.comparison.visual_comparison.ssim_avg != null && (
+                      <> · similarity {lastResult.comparison.visual_comparison.ssim_avg}</>
+                    )}
+                  </p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1">Previous · left / right</p>
+                      <div className="flex gap-2">
+                        {lastResult.comparison.baseline_left_crop && (
+                          <img
+                            src={lastResult.comparison.baseline_left_crop}
+                            alt="Previous left eye"
+                            className="rounded border border-gray-200 w-1/2 object-cover"
+                          />
+                        )}
+                        {lastResult.comparison.baseline_right_crop && (
+                          <img
+                            src={lastResult.comparison.baseline_right_crop}
+                            alt="Previous right eye"
+                            className="rounded border border-gray-200 w-1/2 object-cover"
+                          />
+                        )}
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1">Today · left / right</p>
+                      <div className="flex gap-2">
+                        {lastResult.comparison.current_left_crop && (
+                          <img
+                            src={lastResult.comparison.current_left_crop}
+                            alt="Current left eye"
+                            className="rounded border border-gray-200 w-1/2 object-cover"
+                          />
+                        )}
+                        {lastResult.comparison.current_right_crop && (
+                          <img
+                            src={lastResult.comparison.current_right_crop}
+                            alt="Current right eye"
+                            className="rounded border border-gray-200 w-1/2 object-cover"
+                          />
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {lastResult.comparison.has_baseline && !lastResult.comparison.visual_comparison?.available && (
+                <p className="text-xs text-gray-500 mt-3">
+                  Aligned crop comparison needs a newer baseline photo with Phase 1 crops saved. Your next captures will enable SSIM tracking.
+                </p>
               )}
             </div>
           )}

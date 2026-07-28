@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import get_jwt_identity, jwt_required
 
+from app.ai_models.cataract_opacity_analysis import analyze_cataract_from_base64
 from app.ai_models.dry_eye_analysis import (
     analyze_dry_eye_from_base64,
     check_photo_lighting_from_base64,
@@ -24,7 +25,7 @@ import cv2
 
 eye_photo_bp = Blueprint('eye_photo', __name__)
 
-VALID_CONDITIONS = {'dry_eye', 'cornea_scar', 'glaucoma', 'general'}
+VALID_CONDITIONS = {'dry_eye', 'cornea_scar', 'glaucoma', 'general', 'cataract'}
 
 
 def _create_thumbnail_data_url(image_data: str, max_width: int = 360) -> str:
@@ -57,7 +58,7 @@ def capture_eye_photo():
 
     Body: {
       "image": "<base64 data URL>",
-      "condition_type": "dry_eye" | "cornea_scar" | "glaucoma" | "general",
+      "condition_type": "dry_eye" | "cornea_scar" | "glaucoma" | "general" | "cataract",
       "doctor_visit_interval_months": 6
     }
     """
@@ -73,7 +74,10 @@ def capture_eye_photo():
         if condition_type not in VALID_CONDITIONS:
             return jsonify({'error': f'condition_type must be one of: {sorted(VALID_CONDITIONS)}'}), 400
 
-        analysis = analyze_dry_eye_from_base64(image_data)
+        if condition_type == 'cataract':
+            analysis = analyze_cataract_from_base64(image_data)
+        else:
+            analysis = analyze_dry_eye_from_base64(image_data)
         if analysis.get('error'):
             return jsonify(analysis), 400
 
@@ -124,7 +128,16 @@ def capture_eye_photo():
                 message=comparison.get('message', 'Your eye photo metrics have worsened since last month.'),
                 alert_data={
                     'comparison': {
-                        k: v for k, v in comparison.items() if k != 'baseline_thumbnail'
+                        k: v
+                        for k, v in comparison.items()
+                        if k
+                        not in (
+                            'baseline_thumbnail',
+                            'baseline_left_crop',
+                            'baseline_right_crop',
+                            'current_left_crop',
+                            'current_right_crop',
+                        )
                     },
                     'current_photo_id': photo.id,
                     'condition_type': condition_type,

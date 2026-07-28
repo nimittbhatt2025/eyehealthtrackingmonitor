@@ -354,6 +354,34 @@ function Dashboard() {
               </div>
             </div>
           </Link>
+
+          <Link
+            to="/cataract-opacity-monitor"
+            className="group relative overflow-hidden bg-white rounded-2xl p-8 md:p-10 border border-gray-100/80 shadow-card hover:shadow-elevated transition-all duration-300 hover:-translate-y-0.5"
+          >
+            <div className="absolute -top-16 -right-16 w-56 h-56 bg-sky-50 rounded-full opacity-60 group-hover:scale-110 transition-transform duration-700" />
+            <div className="relative z-10">
+              <div className="flex items-start justify-between mb-8">
+                <div className="icon-tile w-14 h-14 bg-sky-50 text-sky-700">
+                  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                  </svg>
+                </div>
+                <span className="badge badge-neutral">Phase 1</span>
+              </div>
+              <h3 className="text-2xl md:text-3xl font-serif font-bold mb-2 text-gray-900">Cataract Opacity</h3>
+              <p className="text-gray-500 mb-8 leading-relaxed">
+                Monthly opacity grade timeline from anterior eye photos — screening, not LOCS diagnosis
+              </p>
+              <div className="inline-flex items-center font-semibold text-sky-800 group-hover:translate-x-1.5 transition-transform duration-300">
+                <span>Open opacity monitor</span>
+                <svg className="w-5 h-5 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                </svg>
+              </div>
+            </div>
+          </Link>
         </div>
       </div>
 

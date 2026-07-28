@@ -10,8 +10,14 @@ function enrichAlert(alert) {
   }
 
   if (alert.alert_type === 'eye_health_deterioration') {
-    enriched.action_url = '/eye-health-monitor'
-    enriched.action_text = 'Review photo comparison'
+    const condition = alert.alert_data?.condition_type
+    if (condition === 'cataract') {
+      enriched.action_url = '/cataract-opacity-monitor'
+      enriched.action_text = 'Review opacity timeline'
+    } else {
+      enriched.action_url = '/eye-health-monitor'
+      enriched.action_text = 'Review photo comparison'
+    }
   }
 
   return enriched
