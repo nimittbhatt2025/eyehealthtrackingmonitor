@@ -516,6 +516,7 @@ function Profile() {
                   <option value="">Select type</option>
                   <option value="glasses">Glasses</option>
                   <option value="contacts">Contact Lenses</option>
+                  <option value="both">Glasses & Contacts</option>
                   <option value="none">No Correction</option>
                 </select>
               </div>

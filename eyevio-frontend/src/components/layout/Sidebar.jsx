@@ -16,7 +16,10 @@ import {
   FaBook,
   FaBrain,
   FaCamera,
-  FaLowVision
+  FaLowVision,
+  FaChild,
+  FaMobileAlt,
+  FaHome
 } from 'react-icons/fa'
 
 function Sidebar({ isOpen, onClose, hidden = false }) {
@@ -28,6 +31,8 @@ function Sidebar({ isOpen, onClose, hidden = false }) {
       items: [
         { path: '/dashboard', icon: FaTachometerAlt, label: 'Dashboard' },
         { path: '/trends', icon: FaChartLine, label: 'Trends & Predictions' },
+        { path: '/myopia', icon: FaChild, label: 'Myopia Progression' },
+        { path: '/family', icon: FaHome, label: 'Family' },
         { path: '/reports', icon: FaFileAlt, label: 'Reports' },
       ],
     },
@@ -45,6 +50,7 @@ function Sidebar({ isOpen, onClose, hidden = false }) {
       title: 'You',
       items: [
         { path: '/lifestyle', icon: FaHeartbeat, label: 'Lifestyle' },
+        { path: '/digital-wellbeing', icon: FaMobileAlt, label: 'Digital Wellbeing' },
         { path: '/achievements', icon: FaTrophy, label: 'Achievements' },
         { path: '/community', icon: FaUsers, label: 'Community' },
         { path: '/alerts', icon: FaBell, label: 'Alerts' },

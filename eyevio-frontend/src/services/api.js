@@ -72,7 +72,7 @@ api.interceptors.response.use(
       if (code !== 'poor_lighting') {
         toast.error(error.response.data.message || error.response.data.error)
       }
-    } else {
+    } else if (!(error.response?.data instanceof Blob)) {
       toast.error('An error occurred. Please try again.')
     }
     return Promise.reject(error)
@@ -138,12 +138,36 @@ export const alertsAPI = {
   dismiss: (id) => api.put(`/alerts/${id}/dismiss`),
   markAction: (id) => api.put(`/alerts/${id}/action`),
   markAllRead: () => api.put('/alerts/mark-all-read'),
+  resend: (id, data) => api.post(`/alerts/${id}/resend`, data),
+}
+
+// Notifications / Web Push API
+export const notificationsAPI = {
+  getVapidPublicKey: () => api.get('/notifications/vapid-public-key'),
+  getPreferences: () => api.get('/notifications/preferences'),
+  updatePreferences: (data) => api.put('/notifications/preferences', data),
+  subscribePush: (subscription) => api.post('/notifications/push-subscribe', subscription),
+  unsubscribePush: (data) => api.delete('/notifications/push-subscribe', { data }),
+  sendTest: (data) => api.post('/notifications/test', data),
 }
 
 // Reports API
 export const reportsAPI = {
   generate: (params) => api.get('/report/', { params, responseType: 'blob' }),
   getJSON: (params) => api.get('/report/', { params }),
+  clinician: (params) => api.get('/report/clinician', { params, responseType: 'blob' }),
+}
+
+export function triggerPdfDownload(data, filename) {
+  const blob = new Blob([data], { type: 'application/pdf' })
+  const url = window.URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.setAttribute('download', filename)
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  window.URL.revokeObjectURL(url)
 }
 
 // Calibration API
@@ -166,6 +190,40 @@ export const eyePhotoAPI = {
   getStatus: (params) => api.get('/eye-photos/status', { params }),
   getTimeline: (params) => api.get('/eye-photos/timeline', { params }),
   compare: (params) => api.get('/eye-photos/compare', { params }),
+}
+
+// Myopia progression (kids/teens)
+export const myopiaAPI = {
+  listSubjects: () => api.get('/myopia/subjects'),
+  createSubject: (data) => api.post('/myopia/subjects', data),
+  updateSubject: (id, data) => api.put(`/myopia/subjects/${id}`, data),
+  archiveSubject: (id) => api.delete(`/myopia/subjects/${id}`),
+  getDashboard: (id, params) => api.get(`/myopia/subjects/${id}/dashboard`, { params }),
+  listPrescriptions: (id) => api.get(`/myopia/subjects/${id}/prescriptions`),
+  addPrescription: (id, data) => api.post(`/myopia/subjects/${id}/prescriptions`, data),
+  deletePrescription: (entryId) => api.delete(`/myopia/prescriptions/${entryId}`),
+}
+
+// Digital wellbeing / OS screen-time sync
+export const wellbeingAPI = {
+  getStatus: () => api.get('/wellbeing/status'),
+  connect: (data) => api.post('/wellbeing/connect', data),
+  updateConnection: (id, data) => api.put(`/wellbeing/connections/${id}`, data),
+  disconnect: (id) => api.delete(`/wellbeing/connections/${id}`),
+  sync: (data) => api.post('/wellbeing/sync', data),
+  listDays: (params) => api.get('/wellbeing/days', { params }),
+  importDays: (data) => api.post('/wellbeing/import', data),
+}
+
+export const familyAPI = {
+  get: (params) => api.get('/family/', { params }),
+  create: (data) => api.post('/family/', data),
+  createInvite: (data) => api.post('/family/invites', data),
+  join: (data) => api.post('/family/join', data),
+  addChild: (data) => api.post('/family/children', data),
+  getChild: (childUserId, params) => api.get(`/family/children/${childUserId}`, { params }),
+  updateGoals: (childUserId, data) => api.put(`/family/children/${childUserId}/goals`, data),
+  revokeInvite: (id) => api.delete(`/family/invites/${id}`),
 }
 
 export default api

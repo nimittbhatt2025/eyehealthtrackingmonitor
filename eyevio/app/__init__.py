@@ -47,6 +47,10 @@ def create_app(config_name='development'):
     from app.routes.report import report_bp
     from app.routes.calibration import bp as calibration_bp
     from app.routes.eye_photo import eye_photo_bp
+    from app.routes.notifications import notifications_bp
+    from app.routes.myopia import myopia_bp
+    from app.routes.wellbeing import wellbeing_bp
+    from app.routes.family import family_bp
     
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(vision_test_bp, url_prefix='/api/vision-test')
@@ -58,6 +62,10 @@ def create_app(config_name='development'):
     app.register_blueprint(report_bp, url_prefix='/api/report')
     app.register_blueprint(calibration_bp)
     app.register_blueprint(eye_photo_bp, url_prefix='/api/eye-photos')
+    app.register_blueprint(notifications_bp, url_prefix='/api/notifications')
+    app.register_blueprint(myopia_bp, url_prefix='/api/myopia')
+    app.register_blueprint(wellbeing_bp, url_prefix='/api/wellbeing')
+    app.register_blueprint(family_bp, url_prefix='/api/family')
     
     # Health check endpoint
     @app.route('/health')

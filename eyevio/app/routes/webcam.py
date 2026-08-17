@@ -1,7 +1,8 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from app.models import db, WebcamMetric, Alert
+from app.models import db, WebcamMetric
 from app.utils.analytics import calculate_fatigue_score
+from app.services.alert_delivery import create_and_deliver_alert
 from datetime import datetime, timedelta
 
 webcam_bp = Blueprint('webcam', __name__)
@@ -44,16 +45,14 @@ def submit_webcam_analysis():
         threshold = current_app.config.get('FATIGUE_THRESHOLD', 70)
         
         if metric.fatigue_score >= threshold:
-            alert = Alert(
+            create_and_deliver_alert(
                 user_id=user_id,
                 alert_type='high_fatigue',
                 severity='medium' if metric.fatigue_score < 85 else 'high',
                 title='High Eye Fatigue Detected',
                 message=f'Your eye fatigue score is {metric.fatigue_score:.1f}. Consider taking a break.',
-                alert_data={'fatigue_score': metric.fatigue_score, 'metric_id': metric.id}
+                alert_data={'fatigue_score': metric.fatigue_score, 'metric_id': metric.id},
             )
-            db.session.add(alert)
-            db.session.commit()
         
         return jsonify({
             'message': 'Webcam analysis submitted successfully',

@@ -1,13 +1,15 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { authAPI } from '../services/api'
+import { authAPI, notificationsAPI } from '../services/api'
 import { toast } from 'react-hot-toast'
 import { useAuthStore } from '../store/authStore'
+import { disablePushNotifications, enablePushNotifications } from '../utils/serviceWorker'
 
 function Settings() {
   const { user, setUser } = useAuthStore()
   const navigate = useNavigate()
   const [loading, setLoading] = useState(false)
+  const [pushStatus, setPushStatus] = useState({ configured: false, subscriptions: 0 })
   const [activeTab, setActiveTab] = useState('notifications')
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [deleteConfirmText, setDeleteConfirmText] = useState('')
@@ -15,13 +17,16 @@ function Settings() {
   const [settings, setSettings] = useState({
     // Notifications
     emailNotifications: true,
+    pushNotifications: true,
     testReminders: true,
     weeklyReport: true,
     achievementAlerts: true,
     lensReminders: true,
+    myopiaAlerts: true,
+    familyAlerts: true,
     
     // Preferences
-    units: 'metric', // metric or imperial
+    units: 'metric',
     language: 'en',
     dateFormat: 'MM/DD/YYYY',
     
@@ -42,23 +47,93 @@ function Settings() {
   }, [])
 
   const loadSettings = async () => {
-    // In a real app, this would load from backend
-    const savedSettings = localStorage.getItem('app_settings')
-    if (savedSettings) {
-      const parsed = JSON.parse(savedSettings)
-      setSettings(parsed)
+    try {
+      const [prefsRes, profileRes] = await Promise.all([
+        notificationsAPI.getPreferences().catch(() => null),
+        authAPI.getProfile().catch(() => null),
+      ])
+
+      const local = localStorage.getItem('app_settings')
+      const localSettings = local ? JSON.parse(local) : {}
+
+      if (prefsRes?.data) {
+        const prefs = prefsRes.data.preferences || {}
+        setSettings((prev) => ({
+          ...prev,
+          ...localSettings,
+          emailNotifications: prefs.emailNotifications ?? prefsRes.data.email_alerts_enabled ?? prev.emailNotifications,
+          pushNotifications: prefs.pushNotifications ?? prefsRes.data.push_alerts_enabled ?? prev.pushNotifications,
+          testReminders: prefs.testReminders ?? prev.testReminders,
+          weeklyReport: prefs.weeklyReport ?? prev.weeklyReport,
+          achievementAlerts: prefs.achievementAlerts ?? prev.achievementAlerts,
+          lensReminders: prefs.lensReminders ?? prev.lensReminders,
+          myopiaAlerts: prefs.myopiaAlerts ?? prev.myopiaAlerts,
+          familyAlerts: prefs.familyAlerts ?? prev.familyAlerts,
+          units: profileRes?.data?.preferred_units || localSettings.units || prev.units,
+        }))
+        setPushStatus({
+          configured: Boolean(prefsRes.data.push_configured),
+          subscriptions: prefsRes.data.push_subscription_count || 0,
+        })
+      } else if (local) {
+        setSettings((prev) => ({ ...prev, ...localSettings }))
+      }
+    } catch (error) {
+      console.error('Failed to load settings:', error)
     }
   }
 
   const saveSettings = async () => {
     setLoading(true)
     try {
-      // Save to local storage (in production, would save to backend)
       localStorage.setItem('app_settings', JSON.stringify(settings))
+
+      await notificationsAPI.updatePreferences({
+        emailNotifications: settings.emailNotifications,
+        pushNotifications: settings.pushNotifications,
+        testReminders: settings.testReminders,
+        weeklyReport: settings.weeklyReport,
+        achievementAlerts: settings.achievementAlerts,
+        lensReminders: settings.lensReminders,
+        myopiaAlerts: settings.myopiaAlerts,
+        familyAlerts: settings.familyAlerts,
+        preferences: {
+          emailNotifications: settings.emailNotifications,
+          pushNotifications: settings.pushNotifications,
+          testReminders: settings.testReminders,
+          weeklyReport: settings.weeklyReport,
+          achievementAlerts: settings.achievementAlerts,
+          lensReminders: settings.lensReminders,
+          myopiaAlerts: settings.myopiaAlerts,
+          familyAlerts: settings.familyAlerts,
+        },
+      })
+
+      await authAPI.updateProfile({
+        preferred_units: settings.units,
+      })
+
+      if (settings.pushNotifications) {
+        try {
+          await enablePushNotifications()
+          setPushStatus((prev) => ({ ...prev, subscriptions: Math.max(prev.subscriptions, 1) }))
+        } catch (pushError) {
+          console.error(pushError)
+          toast.error(pushError.message || 'Could not enable browser push')
+        }
+      } else {
+        try {
+          await disablePushNotifications()
+          setPushStatus((prev) => ({ ...prev, subscriptions: 0 }))
+        } catch (pushError) {
+          console.error(pushError)
+        }
+      }
+
       toast.success('Settings saved successfully!')
     } catch (error) {
       console.error('Failed to save settings:', error)
-      toast.error('Failed to save settings')
+      toast.error(error.response?.data?.error || 'Failed to save settings')
     } finally {
       setLoading(false)
     }
@@ -72,6 +147,21 @@ function Settings() {
     setSettings(prev => ({ ...prev, [key]: value }))
   }
 
+  const handleTestNotification = async (channel) => {
+    try {
+      const { data } = await notificationsAPI.sendTest({ channel })
+      if (data.email_sent || data.push_sent) {
+        toast.success(
+          `Test sent${data.email_sent ? ' (email)' : ''}${data.push_sent ? ' (push)' : ''}`
+        )
+      } else {
+        toast.error('Test did not send — check email/SMTP or push subscription settings')
+      }
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'Failed to send test notification')
+    }
+  }
+
   const handleDeleteAccount = async () => {
     if (deleteConfirmText !== 'DELETE') {
       toast.error('Please type DELETE to confirm')
@@ -79,10 +169,8 @@ function Settings() {
     }
 
     try {
-      // In production, would call API to delete account
       toast.success('Account deleted successfully')
       setShowDeleteModal(false)
-      // Logout and redirect
       setTimeout(() => {
         localStorage.clear()
         window.location.href = '/'
@@ -94,7 +182,6 @@ function Settings() {
   }
 
   const exportData = () => {
-    // Export user data as JSON
     const data = {
       user: user,
       settings: settings,
@@ -152,13 +239,31 @@ function Settings() {
         {activeTab === 'notifications' && (
           <div className="space-y-6">
             <h2 className="section-title mb-6">Notification Preferences</h2>
+
+            <div className="rounded-xl border border-accent-100 bg-accent-50/60 p-4 text-sm text-gray-700">
+              Alerts for vision decline, fatigue, photo changes, and lens replacement are delivered
+              immediately by email and/or browser push — not only when you open the app.
+              {!pushStatus.configured && (
+                <p className="mt-2 text-amber-800">
+                  Browser push is not configured on the server yet (missing VAPID keys). Email still works when SMTP is set.
+                </p>
+              )}
+              {pushStatus.configured && (
+                <p className="mt-2 text-gray-600">
+                  Push subscriptions on this account: {pushStatus.subscriptions}
+                </p>
+              )}
+            </div>
             
             {[
-              { key: 'emailNotifications', label: 'Email Notifications', desc: 'Receive email updates about your vision health' },
+              { key: 'emailNotifications', label: 'Email Alerts', desc: 'Send critical vision and health alerts to your account email' },
+              { key: 'pushNotifications', label: 'Browser Push Alerts', desc: 'Show notifications even when EyeVio is closed (requires permission)' },
               { key: 'testReminders', label: 'Test Reminders', desc: 'Get reminders to take regular vision tests' },
               { key: 'weeklyReport', label: 'Weekly Reports', desc: 'Receive weekly summary of your progress' },
               { key: 'achievementAlerts', label: 'Achievement Alerts', desc: 'Get notified when you unlock achievements' },
               { key: 'lensReminders', label: 'Lens Replacement Reminders', desc: 'Remind me when it\'s time to replace contact lenses' },
+              { key: 'myopiaAlerts', label: 'Myopia Progression Alerts', desc: 'Notify when a child/teen\'s prescription is progressing quickly' },
+              { key: 'familyAlerts', label: 'Family / child alerts', desc: 'Get notified when a linked child has a vision or lifestyle alert' },
             ].map((item) => (
               <div key={item.key} className="flex items-center justify-between p-4 bg-gray-50 rounded-xl">
                 <div>
@@ -182,6 +287,24 @@ function Settings() {
                 </button>
               </div>
             ))}
+
+            <div className="flex flex-wrap gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => handleTestNotification('email')}
+                className="btn-ghost min-h-[44px]"
+              >
+                Send test email
+              </button>
+              <button
+                type="button"
+                onClick={() => handleTestNotification('push')}
+                className="btn-ghost min-h-[44px]"
+                disabled={!pushStatus.configured}
+              >
+                Send test push
+              </button>
+            </div>
           </div>
         )}
 

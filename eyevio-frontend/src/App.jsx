@@ -46,6 +46,9 @@ import BlinkCalibration from './pages/BlinkCalibration'
 import EyeTrackingAnalysis from './pages/EyeTrackingAnalysis'
 import EyeHealthMonitor from './pages/EyeHealthMonitor'
 import CataractOpacityMonitor from './pages/CataractOpacityMonitor'
+import MyopiaProgression from './pages/MyopiaProgression'
+import DigitalWellbeing from './pages/DigitalWellbeing'
+import FamilyDashboard from './pages/FamilyDashboard'
 import UniversalCalibration from './components/UniversalCalibration'
 import IPDDistanceCalibration from './components/IPDDistanceCalibration'
 import VisualAcuityTest from './pages/VisualAcuityTest'
@@ -155,6 +158,9 @@ function App() {
                 </Route>
                 <Route path="/test-details/:testId" element={<TestDetails />} />
                 <Route path="/trends" element={<Trends />} />
+                <Route path="/myopia" element={<MyopiaProgression />} />
+                <Route path="/digital-wellbeing" element={<DigitalWellbeing />} />
+                <Route path="/family" element={<FamilyDashboard />} />
                 
                 {/* Eye Tracking / Health Monitoring - Consolidated */}
                 <Route path="/eye-tracking-analysis" element={<EyeTrackingAnalysis />} />

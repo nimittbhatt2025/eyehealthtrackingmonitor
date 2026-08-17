@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
-import { trendAPI, visionTestAPI, webcamAPI, reportsAPI, eyePhotoAPI } from '../services/api'
+import { trendAPI, visionTestAPI, webcamAPI, reportsAPI, eyePhotoAPI, triggerPdfDownload } from '../services/api'
 import { toast } from 'react-hot-toast'
 
 function Dashboard() {
@@ -9,7 +9,7 @@ function Dashboard() {
   const navigate = useNavigate()
   const [stats, setStats] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [downloading, setDownloading] = useState(false)
+  const [downloading, setDownloading] = useState(null)
   const [photoStatus, setPhotoStatus] = useState(null)
 
   useEffect(() => {
@@ -47,36 +47,40 @@ function Dashboard() {
   }
 
   const handleDownloadReport = async () => {
-    setDownloading(true)
+    setDownloading('monthly')
     try {
       const response = await reportsAPI.generate({ days: 30, format: 'pdf' })
-      
-      // Create blob and download
-      const blob = new Blob([response.data], { type: 'application/pdf' })
-      const url = window.URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.setAttribute('download', `eyevio-monthly-report-${new Date().toISOString().split('T')[0]}.pdf`)
-      document.body.appendChild(link)
-      link.click()
-      link.remove()
-      window.URL.revokeObjectURL(url)
-      
+      triggerPdfDownload(
+        response.data,
+        `eyevio-monthly-report-${new Date().toISOString().split('T')[0]}.pdf`
+      )
       toast.success('Report downloaded successfully!')
     } catch (error) {
       console.error('Failed to download report:', error)
       toast.error('Failed to download report')
     } finally {
-      setDownloading(false)
+      setDownloading(null)
+    }
+  }
+
+  const handleDownloadClinician = async () => {
+    setDownloading('clinician')
+    try {
+      const response = await reportsAPI.clinician({ days: 90 })
+      triggerPdfDownload(
+        response.data,
+        `eyevio-clinician-${new Date().toISOString().split('T')[0]}.pdf`
+      )
+      toast.success('Clinician one-pager downloaded')
+    } catch (error) {
+      toast.error('Failed to generate clinician PDF')
+    } finally {
+      setDownloading(null)
     }
   }
 
   const handleViewTrends = () => {
     navigate('/trends')
-  }
-
-  const handleGeneratePrescription = () => {
-    navigate('/reports')
   }
 
   const hasData = stats?.tests?.total_tests > 0
@@ -194,14 +198,67 @@ function Dashboard() {
         </div>
       )}
 
+      <Link
+        to="/family"
+        className="block card p-5 border-l-4 border-l-teal-500 hover:shadow-elevated transition-shadow animate-fade-in-up"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium text-teal-900">Family & caregiver dashboard</p>
+            <p className="text-gray-700 text-sm mt-1">
+              Monitor a child’s vision tests, outdoor time, screen limits, and 20-20-20 breaks.
+            </p>
+          </div>
+          <span className="btn-primary min-h-[44px] inline-flex items-center">Open family</span>
+        </div>
+      </Link>
+
+      <Link
+        to="/myopia"
+        className="block card p-5 border-l-4 border-l-sky-500 hover:shadow-elevated transition-shadow animate-fade-in-up"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium text-sky-900">Myopia progression (kids & teens)</p>
+            <p className="text-gray-700 text-sm mt-1">
+              Log prescriptions and connect outdoor vs screen time for school-age myopia tracking.
+            </p>
+          </div>
+          <span className="btn-primary min-h-[44px] inline-flex items-center">Open tracker</span>
+        </div>
+      </Link>
+
       {/* Shareable Reports */}
       <div className="animate-fade-in-up">
         <div className="mb-6">
           <h2 className="section-title">Shareable Reports</h2>
-          <p className="text-gray-500 mt-1">Export and share your eye health data</p>
+          <p className="text-gray-500 mt-1">Take a one-page snapshot to an appointment, or keep the longer monthly PDF</p>
         </div>
         
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
+          {/* Clinician one-pager */}
+          <div className="card hover:shadow-elevated transition-shadow flex flex-col">
+            <div className="flex items-start justify-between mb-5">
+              <div className="icon-tile bg-green-50 text-green-600">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+              </div>
+              <span className="badge badge-success">90 days</span>
+            </div>
+            <h3 className="text-lg font-bold text-gray-900 mb-2">Clinician one-pager</h3>
+            <p className="text-sm text-gray-500 mb-5 leading-relaxed flex-1">
+              Single-page PDF for an optometrist: latest scores, trend sparkline, and flagged concerns.
+            </p>
+            <button
+              onClick={handleDownloadClinician}
+              disabled={Boolean(downloading)}
+              className="btn-primary w-full"
+            >
+              {downloading === 'clinician' ? 'Generating…' : 'Download for doctor'}
+            </button>
+          </div>
+
           {/* Monthly Summary */}
           <div className="card hover:shadow-elevated transition-shadow flex flex-col">
             <div className="flex items-start justify-between mb-5">
@@ -213,16 +270,13 @@ function Dashboard() {
               <span className="badge badge-brand">Monthly</span>
             </div>
             <h3 className="text-lg font-bold text-gray-900 mb-2">Monthly Summary</h3>
-            <p className="text-sm text-gray-500 mb-5 leading-relaxed flex-1">Comprehensive monthly eye health report with detailed insights</p>
+            <p className="text-sm text-gray-500 mb-5 leading-relaxed flex-1">Longer PDF with detailed insights over the last 30 days</p>
             <button 
               onClick={handleDownloadReport}
-              disabled={downloading}
-              className="btn-primary w-full"
+              disabled={Boolean(downloading)}
+              className="btn-secondary w-full"
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-              </svg>
-              {downloading ? 'Downloading...' : 'Download PDF'}
+              {downloading === 'monthly' ? 'Downloading...' : 'Download PDF'}
             </button>
           </div>
 
@@ -243,26 +297,6 @@ function Dashboard() {
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
               </svg>
-            </button>
-          </div>
-
-          {/* Prescription Report */}
-          <div className="card hover:shadow-elevated transition-shadow flex flex-col">
-            <div className="flex items-start justify-between mb-5">
-              <div className="icon-tile bg-green-50 text-green-600">
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-              </div>
-              <span className="badge badge-success">Medical</span>
-            </div>
-            <h3 className="text-lg font-bold text-gray-900 mb-2">Prescription Report</h3>
-            <p className="text-sm text-gray-500 mb-5 leading-relaxed flex-1">Medical-grade health assessment for professionals</p>
-            <button onClick={handleGeneratePrescription} className="btn-secondary w-full">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-              Generate Report
             </button>
           </div>
         </div>

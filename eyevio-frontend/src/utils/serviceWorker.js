@@ -1,9 +1,10 @@
 import { toast } from 'react-hot-toast'
+import { notificationsAPI } from '../services/api'
 
-// Register service worker for PWA functionality (production only)
+// Register service worker for PWA functionality
 export function registerServiceWorker() {
-  if (import.meta.env.DEV) {
-    // Service workers break Vite HMR in development
+  if (import.meta.env.DEV && import.meta.env.VITE_ENABLE_PUSH !== 'true') {
+    // Service workers break Vite HMR in development unless push testing is enabled
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.getRegistrations().then((registrations) => {
         registrations.forEach((registration) => registration.unregister())
@@ -19,25 +20,19 @@ export function registerServiceWorker() {
         .then((registration) => {
           console.log('Service Worker registered:', registration)
 
-          // Check for updates periodically
           setInterval(() => {
             registration.update()
-          }, 60 * 60 * 1000) // Check every hour
+          }, 60 * 60 * 1000)
 
-          // Listen for updates
           registration.addEventListener('updatefound', () => {
             const newWorker = registration.installing
-            
             newWorker.addEventListener('statechange', () => {
               if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                // New version available — show a gentle, persistent in-app toast
-                // instead of a native confirm() dialog. The user refreshes when ready.
                 toast(
                   'A new version of EyeVio is available. Refresh the page to update.',
                   {
                     duration: 10000,
                     position: 'bottom-center',
-                    icon: '🔄',
                     ariaProps: { role: 'status', 'aria-live': 'polite' },
                   }
                 )
@@ -64,37 +59,23 @@ export function unregisterServiceWorker() {
   }
 }
 
-// Request notification permission
-export async function requestNotificationPermission() {
-  if ('Notification' in window && 'serviceWorker' in navigator) {
-    const permission = await Notification.requestPermission()
-    
-    if (permission === 'granted') {
-      console.log('Notification permission granted')
-      
-      // Subscribe to push notifications
-      const registration = await navigator.serviceWorker.ready
-      const subscription = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(
-          // Replace with your VAPID public key
-          'YOUR_VAPID_PUBLIC_KEY'
-        )
-      })
-      
-      console.log('Push subscription:', subscription)
-      return subscription
-    }
-    
-    return null
+async function ensureServiceWorkerRegistration() {
+  if (!('serviceWorker' in navigator)) {
+    throw new Error('Service workers are not supported in this browser')
   }
+
+  let registration = await navigator.serviceWorker.getRegistration()
+  if (!registration) {
+    registration = await navigator.serviceWorker.register('/service-worker.js')
+  }
+  await navigator.serviceWorker.ready
+  return registration
 }
 
-// Helper function to convert VAPID key
 function urlBase64ToUint8Array(base64String) {
   const padding = '='.repeat((4 - base64String.length % 4) % 4)
   const base64 = (base64String + padding)
-    .replace(/\-/g, '+')
+    .replace(/-/g, '+')
     .replace(/_/g, '/')
 
   const rawData = window.atob(base64)
@@ -106,13 +87,73 @@ function urlBase64ToUint8Array(base64String) {
   return outputArray
 }
 
-// Check if app is running as PWA
+/**
+ * Request permission, subscribe to Web Push, and persist subscription on the API.
+ */
+export async function enablePushNotifications() {
+  if (!('Notification' in window) || !('PushManager' in window)) {
+    throw new Error('Push notifications are not supported in this browser')
+  }
+
+  const permission = await Notification.requestPermission()
+  if (permission !== 'granted') {
+    throw new Error('Notification permission was denied')
+  }
+
+  const { data } = await notificationsAPI.getVapidPublicKey()
+  const publicKey = data?.publicKey
+  if (!publicKey) {
+    throw new Error('Push is not configured on the server')
+  }
+
+  const registration = await ensureServiceWorkerRegistration()
+  let subscription = await registration.pushManager.getSubscription()
+
+  if (!subscription) {
+    subscription = await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(publicKey),
+    })
+  }
+
+  await notificationsAPI.subscribePush(subscription.toJSON())
+  return subscription
+}
+
+export async function disablePushNotifications() {
+  if (!('serviceWorker' in navigator)) return
+
+  const registration = await navigator.serviceWorker.getRegistration()
+  if (!registration) {
+    await notificationsAPI.unsubscribePush()
+    return
+  }
+
+  const subscription = await registration.pushManager.getSubscription()
+  if (subscription) {
+    const endpoint = subscription.endpoint
+    await subscription.unsubscribe()
+    await notificationsAPI.unsubscribePush({ endpoint })
+  } else {
+    await notificationsAPI.unsubscribePush()
+  }
+}
+
+/** Legacy alias used by older call sites */
+export async function requestNotificationPermission() {
+  try {
+    return await enablePushNotifications()
+  } catch (error) {
+    console.error(error)
+    return null
+  }
+}
+
 export function isPWA() {
   return window.matchMedia('(display-mode: standalone)').matches ||
          window.navigator.standalone === true
 }
 
-// Background sync for offline actions
 export async function registerBackgroundSync(tag) {
   if ('serviceWorker' in navigator && 'SyncManager' in window) {
     try {

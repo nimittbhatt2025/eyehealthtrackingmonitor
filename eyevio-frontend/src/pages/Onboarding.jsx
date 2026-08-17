@@ -26,12 +26,37 @@ function Onboarding() {
     notifications_enabled: true,
     
     // Step 4: Profile
-    age: '',
     date_of_birth: '',
     preferred_units: 'metric'
   })
 
   const totalSteps = 5
+
+  const buildProfilePayload = () => {
+    const onboardingData = { ...formData }
+    return {
+      onboarding_completed: true,
+      onboarding_data: onboardingData,
+      date_of_birth: formData.date_of_birth || null,
+      preferred_units: formData.preferred_units,
+      primary_goal: formData.primary_goal || null,
+      test_frequency: formData.test_frequency,
+      notifications_enabled: formData.notifications_enabled,
+      email_alerts_enabled: formData.notifications_enabled,
+      push_alerts_enabled: formData.notifications_enabled,
+      avg_screen_time_hours: formData.screen_time_daily,
+      avg_sleep_hours: formData.sleep_hours,
+      avg_outdoor_time_hours: formData.outdoor_time_daily,
+      occupation: formData.occupation || null,
+      lens_type: formData.wears_glasses && formData.wears_contacts
+        ? 'both'
+        : formData.wears_glasses
+          ? 'glasses'
+          : formData.wears_contacts
+            ? 'contacts'
+            : 'none',
+    }
+  }
 
   const handleInputChange = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }))
@@ -59,21 +84,19 @@ function Onboarding() {
   }
 
   const handleSkip = () => {
-    completeOnboarding()
+    completeOnboarding('/dashboard')
   }
 
-  const completeOnboarding = async () => {
+  const completeOnboarding = async (destination = '/dashboard') => {
     try {
-      // Save onboarding data to profile
-      await authAPI.updateProfile({
-        onboarding_completed: true,
-        onboarding_data: formData,
-        date_of_birth: formData.date_of_birth,
-        preferred_units: formData.preferred_units
-      })
+      await authAPI.updateProfile(buildProfilePayload())
       
-      toast.success('Welcome to EyeVio! Your profile is all set.')
-      navigate('/dashboard')
+      toast.success(
+        destination === '/vision-tests/visual_acuity'
+          ? "Welcome to EyeVio! Let's start with your first vision test."
+          : 'Welcome to EyeVio! Your profile is all set.'
+      )
+      navigate(destination)
     } catch (error) {
       console.error('Error saving onboarding data:', error)
       toast.error('Error saving your information. Please try again.')
@@ -81,21 +104,7 @@ function Onboarding() {
   }
 
   const handleFinish = async () => {
-    // Navigate to first vision test
-    try {
-      await authAPI.updateProfile({
-        onboarding_completed: true,
-        onboarding_data: formData,
-        date_of_birth: formData.date_of_birth,
-        preferred_units: formData.preferred_units
-      })
-      
-      toast.success('Welcome to EyeVio! Let\'s start with your first vision test.')
-      navigate('/vision-tests/snellen')
-    } catch (error) {
-      console.error('Error saving onboarding data:', error)
-      toast.error('Error saving your information. Please try again.')
-    }
+    await completeOnboarding('/vision-tests/visual_acuity')
   }
 
   const progressPercentage = ((currentStep - 1) / (totalSteps - 1)) * 100

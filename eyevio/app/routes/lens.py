@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from app.models import db, LensData, VisionTest, Alert
 from app.utils.analytics import calculate_lens_effectiveness
+from app.services.alert_delivery import create_and_deliver_alert
 from datetime import datetime, timedelta
 
 lens_bp = Blueprint('lens', __name__)
@@ -102,15 +103,15 @@ def get_lens_effectiveness():
             ).first()
             
             if not existing_alert:
-                alert = Alert(
+                create_and_deliver_alert(
                     user_id=user_id,
                     alert_type='lens_replacement',
                     severity='medium',
                     title='Lens Replacement Recommended',
                     message=f'Your lens effectiveness is {effectiveness:.1f}%. Consider replacing your lenses.',
-                    alert_data={'effectiveness': effectiveness, 'lens_id': lens_data.id}
+                    alert_data={'effectiveness': effectiveness, 'lens_id': lens_data.id},
+                    commit=False,
                 )
-                db.session.add(alert)
         
         db.session.commit()
         

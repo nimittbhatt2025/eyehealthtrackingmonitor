@@ -1,11 +1,12 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuthStore } from '../../store/authStore'
 import { toast } from 'react-hot-toast'
 
 function Register() {
   const navigate = useNavigate()
   const register = useAuthStore((state) => state.register)
+  const [searchParams] = useSearchParams()
   const [loading, setLoading] = useState(false)
   const [formData, setFormData] = useState({
     name: '',
@@ -15,6 +16,7 @@ function Register() {
     age: '',
     gender: '',
     phone: '',
+    family_invite_code: (searchParams.get('invite') || '').toUpperCase(),
   })
 
   const handleChange = (e) => {
@@ -45,12 +47,13 @@ function Register() {
         email: rest.email.trim().toLowerCase(),
         full_name: name,
         age: parseInt(age),
+        family_invite_code: formData.family_invite_code.trim().toUpperCase() || undefined,
       }
 
       console.log('Attempting registration with:', submitData)
       await register(submitData)
       toast.success('Registration successful!')
-      navigate('/dashboard')
+      navigate('/onboarding')
     } catch (error) {
       console.error('Registration error:', error)
       if (error.response?.data?.error) {
@@ -184,6 +187,27 @@ function Register() {
                 className="input"
                 placeholder="••••••••"
               />
+            </div>
+
+            <div>
+              <label htmlFor="family_invite_code" className="block text-sm font-medium text-gray-700 mb-2">
+                Family invite code <span className="text-gray-400 font-normal">(optional)</span>
+              </label>
+              <input
+                id="family_invite_code"
+                name="family_invite_code"
+                type="text"
+                autoCapitalize="characters"
+                value={formData.family_invite_code}
+                onChange={(e) =>
+                  setFormData({ ...formData, family_invite_code: e.target.value.toUpperCase() })
+                }
+                className="input tracking-widest"
+                placeholder="e.g. K7M2QP"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Teens: paste the code a parent sent. Caregivers can also join another household this way.
+              </p>
             </div>
 
             <div>

@@ -1,7 +1,8 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from app.models import db, VisionTest, User, Alert
+from app.models import db, VisionTest, User
 from app.utils.analytics import detect_vision_decline
+from app.services.alert_delivery import create_and_deliver_alert
 from datetime import datetime
 
 vision_test_bp = Blueprint('vision_test', __name__)
@@ -76,17 +77,14 @@ def submit_vision_test():
                     'tests_analyzed': int(decline_info.get('tests_analyzed', 0))
                 }
                 
-                # Create alert
-                alert = Alert(
+                create_and_deliver_alert(
                     user_id=user_id,
                     alert_type='vision_decline',
                     severity='high',
                     title='Vision Decline Detected',
                     message=f'Your vision has declined by {clean_decline_info["decline_percent"]:.1f}% based on recent tests.',
-                    alert_data=clean_decline_info
+                    alert_data=clean_decline_info,
                 )
-                db.session.add(alert)
-                db.session.commit()
         
         return jsonify({
             'message': 'Vision test submitted successfully',

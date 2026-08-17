@@ -135,31 +135,47 @@ self.addEventListener('sync', (event) => {
 
 // Push notification handler
 self.addEventListener('push', (event) => {
+  let payload = {
+    title: 'EyeVio',
+    body: 'New notification from EyeVio',
+    url: '/alerts',
+  }
+
+  try {
+    if (event.data) {
+      const parsed = event.data.json()
+      payload = { ...payload, ...parsed }
+    }
+  } catch (error) {
+    try {
+      payload.body = event.data ? event.data.text() : payload.body
+    } catch (_) {
+      // keep defaults
+    }
+  }
+
   const options = {
-    body: event.data ? event.data.text() : 'New notification from EyeVio',
+    body: payload.body || payload.message || 'New notification from EyeVio',
     icon: '/icons/icon-192x192.png',
     badge: '/icons/icon-72x72.png',
     vibrate: [200, 100, 200],
+    tag: payload.alert_id ? `alert-${payload.alert_id}` : 'eyevio-alert',
+    renotify: true,
     data: {
+      url: payload.url || '/alerts',
+      alert_id: payload.alert_id,
+      alert_type: payload.alert_type,
+      severity: payload.severity,
       dateOfArrival: Date.now(),
-      primaryKey: 1
     },
     actions: [
-      {
-        action: 'explore',
-        title: 'View',
-        icon: '/icons/checkmark.png'
-      },
-      {
-        action: 'close',
-        title: 'Dismiss',
-        icon: '/icons/close.png'
-      }
-    ]
+      { action: 'open', title: 'View' },
+      { action: 'close', title: 'Dismiss' },
+    ],
   }
 
   event.waitUntil(
-    self.registration.showNotification('EyeVio', options)
+    self.registration.showNotification(payload.title || 'EyeVio', options)
   )
 })
 
@@ -167,11 +183,29 @@ self.addEventListener('push', (event) => {
 self.addEventListener('notificationclick', (event) => {
   event.notification.close()
 
-  if (event.action === 'explore') {
-    event.waitUntil(
-      clients.openWindow('/')
-    )
+  if (event.action === 'close') {
+    return
   }
+
+  const targetUrl = (event.notification.data && event.notification.data.url) || '/alerts'
+
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      for (const client of clientList) {
+        if ('focus' in client) {
+          client.focus()
+          if ('navigate' in client) {
+            return client.navigate(targetUrl)
+          }
+          return undefined
+        }
+      }
+      if (clients.openWindow) {
+        return clients.openWindow(targetUrl)
+      }
+      return undefined
+    })
+  )
 })
 
 // Helper functions

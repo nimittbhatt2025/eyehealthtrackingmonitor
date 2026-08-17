@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react'
-import { reportsAPI, visionTestAPI, authAPI } from '../services/api'
+import { reportsAPI, authAPI, triggerPdfDownload } from '../services/api'
 import { toast } from 'react-hot-toast'
 
 function Reports() {
   const [loading, setLoading] = useState(false)
   const [reportData, setReportData] = useState(null)
-  const [selectedPeriod, setSelectedPeriod] = useState('30')
+  const [selectedPeriod, setSelectedPeriod] = useState('90')
   const [userProfile, setUserProfile] = useState(null)
   const [generating, setGenerating] = useState(false)
 
@@ -42,22 +42,30 @@ function Reports() {
     setGenerating(true)
     try {
       const response = await reportsAPI.generate({ days: parseInt(selectedPeriod), format: 'pdf' })
-      
-      // Create blob and download
-      const blob = new Blob([response.data], { type: 'application/pdf' })
-      const url = window.URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.setAttribute('download', `eyevio-report-${selectedPeriod}days-${new Date().toISOString().split('T')[0]}.pdf`)
-      document.body.appendChild(link)
-      link.click()
-      link.remove()
-      window.URL.revokeObjectURL(url)
-      
+      triggerPdfDownload(
+        response.data,
+        `eyevio-report-${selectedPeriod}days-${new Date().toISOString().split('T')[0]}.pdf`
+      )
       toast.success('Report downloaded successfully!')
     } catch (error) {
       console.error('Failed to generate PDF:', error)
       toast.error('Failed to generate PDF report')
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  const downloadClinicianPDF = async () => {
+    setGenerating(true)
+    try {
+      const response = await reportsAPI.clinician({ days: parseInt(selectedPeriod) })
+      triggerPdfDownload(
+        response.data,
+        `eyevio-clinician-${selectedPeriod}d-${new Date().toISOString().split('T')[0]}.pdf`
+      )
+      toast.success('Clinician one-pager downloaded')
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'Failed to generate clinician PDF')
     } finally {
       setGenerating(false)
     }
@@ -96,32 +104,34 @@ function Reports() {
   return (
     <div className="space-y-8">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="page-title">Health Reports</h1>
-          <p className="page-subtitle">Comprehensive analysis of your vision health</p>
+          <p className="page-subtitle">Share a one-page snapshot with an optometrist, or download the longer summary</p>
         </div>
 
-        <button
-          onClick={downloadPDF}
-          disabled={generating || !reportData}
-          className="btn-primary min-h-[44px]"
-        >
-          {generating ? (
-            <>
-              <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent mr-2"></div>
-              Generating...
-            </>
-          ) : (
-            <>
-              <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-              Download PDF
-            </>
-          )}
-        </button>
+        <div className="flex flex-wrap gap-3">
+          <button
+            onClick={downloadClinicianPDF}
+            disabled={generating}
+            className="btn-primary min-h-[44px]"
+          >
+            {generating ? 'Generating…' : 'Clinician one-pager'}
+          </button>
+          <button
+            onClick={downloadPDF}
+            disabled={generating || !reportData}
+            className="btn-ghost min-h-[44px]"
+          >
+            Longer PDF
+          </button>
+        </div>
       </div>
+
+      <p className="text-sm text-gray-500 max-w-2xl">
+        The clinician one-pager is a single page: latest scores, a trend sparkline, and up to five flagged
+        concerns. Use the window below; 90 days is typical for an appointment packet.
+      </p>
 
       {/* Period Selector */}
       <div className="flex space-x-2 bg-white rounded-full p-1 border border-gray-200 w-fit">

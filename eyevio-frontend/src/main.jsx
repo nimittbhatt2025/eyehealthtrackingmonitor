@@ -6,8 +6,10 @@ import './styles/mobile.css'
 import { registerServiceWorker } from './utils/serviceWorker'
 import { CalibrationProvider } from './context/CalibrationContext'
 
+const enablePushInDev = import.meta.env.VITE_ENABLE_PUSH === 'true'
+
 // Remove stale service workers in dev — they cache old JS and break login
-if (import.meta.env.DEV && 'serviceWorker' in navigator) {
+if (import.meta.env.DEV && !enablePushInDev && 'serviceWorker' in navigator) {
   navigator.serviceWorker.getRegistrations().then((registrations) => {
     registrations.forEach((registration) => registration.unregister())
   })

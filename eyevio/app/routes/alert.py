@@ -53,6 +53,8 @@ def get_alerts():
                 'is_read': alert.is_read,
                 'is_actionable': alert.is_actionable,
                 'action_taken': alert.action_taken,
+                'email_sent': bool(alert.email_sent),
+                'push_sent': bool(alert.push_sent),
                 'created_at': alert.created_at.isoformat()
             } for alert in alerts]
         }), 200
@@ -136,6 +138,32 @@ def mark_all_read():
         
         return jsonify({'message': 'All alerts marked as read'}), 200
         
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@alert_bp.route('/<int:alert_id>/resend', methods=['POST'])
+@jwt_required()
+def resend_alert(alert_id):
+    """Re-attempt email/push delivery for an alert."""
+    try:
+        from app.services.alert_delivery import deliver_alert
+
+        user_id = int(get_jwt_identity())
+        alert = Alert.query.filter_by(id=alert_id, user_id=user_id).first()
+        if not alert:
+            return jsonify({'error': 'Alert not found'}), 404
+
+        # Allow forced resend by clearing delivery flags when requested
+        data = request.get_json(silent=True) or {}
+        if data.get('force'):
+            alert.email_sent = False
+            alert.push_sent = False
+
+        result = deliver_alert(alert)
+        db.session.commit()
+        return jsonify({'message': 'Delivery attempted', **result}), 200
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500

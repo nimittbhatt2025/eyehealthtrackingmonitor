@@ -11,7 +11,8 @@ from app.ai_models.dry_eye_analysis import (
     check_photo_lighting_from_base64,
     decode_base64_image,
 )
-from app.models import Alert, EyePhoto, db
+from app.models import EyePhoto, db
+from app.services.alert_delivery import create_and_deliver_alert
 from app.utils.eye_photo_comparison import (
     build_monthly_timeline,
     compare_photos,
@@ -120,7 +121,7 @@ def capture_eye_photo():
             alert_severity = 'critical' if severity in ('high', 'critical') else 'high'
 
             doctor_months = int(data.get('doctor_visit_interval_months', 6))
-            alert = Alert(
+            alert = create_and_deliver_alert(
                 user_id=user_id,
                 alert_type='eye_health_deterioration',
                 severity=alert_severity,
@@ -145,25 +146,16 @@ def capture_eye_photo():
                     'recommend_early_visit': comparison.get('recommend_doctor_visit', False),
                 },
                 is_actionable=True,
+                commit=False,
             )
-            db.session.add(alert)
             alert_created = {
-                'id': None,
+                'id': alert.id,
                 'severity': alert_severity,
                 'title': alert.title,
                 'message': alert.message,
             }
 
         db.session.commit()
-
-        if alert_created:
-            alert_row = (
-                Alert.query.filter_by(user_id=user_id, alert_type='eye_health_deterioration')
-                .order_by(Alert.created_at.desc())
-                .first()
-            )
-            if alert_row:
-                alert_created['id'] = alert_row.id
 
         return jsonify({
             'message': 'Eye photo saved and analyzed',

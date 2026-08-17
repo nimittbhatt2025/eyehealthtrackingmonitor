@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
-import { lifestyleAPI } from '../services/api'
+import { Link } from 'react-router-dom'
+import { lifestyleAPI, familyAPI } from '../services/api'
 import { toast } from 'react-hot-toast'
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 
@@ -7,6 +8,7 @@ function Lifestyle() {
   const [loading, setLoading] = useState(true)
   const [logs, setLogs] = useState([])
   const [trends, setTrends] = useState([])
+  const [familyGoals, setFamilyGoals] = useState(null)
   const [showLogForm, setShowLogForm] = useState(false)
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0])
   const [period, setPeriod] = useState('30')
@@ -28,12 +30,26 @@ function Lifestyle() {
   const loadData = async () => {
     setLoading(true)
     try {
-      const [logsResponse, trendsResponse] = await Promise.all([
+      const [logsResponse, trendsResponse, familyResponse] = await Promise.all([
         lifestyleAPI.getLogs({ days: 7 }),
-        lifestyleAPI.getTrends({ days: parseInt(period) })
+        lifestyleAPI.getTrends({ days: parseInt(period) }),
+        familyAPI.get().catch(() => ({ data: null })),
       ])
-      setLogs(logsResponse.data.logs || [])
+      setLogs(
+        (logsResponse.data.logs || []).map((log) => ({
+          ...log,
+          date: log.log_date || log.date,
+          screen_time: log.screen_time_hours ?? log.screen_time,
+          outdoor_time: log.outdoor_time_hours ?? log.outdoor_time,
+          screen_time_source: log.screen_time_source,
+        }))
+      )
       setTrends(trendsResponse.data.trends || [])
+      if (familyResponse?.data?.role === 'child') {
+        setFamilyGoals(familyResponse.data.goals)
+      } else {
+        setFamilyGoals(null)
+      }
     } catch (error) {
       console.error('Failed to load lifestyle data:', error)
       setLogs([])
@@ -47,14 +63,13 @@ function Lifestyle() {
     e.preventDefault()
     try {
       await lifestyleAPI.createLog({
-        ...formData,
-        date: selectedDate,
-        screen_time: parseFloat(formData.screen_time),
-        sleep_hours: parseFloat(formData.sleep_hours),
-        outdoor_time: parseFloat(formData.outdoor_time),
-        exercise_minutes: parseInt(formData.exercise_minutes),
-        diet_quality: parseInt(formData.diet_quality),
-        water_intake: parseFloat(formData.water_intake)
+        log_date: selectedDate,
+        screen_time_hours: formData.screen_time === '' ? null : parseFloat(formData.screen_time),
+        sleep_hours: formData.sleep_hours === '' ? null : parseFloat(formData.sleep_hours),
+        outdoor_time_hours: formData.outdoor_time === '' ? null : parseFloat(formData.outdoor_time),
+        exercise_minutes: formData.exercise_minutes === '' ? null : parseInt(formData.exercise_minutes, 10),
+        notes: formData.notes || null,
+        screen_time_source: 'manual',
       })
       
       toast.success('Lifestyle log saved!')
@@ -118,6 +133,27 @@ function Lifestyle() {
           Log Today
         </button>
       </div>
+
+      <Link
+        to="/digital-wellbeing"
+        className="block card p-4 border-l-4 border-l-sky-500 hover:shadow-elevated transition-shadow"
+      >
+        <p className="text-sm font-semibold text-sky-900">Skip manual screen-time entry</p>
+        <p className="text-sm text-gray-600 mt-1">
+          Connect Android Usage Access / iOS Device Activity (native app) or import a file — we
+          auto-fill lifestyle screen hours for you.
+        </p>
+      </Link>
+
+      {familyGoals && (
+        <div className="card p-4 border-l-4 border-l-teal-500">
+          <p className="text-sm font-semibold text-teal-900">Parent-set daily goals</p>
+          <p className="text-sm text-gray-700 mt-1">
+            Outdoor ≥ {familyGoals.outdoor_hours_target}h · Screen ≤ {familyGoals.screen_hours_limit}h ·{' '}
+            {familyGoals.breaks_target} × 20-20-20 breaks
+          </p>
+        </div>
+      )}
 
       {/* Log Form */}
       {showLogForm && (
@@ -439,12 +475,21 @@ function Lifestyle() {
                   <div key={log.id} className="border border-gray-200 rounded-xl p-6 hover:border-accent-300 transition-colors">
                     <div className="flex items-center justify-between mb-4">
                       <div className="text-lg font-semibold text-gray-900">{formatDate(log.date)}</div>
-                      <div className={`px-3 py-1 rounded-full text-sm font-semibold ${
-                        log.diet_quality >= 4 ? 'bg-green-100 text-green-700' :
-                        log.diet_quality === 3 ? 'bg-yellow-100 text-yellow-700' :
-                        'bg-red-100 text-red-700'
-                      }`}>
-                        Diet: {getQualityLabel(log.diet_quality)}
+                      <div className="flex items-center gap-2">
+                        {log.screen_time_source && log.screen_time_source !== 'manual' && (
+                          <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-sky-100 text-sky-800">
+                            Screen: synced
+                          </span>
+                        )}
+                        {log.diet_quality != null && (
+                          <div className={`px-3 py-1 rounded-full text-sm font-semibold ${
+                            log.diet_quality >= 4 ? 'bg-green-100 text-green-700' :
+                            log.diet_quality === 3 ? 'bg-yellow-100 text-yellow-700' :
+                            'bg-red-100 text-red-700'
+                          }`}>
+                            Diet: {getQualityLabel(log.diet_quality)}
+                          </div>
+                        )}
                       </div>
                     </div>
                     

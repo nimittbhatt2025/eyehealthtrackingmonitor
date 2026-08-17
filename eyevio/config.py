@@ -40,6 +40,28 @@ class Config:
     FATIGUE_THRESHOLD = 70  # Score above 70 triggers alert
     VISION_DECLINE_ALERT_THRESHOLD = 10  # 10% decline triggers alert
 
+    # Frontend URL (used in email / push deep links)
+    FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:3000')
+
+    # Email / SMTP
+    MAIL_SERVER = os.getenv('MAIL_SERVER')
+    MAIL_PORT = int(os.getenv('MAIL_PORT', 587))
+    MAIL_USE_TLS = os.getenv('MAIL_USE_TLS', 'True').lower() in ('1', 'true', 'yes')
+    MAIL_USE_SSL = os.getenv('MAIL_USE_SSL', 'False').lower() in ('1', 'true', 'yes')
+    MAIL_USERNAME = os.getenv('MAIL_USERNAME')
+    MAIL_PASSWORD = os.getenv('MAIL_PASSWORD')
+    MAIL_DEFAULT_SENDER = os.getenv(
+        'MAIL_DEFAULT_SENDER',
+        os.getenv('MAIL_USERNAME', 'EyeVio <noreply@eyevio.app>'),
+    )
+    MAIL_SUPPRESS_SEND = os.getenv('MAIL_SUPPRESS_SEND', 'False').lower() in ('1', 'true', 'yes')
+
+    # Web Push (VAPID)
+    VAPID_PUBLIC_KEY = os.getenv('VAPID_PUBLIC_KEY')
+    VAPID_PRIVATE_KEY = os.getenv('VAPID_PRIVATE_KEY')
+    VAPID_CLAIM_EMAIL = os.getenv('VAPID_CLAIM_EMAIL', 'mailto:noreply@eyevio.app')
+    PUSH_TTL_SECONDS = int(os.getenv('PUSH_TTL_SECONDS', 86400))
+
 
 class DevelopmentConfig(Config):
     """Development configuration"""

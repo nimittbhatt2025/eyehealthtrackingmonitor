@@ -38,6 +38,8 @@ def submit_lifestyle_log():
             lifestyle_log.screen_time_hours = data['screen_time_hours']
         if 'screen_time_breakdown' in data:
             lifestyle_log.screen_time_breakdown = data['screen_time_breakdown']
+        if 'screen_time_source' in data:
+            lifestyle_log.screen_time_source = data['screen_time_source']
         if 'sleep_hours' in data:
             lifestyle_log.sleep_hours = data['sleep_hours']
         if 'sleep_quality' in data:
@@ -115,6 +117,7 @@ def get_lifestyle_logs():
                 'log_date': log.log_date.isoformat(),
                 'screen_time_hours': log.screen_time_hours,
                 'screen_time_breakdown': log.screen_time_breakdown,
+                'screen_time_source': log.screen_time_source,
                 'sleep_hours': log.sleep_hours,
                 'sleep_quality': log.sleep_quality,
                 'lighting_condition': log.lighting_condition,

@@ -220,3 +220,46 @@ def generate_report():
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@report_bp.route('/clinician', methods=['GET'])
+@jwt_required()
+def clinician_one_pager():
+    """One-page PDF an optometrist can glance at during an appointment."""
+    try:
+        requester_id = int(get_jwt_identity())
+        days = request.args.get('days', type=int, default=90) or 90
+        days = max(7, min(days, 365))
+        child_user_id = request.args.get('child_user_id', type=int)
+
+        if child_user_id:
+            from app.services.family import assert_can_view_child
+
+            try:
+                assert_can_view_child(requester_id, child_user_id)
+            except PermissionError as exc:
+                return jsonify({'error': str(exc)}), 403
+            user = User.query.get(child_user_id)
+        else:
+            user = User.query.get(requester_id)
+
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+
+        from app.services.clinician_report import (
+            assemble_clinician_payload,
+            clinician_filename,
+            render_clinician_pdf,
+        )
+
+        payload = assemble_clinician_payload(user, days=days)
+        buffer = render_clinician_pdf(payload)
+        filename = clinician_filename(user)
+        return send_file(
+            buffer,
+            as_attachment=True,
+            download_name=filename,
+            mimetype='application/pdf',
+        )
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
