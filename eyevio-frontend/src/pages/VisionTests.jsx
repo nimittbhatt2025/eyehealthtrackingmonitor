@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { visionTestAPI } from '../services/api'
+import SamdDisclaimer from '../components/SamdDisclaimer'
 
 function VisionTests() {
   const [tests, setTests] = useState([])
@@ -30,7 +31,7 @@ function VisionTests() {
       description: 'A letter chart test, like the one at the eye doctor. See how clearly you can read letters from far away. Each eye is checked on its own.',
       duration: '3-4 minutes',
       features: ['Clear-vision score', '20/20 style result', 'Each eye checked', 'Left vs right compare'],
-      badge: 'Doctor-style'
+      badge: 'Home check'
     },
     {
       type: 'color_vision',
@@ -62,26 +63,26 @@ function VisionTests() {
     {
       type: 'glaucoma_neural',
       title: 'Side Vision Test',
-      subtitle: 'The edges of what you see (Glaucoma screen)',
-      description: 'Look straight ahead and notice faint dots near the center and edges of your view. This checks your side vision, which can change slowly and quietly over time.',
+      subtitle: 'The edges of what you see (not a glaucoma exam)',
+      description: 'Look straight ahead and notice faint dots near the center and edges of your view. This is a home side-vision exercise — not a visual-field test and not a glaucoma screen.',
       duration: '4-5 minutes',
-      features: ['Side-vision check', 'Early warning', 'Sensitivity map'],
-      badge: 'Doctor-style'
+      features: ['Side-vision check', 'Four-corner map', 'Home exercise'],
+      badge: 'Home check'
     },
     {
       type: 'cataract_glare',
       title: 'Glare Sensitivity Test',
       subtitle: 'How much bright light bothers you',
-      description: 'See how bright light and glare affect your vision. Cloudy lenses can scatter light and make it harder to see clearly.',
+      description: 'See how bright light and glare affect your vision. This is a glare-tolerance exercise — not a cataract diagnosis or lens-opacity measurement.',
       duration: '4-5 minutes',
       features: ['Glare check', 'Light-scatter check', 'Everyday vision'],
-      badge: 'Doctor-style'
+      badge: 'Home check'
     },
     {
       type: 'dry_eye',
-      title: 'Dry Eye Screening',
+      title: 'Dry Eye Check',
       subtitle: 'Photo check for dryness signs',
-      description: 'Take a well-lit photo of your eyes. We check redness and how smooth your tear film looks on the eye surface. Quick screening — not a diagnosis.',
+      description: 'Take a well-lit photo of your eyes. We check redness and how smooth your tear film looks on the eye surface. Not a dry-eye diagnosis.',
       duration: '3-4 minutes',
       features: ['Symptom questionnaire', 'Redness check', 'Tear film check'],
       badge: 'New',
@@ -133,7 +134,8 @@ function VisionTests() {
       {/* Header */}
       <div className="animate-fade-in-up">
         <h1 className="page-title">Vision Tests</h1>
-        <p className="page-subtitle">Choose a test to monitor your vision health</p>
+        <p className="page-subtitle">Home checks to track how your vision feels — not a clinic exam</p>
+        <SamdDisclaimer className="mt-4 max-w-3xl" />
       </div>
 
       {/* Test Type Cards */}

@@ -10,6 +10,7 @@ import {
 } from '../utils/dryEyeQuestionnaire'
 import assessVideoLighting from '../utils/photoLightingCheck'
 import PhotoLightingBanner from '../components/PhotoLightingBanner'
+import SamdDisclaimer from '../components/SamdDisclaimer'
 
 /**
  * Dry Eye Screening Test (Option B + OSDI-lite)
@@ -256,8 +257,7 @@ const DryEyeTest = () => {
             </div>
 
             <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-8 text-sm text-amber-900">
-              <strong>Important:</strong> This is a screening tool only. It cannot diagnose dry eye disease.
-              If your eyes often feel dry, gritty, or burn, please see an eye care professional.
+              <strong>Important:</strong> This home check cannot diagnose dry eye disease.
             </div>
 
             <div className="flex gap-4">
@@ -467,7 +467,7 @@ const DryEyeTest = () => {
               </ul>
             </div>
 
-            <p className="text-xs text-gray-500 mb-8">{results.disclaimer}</p>
+            <SamdDisclaimer testType="dry_eye" className="mb-8" />
 
             <div className="flex gap-4">
               <button type="button" onClick={handleRetake} className="test-btn-outline" disabled={submitting}>

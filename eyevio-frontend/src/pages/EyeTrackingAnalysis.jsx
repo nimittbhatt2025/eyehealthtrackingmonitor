@@ -7,6 +7,7 @@ import { generatePersonalizedFeedback, assessDoctorVisit } from '../utils/eyeHea
 import { useAuthStore } from '../store/authStore'
 import { authAPI, visionTestAPI, calibrationAPI } from '../services/api'
 import { VisionTestShell, TestPrepLayout, TestDetails, TestExitButton } from '../components/TestPrepLayout'
+import SamdDisclaimer from '../components/SamdDisclaimer'
 
 /**
  * Enhanced Eye Tracking Analysis Component
@@ -357,7 +358,7 @@ export default function EyeTrackingAnalysis() {
             onBack={exitSession}
             onPrimary={startSession}
             primaryLabel="Start session"
-            footerNote="Measures blink rate, duration, and fatigue indicators."
+            footerNote="Home blink-and-fatigue session — not a medical diagnosis."
           >
             <TestDetails summary="Calibration status">
               <p className="text-xs">
@@ -611,6 +612,8 @@ export default function EyeTrackingAnalysis() {
                   <p className="text-gray-700">{results.recommendation}</p>
                 </div>
               )}
+
+              <SamdDisclaimer testType="eye_tracking" className="mb-6" />
 
               {/* Actions */}
               <div className="flex flex-col sm:flex-row gap-4">

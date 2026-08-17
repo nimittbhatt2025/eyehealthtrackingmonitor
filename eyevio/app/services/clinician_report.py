@@ -37,9 +37,9 @@ TEST_LABELS = [
     ('contrast_sensitivity', 'Contrast sensitivity'),
     ('color_vision', 'Color (Ishihara-style)'),
     ('amsler_grid', 'Amsler / central'),
-    ('glaucoma_neural', 'Paracentral screen'),
+    ('glaucoma_neural', 'Side-vision home check'),
     ('cataract_glare', 'Glare / scatter'),
-    ('dry_eye', 'Dry-eye screen'),
+    ('dry_eye', 'Dry-eye home check'),
     ('peripheral_awareness', 'Peripheral awareness'),
 ]
 
@@ -325,10 +325,10 @@ def render_clinician_pdf(payload: Dict[str, Any]) -> BytesIO:
     c.rect(0, height - 0.58 * inch, width, 0.58 * inch, stroke=0, fill=1)
     c.setFillColor(white)
     c.setFont('Times-Bold', 16)
-    c.drawString(ml, height - 0.36 * inch, 'EyeVio  ·  Clinical screening summary')
+    c.drawString(ml, height - 0.36 * inch, 'EyeVio  ·  Home-check summary')
     c.setFont('Helvetica', 8)
     c.drawRightString(width - mr, height - 0.28 * inch, 'ONE PAGE')
-    c.drawRightString(width - mr, height - 0.44 * inch, 'Not a diagnosis  ·  Home screening data')
+    c.drawRightString(width - mr, height - 0.44 * inch, 'Not a diagnostic device  ·  Not FDA-cleared SaMD')
 
     y = height - 0.82 * inch
     patient = payload['patient']
@@ -362,7 +362,7 @@ def render_clinician_pdf(payload: Dict[str, Any]) -> BytesIO:
     y -= 18
     c.setFillColor(TEAL_DARK)
     c.setFont('Times-Bold', 11)
-    c.drawString(ml, y, 'Latest screening scores')
+    c.drawString(ml, y, 'Latest home-check scores')
     c.drawString(ml + content_w * 0.58, y, 'Vision score trend')
 
     y -= 12
@@ -519,12 +519,10 @@ def render_clinician_pdf(payload: Dict[str, Any]) -> BytesIO:
     # Footer — stay on page 1
     c.setFillColor(MUTED)
     c.setFont('Helvetica', 7)
-    footer = (
-        'Educational home-screening summary for clinical conversation only. Not a refraction, not LOCS/ICD diagnosis, '
-        'not a substitute for a comprehensive eye examination. Scores are app-based and device/distance dependent.'
-    )
-    c.drawString(ml, 0.42 * inch, footer[:120])
-    c.drawString(ml, 0.30 * inch, footer[120:])
+    footer_1 = 'Not a diagnostic device. EyeVio is not FDA-cleared SaMD and is not intended to diagnose, treat, or prevent disease.'
+    footer_2 = 'Home scores are device/distance dependent. Not a refraction, not LOCS/ICD, not a comprehensive eye exam.'
+    c.drawString(ml, 0.42 * inch, footer_1)
+    c.drawString(ml, 0.30 * inch, footer_2)
     c.setFont('Helvetica', 7)
     c.drawRightString(width - mr, 0.30 * inch, 'Page 1 of 1')
 

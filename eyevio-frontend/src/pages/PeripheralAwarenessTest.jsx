@@ -3,6 +3,7 @@ import cameraManager from '../utils/cameraManager.js'
 import { useNavigate } from 'react-router-dom'
 import { visionTestAPI } from '../services/api'
 import EyeTracker from '../utils/eyeTracker'
+import SamdDisclaimer from '../components/SamdDisclaimer'
 
 /**
  * Peripheral Awareness Trainer - Gamified Visual Field Test
@@ -345,9 +346,9 @@ const PeripheralAwarenessTest = () => {
           <div className="bg-green-50 border-l-4 border-green-600 p-6 mb-8 rounded-r-xl">
             <h2 className="text-lg font-bold text-green-900 mb-2">What This Tests</h2>
             <p className="text-green-800">
-              Your <strong>peripheral vision</strong> is crucial for safety, spatial awareness, and reaction time. 
-              This fun "Whack-a-Mole" game tests your ability to detect targets <strong>without looking at them directly</strong>, 
-              helping identify early visual field deficits from glaucoma, retinal damage, or neurological issues.
+              Your <strong>side awareness</strong> matters for sports and walking in crowds.
+              This game checks whether you can tap edge targets while looking at the center.
+              It is <strong>not</strong> a visual-field test and does not screen for or diagnose glaucoma or neurological disease.
             </p>
           </div>
 
@@ -738,6 +739,8 @@ const PeripheralAwarenessTest = () => {
                 </p>
               </div>
             )}
+
+            <SamdDisclaimer testType="peripheral_awareness" className="mb-6" />
 
             {/* Action buttons */}
             <div className="flex flex-col sm:flex-row gap-4">

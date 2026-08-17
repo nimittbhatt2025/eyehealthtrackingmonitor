@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import cameraManager from '../utils/cameraManager.js'
 import { useNavigate } from 'react-router-dom'
 import { visionTestAPI } from '../services/api'
+import SamdDisclaimer from '../components/SamdDisclaimer'
 
 /**
  * Accommodative Lag Tracker - Near-Work Stress Test
@@ -633,6 +634,8 @@ const AccommodativeLagTest = () => {
             </div>
 
             {/* Action buttons */}
+            <SamdDisclaimer testType="accommodative_lag" className="mb-6" />
+
             <div className="flex flex-col sm:flex-row gap-4">
               <button
                 onClick={() => setTestState('instructions')}

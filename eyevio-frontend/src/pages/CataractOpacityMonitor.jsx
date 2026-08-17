@@ -16,6 +16,7 @@ import cameraManager from '../utils/cameraManager'
 import { eyePhotoAPI } from '../services/api'
 import assessVideoLighting from '../utils/photoLightingCheck'
 import PhotoLightingBanner from '../components/PhotoLightingBanner'
+import SamdDisclaimer from '../components/SamdDisclaimer'
 
 const CONDITION_TYPE = 'cataract'
 const DOCTOR_INTERVAL_KEY = 'cataract_monitor_doctor_months'
@@ -265,15 +266,12 @@ export default function CataractOpacityMonitor() {
   return (
     <div className="max-w-5xl mx-auto space-y-6 pb-10">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Cataract Opacity Monitor</h1>
+        <h1 className="text-2xl font-bold text-gray-900">Lens photo timeline</h1>
         <p className="text-gray-600 mt-1 text-sm max-w-2xl">
-          Phase 1 screening: capture an anterior eye photo each month to track opacity grade over time.
-          This estimates cloudiness — not cataract size in millimeters, and not LOCS III diagnosis.
+          Capture an anterior eye photo each month to track a home cloudiness grade over time.
+          This estimates appearance — not cataract size in millimeters, and not LOCS III diagnosis.
         </p>
-        <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-md px-3 py-2 mt-3 max-w-2xl">
-          A dilated slit-lamp exam remains the clinical standard. Use this for trends between visits, and
-          share results with your eye doctor.
-        </p>
+        <SamdDisclaimer testType="cataract" className="mt-3 max-w-2xl" />
       </div>
 
       <div className="card p-5 grid gap-4 sm:grid-cols-2">
@@ -481,6 +479,7 @@ export default function CataractOpacityMonitor() {
 
       {view === 'results' && lastResult && (
         <div className="space-y-4">
+          <SamdDisclaimer testType="cataract" />
           <div className="card p-5 border-l-4 border-l-accent-500">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>

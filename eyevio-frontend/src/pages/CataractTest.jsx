@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { visionTestAPI } from '../services/api'
+import SamdDisclaimer from '../components/SamdDisclaimer'
 
 /**
  * Cataract "Glare & Scatter" Test
@@ -427,25 +428,25 @@ const CataractTest = () => {
 
     if (score >= 75 && sensitivity < 0.25) {
       return {
-        status: 'Low Risk',
+        status: 'Less glare trouble',
         color: 'green',
-        message: 'Excellent glare recovery. Your lens appears clear with minimal light scatter.',
+        message: 'Glare bothered you less on this home check. That is not proof the lens is clear and is not a cataract exam.',
         icon: '✓',
         risk: 'low'
       }
     } else if (score >= 60 && sensitivity < 0.4) {
       return {
-        status: 'Moderate Risk',
+        status: 'Some glare trouble',
         color: 'yellow',
-        message: 'Bright glare gave you some trouble. This can be an early sign of lens changes. It is worth booking an eye exam.',
+        message: 'Bright glare gave you some trouble. Book an eye exam if this is new. This home check does not diagnose cataract.',
         icon: '!',
         risk: 'moderate'
       }
     } else {
       return {
-        status: 'Higher Risk',
+        status: 'More glare trouble',
         color: 'red',
-        message: 'Bright glare made it much harder for you to see. This can be a sign that the lens in your eye is getting cloudy (cataracts). Please book a full eye exam.',
+        message: 'Bright glare made it much harder for you to see. Please book a full eye exam. This home check does not diagnose cataract or measure lens opacity.',
         icon: '!',
         risk: 'high'
       }
@@ -482,18 +483,12 @@ const CataractTest = () => {
                 </h3>
                 <div className="text-sm text-orange-900 space-y-2">
                   <p>
-                    <strong>Cataracts cloud your lens</strong>, causing light to scatter inside your eye. This is why people with cataracts struggle with night driving - oncoming headlights create "halos" that wash out everything.
+                    A cloudy lens can scatter light, which is one reason some people struggle with night glare.
+                    This exercise copies that experience with striped patterns and a bright overlay.
                   </p>
                   <p className="mt-2">
-                    This test copies that experience using:
-                  </p>
-                  <ul className="ml-4 mt-2 space-y-1">
-                    <li>• <strong>Fuzzy striped patterns</strong> at different sizes</li>
-                    <li>• <strong>A bright glare</strong> that acts like headlights at night</li>
-                    <li>• <strong>How you cope with the glare</strong> — the key sign of a clear lens</li>
-                  </ul>
-                  <p className="mt-2">
-                    <strong>The idea:</strong> A clear lens lets you still see the stripes through the glare. A cloudy lens scatters the glare, making the stripes disappear.
+                    <strong>Important:</strong> glare trouble has many causes. This is not a cataract exam,
+                    not LOCS grading, and does not diagnose disease.
                   </p>
                 </div>
               </div>
@@ -778,25 +773,18 @@ const CataractTest = () => {
 
             {/* Educational Info */}
             <div className="bg-blue-50 border border-blue-200 rounded-xl p-6 mb-8">
-              <h3 className="font-semibold text-blue-900 mb-3">About cataracts and glare</h3>
+              <h3 className="font-semibold text-blue-900 mb-3">About glare (education only)</h3>
               <div className="text-sm text-blue-800 space-y-2">
                 <p>
-                  A cataract is when the clear lens inside your eye slowly turns cloudy. The cloudy areas scatter light inside the eye instead of letting it pass through cleanly.
+                  Night glare can come from many things, including uncorrected refractive error, dry eye, dirty lenses, or a cloudy crystalline lens. Only an eye doctor can sort those out.
                 </p>
-                <p className="mt-3">
-                  <strong>Why glare matters:</strong> When bright light (like headlights) hits a cloudy lens, it scatters and puts a "veil" over your vision. That makes it hard to see things like road signs or people at night.
+                <p>
+                  If this home check flags glare trouble: book a full eye exam, mention night driving or halos, and do not treat these scores as a cataract diagnosis.
                 </p>
-                <p className="mt-3">
-                  <strong>What you can do if this test flags a concern:</strong>
-                </p>
-                <ul className="ml-4 mt-2 space-y-1">
-                  <li>• Get a full eye exam with an eye doctor</li>
-                  <li>• Mention any trouble with night driving, glare, or halos</li>
-                  <li>• Cataracts can be fixed with a common, safe surgery if they affect daily life</li>
-                  <li>• Wearing sunglasses outdoors may help slow them down</li>
-                </ul>
               </div>
             </div>
+
+            <SamdDisclaimer testType="cataract_glare" className="mb-8" />
 
             {/* Action Buttons */}
             <div className="flex gap-4">

@@ -183,7 +183,7 @@ function Home() {
               Available Vision Tests
             </h2>
             <p className="text-lg text-gray-600 max-w-2xl mx-auto">
-              Choose from our selection of medically validated tests to assess different aspects of your vision.
+              Home vision checks for different everyday tasks. Not FDA-cleared diagnostic tests.
             </p>
           </div>
 

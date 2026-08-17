@@ -5,6 +5,7 @@ import { toast } from 'react-hot-toast'
 import DistanceCalibration from '../components/DistanceCalibration'
 import WebcamEyeTracker from '../components/WebcamEyeTracker'
 import { useVoiceRecognition } from '../hooks/useVoiceRecognition'
+import SamdDisclaimer from '../components/SamdDisclaimer'
 
 function VisionTestRunner() {
   const { testType } = useParams()
@@ -723,6 +724,8 @@ function VisionTestRunner() {
              finalScore >= 60 ? 'Your vision is fair. Consider regular monitoring.' :
              'Please consult with an eye care professional.'}
           </div>
+
+          <SamdDisclaimer className="mb-6 text-left" />
 
           <div className="space-y-3">
             <button

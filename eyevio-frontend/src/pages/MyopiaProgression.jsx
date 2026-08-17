@@ -15,6 +15,7 @@ import {
   Area,
 } from 'recharts'
 import { myopiaAPI } from '../services/api'
+import SamdDisclaimer from '../components/SamdDisclaimer'
 
 const emptyRx = {
   measured_at: new Date().toISOString().slice(0, 10),
@@ -195,8 +196,8 @@ function MyopiaProgression() {
           Track spherical equivalent over time, spot fast progression, and connect it to outdoor time
           and screen habits — the lifestyle levers that matter most for school-age myopia.
         </p>
-        <p className="mt-2 text-xs text-gray-500 max-w-2xl">
-          Educational monitoring only. Not a diagnosis or substitute for pediatric eye exams.
+        <p className="mt-2">
+          <SamdDisclaimer testType="myopia" />
         </p>
       </div>
 

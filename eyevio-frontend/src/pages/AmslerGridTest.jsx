@@ -5,6 +5,7 @@ import InlineDistanceCalibration from '../components/InlineDistanceCalibration'
 import { VisionTestShell } from '../components/TestPrepLayout'
 import EyeCoverageVerification from '../components/EyeCoverageVerification'
 import { visionTestAPI } from '../services/api'
+import SamdDisclaimer from '../components/SamdDisclaimer'
 
 /**
  * Clinical-Grade Amsler Grid Test
@@ -801,16 +802,8 @@ const AmslerGridTest = () => {
             <div className="bg-red-50 border-2 border-red-200 rounded-xl p-6">
               <h3 className="text-xl font-bold text-red-900 mb-3"> Important</h3>
               <p className="text-red-800 mb-3">
-                You reported seeing distortions in the grid. This could indicate:
-              </p>
-              <ul className="text-red-800 space-y-2 ml-6">
-                <li>• Macular degeneration</li>
-                <li>• Diabetic retinopathy</li>
-                <li>• Macular edema</li>
-                <li>• Other retinal conditions</li>
-              </ul>
-              <p className="text-red-900 font-bold mt-4">
-                 We recommend consulting an eye care professional for a comprehensive examination.
+                You reported seeing distortions in the grid. Some retinal conditions can cause similar
+                changes — this home check cannot tell which, if any, apply. See an eye doctor for a dilated exam.
               </p>
             </div>
           )}
@@ -825,6 +818,8 @@ const AmslerGridTest = () => {
             </ul>
           </div>
         </div>
+
+        <SamdDisclaimer testType="amsler_grid" className="mt-6" />
         
         <div className="mt-8 flex gap-4">
           <button

@@ -3,6 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import { visionTestAPI } from '../services/api'
 import { toast } from 'react-hot-toast'
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, LineChart, Line, Legend, RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis } from 'recharts'
+import SamdDisclaimer from '../components/SamdDisclaimer'
 
 function DryEyeTestDetails({ testData, comparisonTests, navigate }) {
   const details = testData.test_details || {}
@@ -55,6 +56,8 @@ function DryEyeTestDetails({ testData, comparisonTests, navigate }) {
           <span className={`inline-flex mt-2 ${badge.className}`}>{badge.label}</span>
         </div>
       </div>
+
+      <SamdDisclaimer testType="dry_eye" />
 
       {details.risk_message && (
         <div className="card p-6 bg-accent-50 border border-accent-100">
@@ -341,6 +344,8 @@ function TestDetails() {
           <div className="text-sm font-semibold mt-1">{getScoreLabel(testData.score)}</div>
         </div>
       </div>
+
+      <SamdDisclaimer testType={testData.test_type} />
 
       {/* Performance Insight */}
       <div className={`bg-${insight.color}-50 border-2 border-${insight.color}-200 rounded-2xl p-6`}>

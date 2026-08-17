@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { reportsAPI, authAPI, triggerPdfDownload } from '../services/api'
 import { toast } from 'react-hot-toast'
+import SamdDisclaimer from '../components/SamdDisclaimer'
 
 function Reports() {
   const [loading, setLoading] = useState(false)
@@ -108,6 +109,7 @@ function Reports() {
         <div>
           <h1 className="page-title">Health Reports</h1>
           <p className="page-subtitle">Share a one-page snapshot with an optometrist, or download the longer summary</p>
+          <SamdDisclaimer className="mt-3 max-w-2xl" />
         </div>
 
         <div className="flex flex-wrap gap-3">

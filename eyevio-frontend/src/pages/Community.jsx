@@ -7,7 +7,7 @@ function Community() {
   const welcomeMessage = {
     id: 1,
     author: 'EyeCareDoc',
-    tip: 'Welcome to the EyeVio Community! This platform is designed to help you monitor and improve your vision health through regular testing, lifestyle tracking, and AI-powered insights. Key features include: Vision Tests (Acuity, Astigmatism, Color Blindness, Contrast Sensitivity), Webcam Analysis for eye health monitoring, Lifestyle Tracking to understand how sleep, screen time, and exercise affect your vision, AI Predictions to forecast your vision trends, and Achievement System to keep you motivated. Remember, EyeVio is a screening tool and should not replace professional eye care. If you notice any concerning changes in your vision, please consult an eye care professional. We\'re excited to have you on this journey to better vision health!',
+    tip: 'Welcome to the EyeVio Community. EyeVio is wellness software, not an FDA-cleared diagnostic device (SaMD). Home checks do not diagnose glaucoma, cataract, or any other disease and do not replace a comprehensive eye exam. If you notice concerning changes, see an eye care professional.',
     category: 'Platform Info',
     date: 'Welcome',
     isOfficial: true

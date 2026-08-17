@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import cameraManager from '../utils/cameraManager.js'
 import { useNavigate } from 'react-router-dom'
 import { visionTestAPI } from '../services/api'
+import SamdDisclaimer from '../components/SamdDisclaimer'
 
 /**
  * Ocular Ergonomics AI - Ambient Monitor
@@ -849,6 +850,8 @@ const OcularErgonomicsMonitor = () => {
                 </div>
               ))}
             </div>
+
+            <SamdDisclaimer testType="ocular_ergonomics" className="mb-6" />
 
             {/* Action buttons */}
             <div className="flex flex-col sm:flex-row gap-4">

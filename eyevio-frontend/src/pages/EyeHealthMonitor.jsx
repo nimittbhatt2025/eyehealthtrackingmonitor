@@ -16,6 +16,7 @@ import cameraManager from '../utils/cameraManager'
 import { eyePhotoAPI } from '../services/api'
 import assessVideoLighting from '../utils/photoLightingCheck'
 import PhotoLightingBanner from '../components/PhotoLightingBanner'
+import SamdDisclaimer from '../components/SamdDisclaimer'
 
 const CONDITIONS = [
   {
@@ -430,7 +431,7 @@ export default function EyeHealthMonitor() {
           )}
 
           <p className="text-xs text-gray-500 text-center">
-            Screening only — not a medical diagnosis. Always follow your eye care provider&apos;s advice.
+            Not a diagnostic device. Front-facing photos cannot assess glaucoma.
           </p>
         </>
       )}
@@ -495,6 +496,7 @@ export default function EyeHealthMonitor() {
 
       {view === 'results' && lastResult && (
         <div className="space-y-4">
+          <SamdDisclaimer testType={conditionType} />
           {(lastResult.lighting_warning || lastResult.lighting?.quality === 'fair') && (
             <div className="card p-4 border-l-4 border-l-amber-500 bg-amber-50">
               <p className="text-sm font-semibold text-amber-900">Lighting warning</p>

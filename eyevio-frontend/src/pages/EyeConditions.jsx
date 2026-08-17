@@ -23,6 +23,7 @@ import {
   Frown,
 } from 'lucide-react'
 import { CONDITION_DATABASE, EYE_CONDITIONS, getConditionsByCategory, searchConditions } from '../utils/comprehensiveEyeConditions'
+import SamdDisclaimer from '../components/SamdDisclaimer'
 import { resolveAppTests } from '../utils/visionTestRoutes'
 
 const EyeConditions = () => {
@@ -277,14 +278,7 @@ const EyeConditions = () => {
           </div>
 
           {/* Medical Disclaimer */}
-          <div className="bg-gray-100 border border-gray-300 rounded-xl p-4 mt-6">
-            <p className="text-xs text-gray-600 text-center">
-               <strong>Medical Disclaimer:</strong> This information is for educational purposes
-              only and is not a substitute for professional medical advice, diagnosis, or treatment.
-              Always consult with a qualified healthcare provider about any questions you may have
-              regarding a medical condition.
-            </p>
-          </div>
+          <SamdDisclaimer className="mt-6" />
         </div>
       </div>
     )
@@ -520,16 +514,7 @@ const EyeConditions = () => {
         </div>
 
         {/* Medical Disclaimer */}
-        <div className="bg-gray-100 border border-gray-300 rounded-xl p-6 mt-8">
-          <p className="text-sm text-gray-600 text-center">
-             <strong>Important Medical Disclaimer:</strong> The information provided in this
-            library is for educational purposes only and should not be used as a substitute for
-            professional medical advice, diagnosis, or treatment. Always seek the advice of your
-            physician or other qualified health provider with any questions you may have regarding a
-            medical condition. Never disregard professional medical advice or delay in seeking it
-            because of something you have read here.
-          </p>
-        </div>
+        <SamdDisclaimer className="mt-8" />
       </div>
     </div>
   )

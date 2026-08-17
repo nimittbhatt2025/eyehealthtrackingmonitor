@@ -110,7 +110,7 @@ class MedicalSafetyFilter {
   }
 
   wrapWithDisclaimer(content) {
-    return ` **Medical Disclaimer**: The following is educational information only. I cannot diagnose or prescribe treatment.\n\n${content}\n\n **Please consult an eye care professional for proper diagnosis and treatment.**`;
+    return `**Not a diagnostic device.** EyeVio is not FDA-cleared SaMD and cannot diagnose or prescribe treatment.\n\n${content}\n\nPlease consult an eye care professional for diagnosis and treatment.`
   }
 
   requiresProfessionalConsult(userInput) {
@@ -144,7 +144,7 @@ class RedFlagDetector {
       urgent: [
         { pattern: /(sudden|many|lots of) (floaters|spots|specks)/i, flag: 'Sudden floaters' },
         { pattern: /flash(es|ing) (of light|lights)/i, flag: 'Flashing lights' },
-        { pattern: /halo(s|es) around lights?/i, flag: 'Halos (possible acute glaucoma)' },
+        { pattern: /halo(s|es) around lights?/i, flag: 'Halos (seek urgent care if with pain or sudden vision change)' },
         { pattern: /double vision (sudden|started)/i, flag: 'Sudden double vision' },
         { pattern: /(red|bloodshot) and (painful|hurts)/i, flag: 'Painful red eye' },
         { pattern: /(pus|discharge) and (pain|red)/i, flag: 'Infected eye' },

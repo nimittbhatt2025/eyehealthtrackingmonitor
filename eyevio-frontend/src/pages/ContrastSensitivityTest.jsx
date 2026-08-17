@@ -5,6 +5,7 @@ import EyeCoverageVerification from '../components/EyeCoverageVerification'
 import { visionTestAPI } from '../services/api'
 import removeEmojis from '../utils/removeEmojis.js'
 import { TestPrepLayout, TestDetails, TestActiveBar, VisionTestShell } from '../components/TestPrepLayout'
+import SamdDisclaimer from '../components/SamdDisclaimer'
 
 /**
  * WORLD-CLASS CONTRAST SENSITIVITY TEST
@@ -1003,7 +1004,7 @@ const ContrastSensitivityTest = () => {
         startTest()
       }}
       primaryLabel="Start Test"
-      footerNote="More important than 20/20 for night driving and low light."
+      footerNote="Home faint-shape check — not a diagnostic exam."
     >
       <div className="test-mode-row">
         <button type="button" onClick={() => { setTestMode('standard'); startTest() }} className="test-mode-chip test-mode-chip-active">
@@ -1379,7 +1380,7 @@ const ContrastSensitivityTest = () => {
         bgGradient: 'from-red-500 to-orange-500',
         status: 'Consult Eye Doctor', 
         emoji: '[ALERT]',
-        description: 'You find it much harder to see faint shapes than most people. Please book an eye exam so a doctor can check for common causes like cataracts or glaucoma.'
+        description: 'You find it much harder to see faint shapes than most people. Please book an eye exam. This home check does not diagnose cataract, glaucoma, or any other disease.'
       }
     }
     
@@ -1728,19 +1729,18 @@ const ContrastSensitivityTest = () => {
             <div className="bg-amber-50 border-2 border-amber-300 rounded-xl p-6 mb-8">
               <h3 className="font-bold text-amber-900 mb-3 flex items-center gap-2">
                 <span className="text-xl"></span>
-                Clinical Recommendations:
+                What to do next
               </h3>
               <ul className="text-amber-800 space-y-2 text-sm">
                 {avgScore < 1.0 && (
                   <>
                     <li className="font-semibold text-red-700">
-                      [WARNING] IMMEDIATE ACTION REQUIRED:
+                      [WARNING] Book an eye exam:
                     </li>
-                    <li>• Schedule comprehensive eye exam with ophthalmologist ASAP</li>
-                    <li>• Possible cataract, glaucoma, or retinal condition</li>
-                    <li>• <span className="font-bold">Avoid night driving</span> until evaluated by doctor</li>
-                    <li>• High risk for falls - use extra lighting at home</li>
-                    <li>• May not be safe to drive in fog or rain</li>
+                    <li>• Schedule a comprehensive exam with an optometrist or ophthalmologist</li>
+                    <li>• Mention dim-light and night-driving difficulty — this app does not diagnose the cause</li>
+                    <li>• Use extra lighting at home until you are evaluated</li>
+                    <li>• Ask your clinician before relying on night driving</li>
                   </>
                 )}
                 {avgScore >= 1.0 && avgScore < 1.5 && (
@@ -1748,7 +1748,7 @@ const ContrastSensitivityTest = () => {
                     <li className="font-semibold text-yellow-700">
                       [WARNING] RECOMMENDED ACTIONS:
                     </li>
-                    <li>• Consider eye exam for early disease detection</li>
+                    <li>• Consider an eye exam if this is new or worsening</li>
                     <li>• Use extra caution in low-light conditions</li>
                     <li>• Monitor for changes in vision quality</li>
                     <li>• May benefit from anti-glare coating on glasses</li>
@@ -1791,6 +1791,8 @@ const ContrastSensitivityTest = () => {
               </div>
             </div>
           </div>
+
+          <SamdDisclaimer testType="contrast_sensitivity" className="mb-6" />
 
           <button
             onClick={() => navigate('/vision-tests')}

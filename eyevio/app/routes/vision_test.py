@@ -14,18 +14,17 @@ def submit_vision_test():
     """
     Submit a new vision test result
     
-    Supported test types:
-    - acuity: Visual acuity (Snellen-like)
-    - color: Color blindness (Ishihara)
-    - contrast: Amsler grid (macular health)
-    - contrast_sensitivity: Pelli-Robson style (functional vision, early glaucoma/cataract detection)
-    - glaucoma_neural: Paracentral neural loss detection (early glaucoma screening)
-    - cataract_glare: Lens clarity with glare simulation (cataract detection)
-    - red_reflex: Digital Bruckner test (retinal health, leukocoria, opacity detection)
-    - accommodative_lag: Ciliary muscle fatigue / near-work stress tracker (pupillary miosis)
-    - peripheral_awareness: Visual field / peripheral vision deficit detection (gamified)
-    - ocular_ergonomics: Real-time posture & lighting monitoring (glare, distance, ergonomics)
-    - dry_eye: Photo-based dry eye screening (sclera redness + tear film surface analysis)
+    Supported home-check types (not diagnostic / not FDA-cleared SaMD):
+    - visual_acuity: Letter-chart home check (not a refraction)
+    - color_vision: Color-pattern home check (not occupational certification)
+    - contrast_sensitivity: Faint-shape home check (not a clinical Pelli-Robson exam)
+    - glaucoma_neural: Side-vision home exercise (not a visual-field test; does not screen for glaucoma)
+    - cataract_glare: Glare-tolerance home exercise (not cataract diagnosis / not LOCS)
+    - red_reflex: Camera pupil-glow check (not a clinical red-reflex exam)
+    - accommodative_lag: Near-work comfort estimate
+    - peripheral_awareness: Side-awareness game (not a visual-field test)
+    - ocular_ergonomics: Posture and lighting comfort
+    - dry_eye: Symptom + photo home check (not dry-eye disease diagnosis)
     """
     try:
         user_id = int(get_jwt_identity())  # Convert from string to int

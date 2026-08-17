@@ -24,8 +24,8 @@ const TEST_ROUTES = {
 
 export const TEST_INFO = {
   dry_eye: {
-    title: 'Dry Eye Screening',
-    description: 'Symptom check plus photo analysis for dryness signs',
+    title: 'Dry Eye Check',
+    description: 'Symptom check plus photo analysis — not a diagnosis',
   },
   visual_acuity: {
     title: 'Clear Vision Test',
@@ -45,7 +45,7 @@ export const TEST_INFO = {
   },
   cataract_glare: {
     title: 'Glare Sensitivity Test',
-    description: 'How bright light affects your vision',
+    description: 'How bright light affects you — not a cataract exam',
   },
   eye_tracking: {
     title: 'Eye Tracking Analysis',
@@ -61,11 +61,11 @@ export const TEST_INFO = {
   },
   glaucoma_neural: {
     title: 'Side Vision Test',
-    description: 'Peripheral vision screening',
+    description: 'Home side-vision exercise — not a glaucoma exam',
   },
   red_reflex: {
     title: 'Eye Glow Test',
-    description: 'Red reflex screening via camera',
+    description: 'Camera check of pupil glow — not a clinical red-reflex exam',
   },
   peripheral_awareness: {
     title: 'Side Vision Game',

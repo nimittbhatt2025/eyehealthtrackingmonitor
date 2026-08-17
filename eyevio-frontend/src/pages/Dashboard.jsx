@@ -326,7 +326,7 @@ function Dashboard() {
                 <span className="badge bg-white/15 text-white ring-1 ring-white/20">5 mins</span>
               </div>
               <h3 className="text-2xl md:text-3xl font-serif font-bold mb-2 text-white">Take Vision Test</h3>
-              <p className="text-white/85 mb-8 leading-relaxed">Complete a comprehensive eye health assessment with multiple diagnostic tests</p>
+              <p className="text-white/85 mb-8 leading-relaxed">Complete a home vision check. Results are not a diagnosis.</p>
               <div className="inline-flex items-center font-semibold text-white group-hover:translate-x-1.5 transition-transform duration-300">
                 <span>Start Test Now</span>
                 <svg className="w-5 h-5 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -378,7 +378,7 @@ function Dashboard() {
               </div>
               <h3 className="text-2xl md:text-3xl font-serif font-bold mb-2 text-gray-900">Eye Photo Monitor</h3>
               <p className="text-gray-500 mb-8 leading-relaxed">
-                Track dry eye, cornea, or glaucoma signs month-over-month with deterioration alerts
+                Track surface appearance month-over-month between clinic visits. Front-facing photos cannot assess glaucoma.
               </p>
               <div className="inline-flex items-center font-semibold text-amber-800 group-hover:translate-x-1.5 transition-transform duration-300">
                 <span>Open monitor</span>
@@ -404,9 +404,9 @@ function Dashboard() {
                 </div>
                 <span className="badge badge-neutral">Phase 1</span>
               </div>
-              <h3 className="text-2xl md:text-3xl font-serif font-bold mb-2 text-gray-900">Cataract Opacity</h3>
+              <h3 className="text-2xl md:text-3xl font-serif font-bold mb-2 text-gray-900">Lens photo timeline</h3>
               <p className="text-gray-500 mb-8 leading-relaxed">
-                Monthly opacity grade timeline from anterior eye photos — screening, not LOCS diagnosis
+                Monthly opacity-grade timeline from anterior eye photos — not LOCS diagnosis
               </p>
               <div className="inline-flex items-center font-semibold text-sky-800 group-hover:translate-x-1.5 transition-transform duration-300">
                 <span>Open opacity monitor</span>

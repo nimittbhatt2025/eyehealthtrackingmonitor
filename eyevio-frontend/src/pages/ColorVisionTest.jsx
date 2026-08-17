@@ -5,6 +5,8 @@ import { visionTestAPI } from '../services/api'
 import voiceRecognition from '../utils/voiceRecognition'
 import InlineDistanceCalibration from '../components/InlineDistanceCalibration'
 import { TestPrepLayout, TestDetails, TestActiveBar, VisionTestShell } from '../components/TestPrepLayout'
+import SamdDisclaimer from '../components/SamdDisclaimer'
+import { SAMD_SHORT } from '../utils/samd'
 import { 
   generateDeficiencyColors, 
   poissonDiskSampling,
@@ -651,7 +653,7 @@ const ColorVisionTest = () => {
       onBack={() => navigate('/vision-tests')}
       onPrimary={startTest}
       primaryLabel="Start Test"
-      footerNote="Screening only — not a clinical diagnosis."
+      footerNote={SAMD_SHORT}
     >
       <div className="flex gap-2 justify-center">
         <button
@@ -1063,16 +1065,18 @@ const ColorVisionTest = () => {
             <div className="bg-brand-soft rounded-2xl p-6">
               <h3 className="font-bold text-xl text-gray-900 mb-2">Result</h3>
               <p className="text-2xl font-bold text-accent-700">
-                {analysis.deficiencyType === 'normal' ? 'Normal Color Vision' :
-                 analysis.deficiencyType === 'protan' ? 'Some trouble seeing red' :
-                 analysis.deficiencyType === 'deutan' ? 'Some trouble seeing green' :
-                 'Some red-green color trouble'}
+                {analysis.deficiencyType === 'normal' ? 'No red-green misses on this home check' :
+                 analysis.deficiencyType === 'protan' ? 'Some trouble seeing red (home check only)' :
+                 analysis.deficiencyType === 'deutan' ? 'Some trouble seeing green (home check only)' :
+                 'Some red-green color trouble (home check only)'}
               </p>
               {analysis.severity !== 'none' && (
                 <p className="text-gray-600 mt-2">Severity: {analysis.severity}</p>
               )}
             </div>
           </div>
+
+          <SamdDisclaimer testType="color_vision" className="mb-6" />
 
           <div className="flex gap-4">
             <button

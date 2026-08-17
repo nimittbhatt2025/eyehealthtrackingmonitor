@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import cameraManager from '../utils/cameraManager.js'
 import { useNavigate } from 'react-router-dom'
 import { visionTestAPI } from '../services/api'
+import SamdDisclaimer from '../components/SamdDisclaimer'
 
 /**
  * Red Glow (Reflex) Analyzer - Digital Bruckner Test
@@ -825,7 +826,7 @@ const RedReflexTest = () => {
                 <ul className="text-yellow-800 space-y-1">
                   {normalWarnings.map((warning, i) => (
                     <li key={i}>
-                      • {warning.type === 'opacity' ? 'A small cloudy area was seen — this can be an early sign of a cataract' :
+                      • {warning.type === 'opacity' ? 'A small cloudy area was seen in this photo — an eye doctor can check the lens. This is not a cataract diagnosis.' :
                          warning.type === 'asymmetry' ? 'Your eyes looked a little different — an eye exam can check if your glasses need updating' :
                          warning.type}
                     </li>
@@ -862,6 +863,8 @@ const RedReflexTest = () => {
                 )}
               </div>
             </div>
+
+            <SamdDisclaimer testType="red_reflex" className="mb-6" />
 
             {/* Action buttons */}
             <div className="flex flex-col sm:flex-row gap-4">

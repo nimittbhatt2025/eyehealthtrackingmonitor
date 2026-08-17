@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { visionTestAPI } from '../services/api'
+import SamdDisclaimer from '../components/SamdDisclaimer'
 
 /**
  * PERIPHERAL FIELD SCREEN — 4-Quadrant Paracentral Test
@@ -287,14 +288,14 @@ const GlaucomaTest = () => {
     const scotomaPairs = Object.entries(qd).filter(([,d]) => d.deficit > 0.3)
     let riskLevel, riskLabel, riskColor, riskMessage
     if (maxD <= 0.15 && oa >= 0.75) {
-      riskLevel='low'; riskLabel='Looks healthy'; riskColor='#22c55e'
-      riskMessage='Your side vision looks even and healthy in all four corners. No weak spots were found.'
+      riskLevel='low'; riskLabel='Even on this home check'; riskColor='#22c55e'
+      riskMessage='On this home check, your side-vision responses looked even across the four corners. That is not a medical all-clear.'
     } else if (maxD <= 0.3 || (scotomaPairs.length === 0 && oa >= 0.6)) {
       riskLevel='moderate'; riskLabel='Slightly uneven'; riskColor='#f59e0b'
-      riskMessage='One corner was a little weaker than the others. This is often normal, but it can be an early change. We suggest testing again in 3 months and mentioning it at your next eye appointment.'
+      riskMessage='One corner was a little weaker than the others on this home check. That can be fatigue, attention, or screen setup. Mention it at your next eye appointment — this is not a glaucoma finding.'
     } else {
       riskLevel='high'; riskLabel='Weak spot found'; riskColor='#ef4444'
-      riskMessage=`Your side vision was noticeably weaker here: ${scotomaPairs.map(([id]) => qd[id].label).join(', ')}. This can be an early sign of a side-vision problem. Please see an eye doctor for a full check-up.`
+      riskMessage={`Your side vision was noticeably weaker here: ${scotomaPairs.map(([id]) => qd[id].label).join(', ')}. Please see an eye doctor for a proper visual-field test. This home exercise does not diagnose glaucoma.`}
     }
     return { qd, oa, maxD, scotomaPairs, riskLevel, riskLabel, riskColor, riskMessage, cl }
   }
@@ -316,7 +317,7 @@ const GlaucomaTest = () => {
                 </svg>
               </div>
               <h1 className="page-title mb-1">Side Vision Test</h1>
-              <p className="text-sm text-accent-600 font-medium">Checks the edges of what you can see (glaucoma screen)</p>
+              <p className="text-sm text-accent-600 font-medium">Home check of the edges of what you can see</p>
             </div>
 
             <div className="bg-brand-gradient text-white rounded-2xl p-6 mb-6">
@@ -333,7 +334,8 @@ const GlaucomaTest = () => {
               <h3 className="font-semibold text-accent-900 mb-2">What This Test Checks</h3>
               <p className="text-sm text-accent-800">
                 Your <strong>side vision</strong> — how well you notice faint letters near the edges of your view while looking straight ahead.
-                Glaucoma can quietly weaken side vision <strong>years before you'd ever notice it</strong>, so catching it early really matters.
+                Some eye diseases can affect side vision over time; a clinic visual-field test and eye-pressure check are the medical standards.
+                This home exercise does <strong>not</strong> screen for or diagnose glaucoma.
               </p>
             </div>
 
@@ -512,10 +514,7 @@ const GlaucomaTest = () => {
                 })}
               </div>
 
-              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-8 text-xs text-amber-800">
-                <strong>Good to know:</strong> This test checks the inner part of your side vision. It's an early-warning tool, not a full eye exam.
-                If it finds a weak spot, see an eye doctor for a complete check-up and a proper side-vision test.
-              </div>
+              <SamdDisclaimer testType="glaucoma_neural" className="mb-8" />
 
               <div className="flex gap-4">
                 <button onClick={() => navigate('/vision-tests')} className="flex-1 px-5 py-3 border-2 border-gray-300 rounded-full font-semibold text-gray-700 hover:bg-gray-50 transition-colors">Back to Tests</button>

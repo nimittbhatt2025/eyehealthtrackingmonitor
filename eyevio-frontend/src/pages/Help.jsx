@@ -36,8 +36,16 @@ function Help() {
         a: 'Contrast sensitivity tests your ability to distinguish between objects and their background, which is crucial for night driving and reading in low light.'
       },
       {
+        q: 'Are these tests FDA-approved diagnostic devices?',
+        a: 'No. EyeVio is wellness and educational software. It is not FDA-cleared or FDA-approved Software as a Medical Device (SaMD), and it is not intended to diagnose, treat, cure, or prevent disease. Scores are home-based and depend on your device, lighting, and distance. They are not a substitute for a comprehensive eye exam.'
+      },
+      {
+        q: 'Does the Side Vision Test screen for glaucoma?',
+        a: 'No. That home exercise looks at whether you notice faint letters at the edges of the screen. It is not a visual-field test, does not measure eye pressure, and does not screen for or diagnose glaucoma. Only an eye doctor can evaluate glaucoma.'
+      },
+      {
         q: 'How accurate are these online tests?',
-        a: 'While our tests provide good screening indicators, they are NOT a replacement for professional eye exams. Always consult with an optometrist or ophthalmologist for clinical diagnosis.'
+        a: 'They are home checks, not clinic instruments. Use them to notice change over time, then discuss anything concerning with an optometrist or ophthalmologist.'
       },
     ],
     'lifestyle-tracking': [

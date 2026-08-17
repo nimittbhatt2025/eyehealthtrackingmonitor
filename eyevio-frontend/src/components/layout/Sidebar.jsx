@@ -41,7 +41,7 @@ function Sidebar({ isOpen, onClose, hidden = false }) {
       items: [
         { path: '/vision-tests', icon: FaEye, label: 'Vision Tests' },
         { path: '/eye-health-monitor', icon: FaCamera, label: 'Eye Photo Monitor' },
-        { path: '/cataract-opacity-monitor', icon: FaLowVision, label: 'Cataract Opacity' },
+        { path: '/cataract-opacity-monitor', icon: FaLowVision, label: 'Lens Photo Timeline' },
         { path: '/eye-tracking-analysis', icon: FaBrain, label: 'Eye Tracking Analysis' },
         { path: '/eye-conditions', icon: FaBook, label: 'Eye Conditions Library' },
       ],
