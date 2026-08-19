@@ -63,8 +63,12 @@ def get_face_landmarker():
                 running_mode=vision.RunningMode.IMAGE,
             )
             _face_landmarker = vision.FaceLandmarker.create_from_options(options)
-        except ImportError:
-            print('Warning: MediaPipe not installed. Install with: pip install mediapipe')
+        except ImportError as exc:
+            print(
+                'Warning: MediaPipe not available for face detection. '
+                'Run: ./venv/bin/python3.12 -m pip install "mediapipe>=0.10.35,<1.0" "protobuf>=5.28.0,<6"'
+            )
+            print(f'  Import error: {exc}')
         except Exception as exc:
             print(f'Warning: Failed to initialize Face Landmarker: {exc}')
     return _face_landmarker

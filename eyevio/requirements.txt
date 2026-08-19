@@ -20,9 +20,9 @@ scikit-learn>=1.3.0
 statsmodels>=0.14.0
 prophet>=1.1.0
 
-# Computer Vision
-mediapipe>=0.10.35
-protobuf>=5.28.0
+# Computer Vision (pin mediapipe<1.0 — 1.x breaks FaceLandmarker with bundled .task model)
+mediapipe>=0.10.35,<1.0
+protobuf>=5.28.0,<6
 mtcnn>=0.1.0
 ultralytics>=8.0.0
 
