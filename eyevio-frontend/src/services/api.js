@@ -69,7 +69,7 @@ api.interceptors.response.use(
       }
     } else if (error.response?.data?.error) {
       const code = error.response.data.error
-      if (code !== 'poor_lighting') {
+      if (code !== 'poor_lighting' && code !== 'glasses_detected') {
         toast.error(error.response.data.message || error.response.data.error)
       }
     } else if (!(error.response?.data instanceof Blob)) {

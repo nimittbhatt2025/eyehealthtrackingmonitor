@@ -14,8 +14,10 @@ import {
 } from 'lucide-react'
 import cameraManager from '../utils/cameraManager'
 import { eyePhotoAPI } from '../services/api'
-import assessVideoLighting from '../utils/photoLightingCheck'
+import StableLightingPreview from '../utils/stableLightingPreview'
 import PhotoLightingBanner from '../components/PhotoLightingBanner'
+import EyewearReminderBanner from '../components/EyewearReminderBanner'
+import GlassesContactsCheck from '../components/GlassesContactsCheck'
 import SamdDisclaimer from '../components/SamdDisclaimer'
 
 const CONDITIONS = [
@@ -70,6 +72,7 @@ export default function EyeHealthMonitor() {
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
   const lightingCanvasRef = useRef(null)
+  const lightingPreviewRef = useRef(null)
   const streamRef = useRef(null)
 
   const [conditionType, setConditionType] = useState('dry_eye')
@@ -77,7 +80,7 @@ export default function EyeHealthMonitor() {
     const stored = localStorage.getItem(DOCTOR_INTERVAL_KEY)
     return stored ? parseInt(stored, 10) : 6
   })
-  const [view, setView] = useState('home') // home | capture | analyzing | results
+  const [view, setView] = useState('home') // home | glasses-check | capture | analyzing | results
   const [status, setStatus] = useState(null)
   const [timeline, setTimeline] = useState([])
   const [photos, setPhotos] = useState([])
@@ -164,14 +167,32 @@ export default function EyeHealthMonitor() {
       return undefined
     }
 
-    const sampleLighting = () => {
-      const lighting = assessVideoLighting(videoRef.current, lightingCanvasRef.current)
-      setLiveLighting(lighting)
+    if (!lightingPreviewRef.current) {
+      lightingPreviewRef.current = new StableLightingPreview()
+    }
+    lightingPreviewRef.current.reset()
+
+    let cancelled = false
+
+    const tick = async () => {
+      if (cancelled || !videoRef.current) return
+      try {
+        const lighting = await lightingPreviewRef.current.sample(
+          videoRef.current,
+          lightingCanvasRef.current
+        )
+        if (!cancelled) setLiveLighting(lighting)
+      } catch (err) {
+        console.warn('Lighting preview failed:', err)
+      }
     }
 
-    sampleLighting()
-    const intervalId = setInterval(sampleLighting, 500)
-    return () => clearInterval(intervalId)
+    tick()
+    const intervalId = setInterval(tick, 1000)
+    return () => {
+      cancelled = true
+      clearInterval(intervalId)
+    }
   }, [view, cameraReady])
 
   const submitCapture = async (dataUrl, acknowledgePoorLighting = false) => {
@@ -205,7 +226,9 @@ export default function EyeHealthMonitor() {
       setLastResult(data)
       setView('results')
 
-      if (data.lighting_warning) {
+      if (data.eyewear_warning) {
+        toast(data.eyewear_warning.message, { icon: '⚠️', duration: 6000 })
+      } else if (data.lighting_warning) {
         toast('Photo saved, but lighting was not ideal — month-over-month comparison may be less reliable.', {
           icon: '⚠️',
           duration: 6000,
@@ -250,7 +273,7 @@ export default function EyeHealthMonitor() {
       toast.success('Photo deleted')
       if (fromResults && lastResult?.photo?.id === photoId) {
         setLastResult(null)
-        setView('capture')
+        setView('glasses-check')
       }
       await loadData()
     } catch (err) {
@@ -344,7 +367,7 @@ export default function EyeHealthMonitor() {
                   </p>
                 )}
               </div>
-              <button type="button" onClick={() => setView('capture')} className="btn-primary min-h-[44px]">
+              <button type="button" onClick={() => setView('glasses-check')} className="btn-primary min-h-[44px]">
                 <Camera className="w-4 h-4 mr-2 inline" />
                 {status?.check_due ? 'Take monthly photo' : 'Take photo now'}
               </button>
@@ -436,16 +459,29 @@ export default function EyeHealthMonitor() {
         </>
       )}
 
+      {view === 'glasses-check' && (
+        <GlassesContactsCheck
+          testType="Eye Health Photo Monitor"
+          message="Remove eyeglasses and contact lenses before the photo. The camera cannot reliably verify this — your confirmation is what we rely on."
+          onBack={() => setView('home')}
+          onComplete={() => {
+            setError(null)
+            setView('capture')
+          }}
+        />
+      )}
+
       {view === 'capture' && (
         <div className="card p-5 space-y-4">
           <h2 className="font-semibold text-gray-900">Capture eye photo</h2>
           <ul className="text-sm text-gray-600 list-disc pl-5 space-y-1">
             <li>Use soft, even front-facing light (not backlight from a window)</li>
-            <li>Remove glasses; look straight ahead with eyes open</li>
-            <li>Wait for the green lighting indicator before capturing</li>
+            <li>Remove glasses and contact lenses (confirmed in prior step)</li>
+            <li>Lighting indicator is advisory — only extreme darkness blocks capture</li>
           </ul>
 
           <PhotoLightingBanner lighting={liveLighting} />
+          <EyewearReminderBanner />
           <canvas ref={lightingCanvasRef} className="hidden" aria-hidden />
 
           <div className="relative rounded-xl overflow-hidden bg-gray-900 aspect-video max-w-lg mx-auto">
@@ -473,13 +509,12 @@ export default function EyeHealthMonitor() {
             <button
               type="button"
               onClick={() => captureAndAnalyze(false)}
-              disabled={!cameraReady || (liveLighting && !liveLighting.acceptable)}
+              disabled={!cameraReady}
               className="btn-primary min-h-[44px] disabled:opacity-50"
-              title={liveLighting && !liveLighting.acceptable ? 'Improve lighting before capturing' : undefined}
             >
               Capture &amp; analyze
             </button>
-            <button type="button" onClick={() => { stopCamera(); setView('home') }} className="btn-secondary min-h-[44px]">
+            <button type="button" onClick={() => { stopCamera(); setView('glasses-check') }} className="btn-secondary min-h-[44px]">
               Cancel
             </button>
           </div>

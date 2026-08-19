@@ -20,6 +20,8 @@ import numpy as np
 
 from app.ai_models.eye_analysis import get_face_landmarker
 from app.ai_models.eye_crop_alignment import build_aligned_crops, eye_asymmetry_metrics
+from app.ai_models.eyewear_detection import detect_eyewear
+from app.ai_models.capture_quality import assess_anatomical_lighting
 
 # Wider eye regions for sclera + lid context (MediaPipe indices)
 LEFT_EYE_REGION = [33, 133, 160, 159, 158, 157, 173, 144, 145, 153]
@@ -349,7 +351,8 @@ def analyze_dry_eye_frame(frame: np.ndarray) -> Dict[str, Any]:
     if crop_result.get('error'):
         return crop_result
 
-    lighting = assess_photo_lighting(frame, crop_result.get('landmarks'))
+    lighting = assess_anatomical_lighting(frame, crop_result.get('landmarks'))
+    eyewear = detect_eyewear(frame, crop_result.get('landmarks'))
 
     crops = crop_result['crops']
     left = analyze_eye_patch(crops['left'])
@@ -387,6 +390,7 @@ def analyze_dry_eye_frame(frame: np.ndarray) -> Dict[str, Any]:
         'left_eye': left,
         'right_eye': right,
         'lighting': lighting,
+        'eyewear': eyewear,
         'aligned_crops': aligned_crops,
         'eye_asymmetry': asymmetry,
         'metrics': {

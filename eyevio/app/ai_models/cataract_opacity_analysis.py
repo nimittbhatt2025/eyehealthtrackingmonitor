@@ -15,15 +15,16 @@ from typing import Any, Dict, List, Optional
 import cv2
 import numpy as np
 
+from app.ai_models.capture_quality import assess_anatomical_lighting
 from app.ai_models.dry_eye_analysis import (
     LEFT_EYE_REGION,
     RIGHT_EYE_REGION,
     _landmark_bbox,
-    assess_photo_lighting,
     decode_base64_image,
 )
 from app.ai_models.eye_analysis import get_face_landmarker
 from app.ai_models.eye_crop_alignment import build_aligned_crops, eye_asymmetry_metrics
+from app.ai_models.eyewear_detection import detect_eyewear
 
 # Grade thresholds on opacity_score 0–100 (higher = more opaque)
 GRADE_THRESHOLDS = (
@@ -203,7 +204,8 @@ def analyze_cataract_frame(frame: np.ndarray) -> Dict[str, Any]:
     if crop_result.get('error'):
         return crop_result
 
-    lighting = assess_photo_lighting(frame, crop_result.get('landmarks'))
+    lighting = assess_anatomical_lighting(frame, crop_result.get('landmarks'))
+    eyewear = detect_eyewear(frame, crop_result.get('landmarks'))
     crops = crop_result['crops']
     left = _analyze_eye(crops['left'])
     right = _analyze_eye(crops['right'])
@@ -263,6 +265,7 @@ def analyze_cataract_frame(frame: np.ndarray) -> Dict[str, Any]:
         'right_eye': right,
         'eye_asymmetry': asymmetry,
         'lighting': lighting,
+        'eyewear': eyewear,
         'aligned_crops': aligned,
         'metrics': {
             'avg_opacity_score': avg_opacity,

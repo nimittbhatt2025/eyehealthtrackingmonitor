@@ -83,9 +83,22 @@ def capture_eye_photo():
             return jsonify(analysis), 400
 
         lighting = analysis.get('lighting') or {}
+        eyewear = analysis.get('eyewear') or {}
         acknowledge_poor_lighting = bool(data.get('acknowledge_poor_lighting'))
+        eyewear_warning = None
 
-        if lighting and not lighting.get('acceptable') and not acknowledge_poor_lighting:
+        # Glasses heuristics are unreliable — warn only, never hard-block capture.
+        if eyewear.get('detected') and eyewear.get('confidence', 0) >= 55:
+            eyewear_warning = {
+                'message': eyewear.get(
+                    'message',
+                    'Possible eyeglass frames detected. Results may be less reliable if glasses were worn.',
+                ),
+                'eyewear': eyewear,
+            }
+
+        # Only block on extremely poor lighting (very dark / unusable).
+        if lighting and lighting.get('confidence', 1) < 0.30 and not acknowledge_poor_lighting:
             return jsonify({
                 'error': 'poor_lighting',
                 'lighting': lighting,
@@ -164,7 +177,8 @@ def capture_eye_photo():
             'comparison': comparison,
             'alert': alert_created,
             'lighting': lighting,
-            'lighting_warning': lighting.get('quality') == 'fair',
+            'lighting_warning': lighting.get('quality') == 'fair' or lighting.get('confidence', 1) < 0.72,
+            'eyewear_warning': eyewear_warning,
         }), 201
 
     except Exception as exc:
