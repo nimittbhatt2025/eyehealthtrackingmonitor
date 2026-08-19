@@ -295,7 +295,7 @@ const GlaucomaTest = () => {
       riskMessage='One corner was a little weaker than the others on this home check. That can be fatigue, attention, or screen setup. Mention it at your next eye appointment — this is not a glaucoma finding.'
     } else {
       riskLevel='high'; riskLabel='Weak spot found'; riskColor='#ef4444'
-      riskMessage={`Your side vision was noticeably weaker here: ${scotomaPairs.map(([id]) => qd[id].label).join(', ')}. Please see an eye doctor for a proper visual-field test. This home exercise does not diagnose glaucoma.`}
+      riskMessage=`Your side vision was noticeably weaker here: ${scotomaPairs.map(([id]) => qd[id].label).join(', ')}. Please see an eye doctor for a proper visual-field test. This home exercise does not diagnose glaucoma.`
     }
     return { qd, oa, maxD, scotomaPairs, riskLevel, riskLabel, riskColor, riskMessage, cl }
   }

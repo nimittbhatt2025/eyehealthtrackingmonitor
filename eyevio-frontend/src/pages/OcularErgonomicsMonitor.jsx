@@ -18,12 +18,18 @@ const OcularErgonomicsMonitor = () => {
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
   const streamRef = useRef(null)
-  const monitoringInterval = useRef(null)
+  const sampleInterval = useRef(null)
+  const durationInterval = useRef(null)
   const alertTimeout = useRef(null)
+  const lastAlertAt = useRef({})
 
   const [monitoringState, setMonitoringState] = useState('instructions') // instructions, setup, monitoring, paused
   const [cameraReady, setCameraReady] = useState(false)
   const [monitoringDuration, setMonitoringDuration] = useState(0) // seconds
+  const [sampleCount, setSampleCount] = useState(0)
+  const [lastSampleAt, setLastSampleAt] = useState(null)
+
+  const SESSION_GOAL_SECONDS = 60
   
   // Environmental metrics
   const [ambientLight, setAmbientLight] = useState(0) // 0-255
@@ -48,6 +54,20 @@ const OcularErgonomicsMonitor = () => {
   const GLARE_THRESHOLD = 0.3 // ratio
   const TOO_CLOSE_THRESHOLD = 35 // cm
 
+  const bindStreamToVideo = useCallback(() => {
+    const video = videoRef.current
+    const stream = streamRef.current
+    if (!video || !stream) return
+    if (video.srcObject !== stream) {
+      video.srcObject = stream
+    }
+    const play = () => {
+      video.play().then(() => setCameraReady(true)).catch(() => {})
+    }
+    if (video.readyState >= 2) play()
+    else video.onloadedmetadata = play
+  }, [])
+
   // Initialize camera
   const initializeCamera = useCallback(async () => {
     try {
@@ -60,36 +80,45 @@ const OcularErgonomicsMonitor = () => {
       })
 
       streamRef.current = stream
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream
-        videoRef.current.onloadedmetadata = () => {
-          videoRef.current.play()
-          setCameraReady(true)
-        }
-      }
+      bindStreamToVideo()
     } catch (err) {
       console.error('Camera access denied:', err)
+    }
+  }, [bindStreamToVideo])
+
+  const clearTimers = useCallback(() => {
+    if (sampleInterval.current) {
+      clearInterval(sampleInterval.current)
+      sampleInterval.current = null
+    }
+    if (durationInterval.current) {
+      clearInterval(durationInterval.current)
+      durationInterval.current = null
+    }
+    if (alertTimeout.current) {
+      clearTimeout(alertTimeout.current)
+      alertTimeout.current = null
     }
   }, [])
 
   // Stop camera
   const stopCamera = useCallback(() => {
+    clearTimers()
     if (streamRef.current) {
       try { cameraManager.release() } catch (e) { try { streamRef.current.getTracks().forEach(track => track.stop()) } catch (err) {} }
       streamRef.current = null
     }
-    if (monitoringInterval.current) {
-      clearInterval(monitoringInterval.current)
-    }
-    if (alertTimeout.current) {
-      clearTimeout(alertTimeout.current)
-    }
     setCameraReady(false)
-  }, [])
+  }, [clearTimers])
+
+  const videoIsLive = () => {
+    const video = videoRef.current
+    return Boolean(video && video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0)
+  }
 
   // Measure ambient light from camera
   const measureAmbientLight = useCallback(() => {
-    if (!videoRef.current || !canvasRef.current) return 0
+    if (!videoIsLive() || !canvasRef.current) return null
 
     const video = videoRef.current
     const canvas = canvasRef.current
@@ -146,7 +175,7 @@ const OcularErgonomicsMonitor = () => {
 
   // Measure viewing distance using face size
   const measureViewingDistance = useCallback(() => {
-    if (!videoRef.current || !canvasRef.current) return 60 // default
+    if (!videoIsLive() || !canvasRef.current) return null
 
     const video = videoRef.current
     const canvas = canvasRef.current
@@ -158,13 +187,14 @@ const OcularErgonomicsMonitor = () => {
 
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
     const faceWidth = estimateFaceWidth(imageData)
-    
+    if (!faceWidth || faceWidth < 20) return null
+
     // Average face width is ~14cm
     // Using simple pinhole camera model: distance = (realWidth * focalLength) / pixelWidth
     // Calibration factor for typical webcam
     const CALIBRATION_FACTOR = 3000
     const distance = CALIBRATION_FACTOR / (faceWidth + 1)
-    
+
     return Math.max(20, Math.min(150, distance)) // Clamp to reasonable range
   }, [])
 
@@ -207,10 +237,14 @@ const OcularErgonomicsMonitor = () => {
     return 'good'
   }, [])
 
-  // Generate alert
+  // Generate alert (throttled per type so the UI stays readable)
   const generateAlert = useCallback((type, message, severity) => {
+    const now = Date.now()
+    if (now - (lastAlertAt.current[type] || 0) < 12000) return
+    lastAlertAt.current[type] = now
+
     const alert = {
-      id: Date.now(),
+      id: now,
       type,
       message,
       severity, // info, warning, critical
@@ -231,83 +265,99 @@ const OcularErgonomicsMonitor = () => {
     setErgonomicsScore(prev => Math.max(0, prev - (severity === 'critical' ? 5 : severity === 'warning' ? 2 : 1)))
   }, [])
 
+  const takeSample = useCallback(() => {
+    bindStreamToVideo()
+    try {
+      const ambient = measureAmbientLight()
+      const screen = estimateScreenBrightness()
+      const distance = measureViewingDistance()
+      if (ambient == null) return
+
+      const glare = calculateGlare(ambient, screen)
+      setAmbientLight(Math.round(ambient))
+      setScreenBrightness(screen)
+      setGlareLevel(glare)
+      setLastSampleAt(Date.now())
+      setSampleCount((prev) => prev + 1)
+
+      if (distance != null) {
+        const posture = assessPosture(distance)
+        setViewingDistance(Math.round(distance))
+        setPostureStatus(posture)
+
+        if (posture === 'too-close') {
+          generateAlert(
+            'distance',
+            `You're about ${Math.round(distance)} cm from the screen. Sit back to 50–70 cm.`,
+            'critical'
+          )
+        } else if (posture === 'leaning') {
+          generateAlert(
+            'distance',
+            `A bit close (${Math.round(distance)} cm). Sit back to 50–70 cm if you can.`,
+            'warning'
+          )
+        }
+      }
+
+      if (glare === 'severe') {
+        generateAlert(
+          'glare',
+          'Room looks much darker than the screen. Add a light or lower screen brightness.',
+          'critical'
+        )
+      } else if (glare === 'poor') {
+        generateAlert(
+          'glare',
+          'Screen is brighter than the room. Turn on lights or reduce brightness.',
+          'warning'
+        )
+      }
+    } catch (err) {
+      console.warn('Ergonomics sample skipped:', err)
+    }
+  }, [bindStreamToVideo, measureAmbientLight, estimateScreenBrightness, calculateGlare, measureViewingDistance, assessPosture, generateAlert])
+
+  const beginTimers = useCallback(() => {
+    clearTimers()
+    takeSample()
+    sampleInterval.current = setInterval(takeSample, 2000)
+    durationInterval.current = setInterval(() => {
+      setMonitoringDuration((prev) => prev + 1)
+    }, 1000)
+  }, [clearTimers, takeSample])
+
   // Start monitoring
   const startMonitoring = useCallback(() => {
+    lastAlertAt.current = {}
     setMonitoringState('monitoring')
     setSessionStart(Date.now())
     setErgonomicsScore(100)
     setAlerts([])
     setTotalAlerts(0)
     setMonitoringDuration(0)
-
-    // Monitor every 2 seconds
-    monitoringInterval.current = setInterval(() => {
-      // Measure environment
-      const ambient = measureAmbientLight()
-      const screen = estimateScreenBrightness()
-      const glare = calculateGlare(ambient, screen)
-      const distance = measureViewingDistance()
-      const posture = assessPosture(distance)
-
-      setAmbientLight(Math.round(ambient))
-      setScreenBrightness(screen)
-      setGlareLevel(glare)
-      setViewingDistance(Math.round(distance))
-      setPostureStatus(posture)
-
-      // Generate alerts
-      if (glare === 'severe') {
-        generateAlert(
-          'glare',
-          'CRITICAL: Your room is too dark for your screen brightness. This causes severe eye strain!',
-          'critical'
-        )
-      } else if (glare === 'poor') {
-        generateAlert(
-          'glare',
-          'Your screen is much brighter than your room. Turn on lights or reduce screen brightness.',
-          'warning'
-        )
-      }
-
-      if (posture === 'too-close') {
-        generateAlert(
-          'distance',
-          `CRITICAL: You're only ${distance}cm away! Move back to at least 50cm to prevent myopia progression.`,
-          'critical'
-        )
-      } else if (posture === 'leaning') {
-        generateAlert(
-          'distance',
-          `You're leaning too close (${distance}cm). Sit back to 50-70cm for optimal comfort.`,
-          'warning'
-        )
-      }
-
-      setMonitoringDuration(prev => prev + 2)
-    }, 2000)
-
-  }, [measureAmbientLight, estimateScreenBrightness, calculateGlare, measureViewingDistance, assessPosture, generateAlert])
+    setSampleCount(0)
+    setLastSampleAt(null)
+    bindStreamToVideo()
+    window.setTimeout(() => beginTimers(), 50)
+  }, [bindStreamToVideo, beginTimers])
 
   // Pause monitoring
   const pauseMonitoring = useCallback(() => {
-    if (monitoringInterval.current) {
-      clearInterval(monitoringInterval.current)
-    }
+    clearTimers()
     setMonitoringState('paused')
-  }, [])
+  }, [clearTimers])
 
   // Resume monitoring
   const resumeMonitoring = useCallback(() => {
     setMonitoringState('monitoring')
-    startMonitoring()
-  }, [startMonitoring])
+    bindStreamToVideo()
+    window.setTimeout(() => beginTimers(), 50)
+  }, [bindStreamToVideo, beginTimers])
 
   // End session
   const endSession = useCallback(() => {
-    if (monitoringInterval.current) {
-      clearInterval(monitoringInterval.current)
-    }
+    clearTimers()
 
     // Generate recommendations
     const recs = []
@@ -361,7 +411,7 @@ const OcularErgonomicsMonitor = () => {
 
     stopCamera()
     setMonitoringState('results')
-  }, [monitoringDuration, totalAlerts, ambientLight, screenBrightness, glareLevel, viewingDistance, postureStatus, ergonomicsScore, stopCamera])
+  }, [monitoringDuration, totalAlerts, ambientLight, screenBrightness, glareLevel, viewingDistance, postureStatus, ergonomicsScore, stopCamera, clearTimers])
 
   // Submit session to backend
   const submitSession = async (session) => {
@@ -392,6 +442,13 @@ const OcularErgonomicsMonitor = () => {
       stopCamera()
     }
   }, [stopCamera])
+
+  // Re-attach camera after switching views (setup → monitoring remounts <video>)
+  useEffect(() => {
+    if (['setup', 'monitoring', 'paused'].includes(monitoringState)) {
+      bindStreamToVideo()
+    }
+  }, [monitoringState, bindStreamToVideo])
 
   // Render instructions
   const renderInstructions = () => (
@@ -565,6 +622,7 @@ const OcularErgonomicsMonitor = () => {
 
   // Render monitoring
   const renderMonitoring = () => {
+    const isPaused = monitoringState === 'paused'
     const getGlareColor = (glare) => {
       if (glare === 'optimal') return 'bg-green-500'
       if (glare === 'acceptable') return 'bg-yellow-500'
@@ -584,40 +642,92 @@ const OcularErgonomicsMonitor = () => {
       return `${mins}:${secs.toString().padStart(2, '0')}`
     }
 
+    const progressPct = Math.min(100, Math.round((monitoringDuration / SESSION_GOAL_SECONDS) * 100))
+    const waitingForSample = sampleCount === 0 && !isPaused
+
     return (
       <div className="min-h-screen bg-gray-900 text-white p-4">
         <div className="max-w-6xl mx-auto">
           {/* Header */}
-          <div className="flex justify-between items-center mb-6">
-            <h1 className="text-2xl font-bold">Monitoring Active</h1>
-            <div className="flex gap-4">
-              <button
-                onClick={pauseMonitoring}
-                className="px-4 py-2 bg-yellow-600 hover:bg-yellow-700 rounded-lg font-semibold"
-              >
-                Pause
-              </button>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+            <div>
+              <div className="flex items-center gap-3 mb-1">
+                <span className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold tracking-wide ${
+                  isPaused ? 'bg-yellow-500 text-gray-900' : 'bg-red-600 text-white'
+                }`}>
+                  <span className={`w-2 h-2 rounded-full bg-white ${isPaused ? '' : 'animate-pulse'}`} />
+                  {isPaused ? 'PAUSED' : 'LIVE'}
+                </span>
+                <h1 className="text-2xl font-bold">
+                  {isPaused ? 'Session paused' : 'Check in progress'}
+                </h1>
+              </div>
+              <p className="text-sm text-gray-400">
+                {isPaused
+                  ? 'Resume to keep measuring lighting and distance.'
+                  : waitingForSample
+                    ? 'Connecting camera and taking the first reading…'
+                    : `Sampling lighting and posture every 2 seconds · ${sampleCount} reading${sampleCount === 1 ? '' : 's'}`}
+              </p>
+            </div>
+            <div className="flex gap-3">
+              {isPaused ? (
+                <button
+                  onClick={resumeMonitoring}
+                  className="px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg font-semibold min-h-[44px]"
+                >
+                  Resume
+                </button>
+              ) : (
+                <button
+                  onClick={pauseMonitoring}
+                  className="px-4 py-2 bg-yellow-600 hover:bg-yellow-700 rounded-lg font-semibold min-h-[44px]"
+                >
+                  Pause
+                </button>
+              )}
               <button
                 onClick={endSession}
-                className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg font-semibold"
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg font-semibold min-h-[44px]"
               >
-                End Session
+                End session
               </button>
             </div>
           </div>
 
+          {/* Session progress */}
+          <div className="bg-gray-800 rounded-xl p-4 mb-6">
+            <div className="flex items-end justify-between gap-4 mb-2">
+              <div>
+                <p className="text-xs uppercase tracking-wide text-gray-400">Elapsed</p>
+                <p className="font-mono text-3xl font-bold tabular-nums">{formatTime(monitoringDuration)}</p>
+              </div>
+              <p className="text-sm text-gray-400 text-right">
+                Recommended {SESSION_GOAL_SECONDS}s sample — you can end anytime
+              </p>
+            </div>
+            <div className="w-full bg-gray-700 rounded-full h-3 overflow-hidden">
+              <div
+                className={`h-3 rounded-full transition-all duration-500 ${isPaused ? 'bg-yellow-500' : 'bg-accent-500'}`}
+                style={{ width: `${progressPct}%` }}
+              />
+            </div>
+            <p className="text-xs text-gray-500 mt-2">
+              {progressPct >= 100
+                ? 'Sample complete. End session whenever you are ready.'
+                : `${progressPct}% of the recommended check`}
+            </p>
+          </div>
+
           {/* Current alert banner */}
-          {currentAlert && (
+          {currentAlert && !isPaused && (
             <div className={`${
               currentAlert.severity === 'critical' ? 'bg-red-600' :
               currentAlert.severity === 'warning' ? 'bg-orange-600' :
               'bg-blue-600'
-            } rounded-xl p-4 mb-6 animate-pulse`}>
+            } rounded-xl p-4 mb-6`}>
               <div className="flex items-start gap-3">
-                <span className="text-3xl font-bold">
-                  {currentAlert.severity === 'critical' ? '!' :
-                   currentAlert.severity === 'warning' ? '!' : 'i'}
-                </span>
+                <span className="text-3xl font-bold">!</span>
                 <div className="flex-1">
                   <h3 className="font-bold text-lg mb-1">{currentAlert.type.toUpperCase()}</h3>
                   <p>{currentAlert.message}</p>
@@ -629,14 +739,30 @@ const OcularErgonomicsMonitor = () => {
           <div className="grid md:grid-cols-2 gap-6">
             {/* Video feed */}
             <div>
-              <video
-                ref={videoRef}
-                autoPlay
-                playsInline
-                muted
-                className="w-full rounded-2xl mb-4"
-              />
-              <canvas ref={canvasRef} className="hidden" />
+              <div className="relative mb-4">
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  className={`w-full rounded-2xl bg-black aspect-video object-cover ${isPaused ? 'opacity-60' : ''}`}
+                />
+                <canvas ref={canvasRef} className="hidden" />
+                <div className="absolute top-3 left-3 flex items-center gap-2 px-2.5 py-1 rounded-full bg-black/70 text-xs font-semibold">
+                  <span className={`w-2 h-2 rounded-full ${isPaused ? 'bg-yellow-400' : 'bg-red-500 animate-pulse'}`} />
+                  {isPaused ? 'Paused' : 'Camera live'}
+                </div>
+                {waitingForSample && (
+                  <div className="absolute inset-0 flex items-center justify-center rounded-2xl bg-black/40">
+                    <p className="text-sm font-semibold">Taking first reading…</p>
+                  </div>
+                )}
+                {isPaused && (
+                  <div className="absolute inset-0 flex items-center justify-center rounded-2xl bg-black/50">
+                    <p className="text-lg font-semibold">Paused</p>
+                  </div>
+                )}
+              </div>
               
               <div className="bg-gray-800 rounded-xl p-4">
                 <h3 className="font-bold mb-3">Session Info</h3>
@@ -644,6 +770,10 @@ const OcularErgonomicsMonitor = () => {
                   <div className="flex justify-between">
                     <span className="text-gray-400">Duration:</span>
                     <span className="font-mono font-bold">{formatTime(monitoringDuration)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Readings:</span>
+                    <span className="font-mono font-bold">{sampleCount}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-400">Alerts:</span>
@@ -657,6 +787,12 @@ const OcularErgonomicsMonitor = () => {
                       'text-red-400'
                     }`}>
                       {ergonomicsScore}%
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-400">Last reading:</span>
+                    <span className="text-gray-300">
+                      {lastSampleAt ? 'just now' : 'waiting…'}
                     </span>
                   </div>
                 </div>
@@ -717,7 +853,7 @@ const OcularErgonomicsMonitor = () => {
                   <div>
                     <div className="flex justify-between mb-2">
                       <span className="text-sm text-gray-400">Viewing Distance</span>
-                      <span className="font-mono font-bold text-2xl">{viewingDistance}cm</span>
+                      <span className="font-mono font-bold text-2xl">{viewingDistance ? `${viewingDistance}cm` : '—'}</span>
                     </div>
                     <div className="flex gap-2 text-xs">
                       <div className="flex-1 bg-red-900/30 border border-red-600 rounded p-2 text-center">

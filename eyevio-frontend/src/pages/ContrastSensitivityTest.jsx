@@ -40,7 +40,7 @@ const ContrastSensitivityTest = () => {
   const trialStartTimeRef = useRef(null) // Track when letter was shown
   const currentLetterRef = useRef('') // Track actual current letter to avoid stale state
   const currentContrastRef = useRef(1.0) // Track contrast synchronously to avoid stale state
-  const stepSizeRef = useRef(0.3) // BINARY SEARCH: Start with 0.3 LogCS jumps, halve on reversals
+  const stepSizeRef = useRef(0.15)
   const tripletAnswersRef = useRef([]) // Track triplet answers
   const unparsableTimeoutRef = useRef(null) // Timeout for unparsable speech
   const listeningTimeoutRef = useRef(null) // Timeout waiting for any result after start
@@ -60,7 +60,7 @@ const ContrastSensitivityTest = () => {
   
   // Adaptive Staircase Algorithm State (Binary Search with Halving)
   const [currentContrast, setCurrentContrast] = useState(1.0) // DEPRECATED - for display only, use currentLevel instead
-  const [stepSize, setStepSize] = useState(0.3) // BINARY SEARCH: Start with 0.3 LogCS, halve on each reversal
+  const [stepSize, setStepSize] = useState(0.15)
   const [reversals, setReversals] = useState(0)
   const [lastResult, setLastResult] = useState(null) // null = no previous trial yet
   const [reversalPoints, setReversalPoints] = useState([])
@@ -113,7 +113,6 @@ const ContrastSensitivityTest = () => {
     { level: 26, logCS: 1.82, contrast: 0.015, rgb: 251, description: 'Dithered 1.5%', dither: true, ditherRatio: 0.75 },  // LogCS 1.82 = 10^1.82 = 66.1 = 1/66.1 = 1.5%
     { level: 27, logCS: 1.88, contrast: 0.013, rgb: 251, description: 'Dithered 1.3%', dither: true, ditherRatio: 0.65 },  // LogCS 1.88 = 10^1.88 = 75.9 = 1/75.9 = 1.3%
     { level: 28, logCS: 1.94, contrast: 0.011, rgb: 252, description: 'Dithered 1.1%', dither: true, ditherRatio: 0.55 },  // LogCS 1.94 = 10^1.94 = 87.1 = 1/87.1 = 1.1%
-    { level: 28, logCS: 1.94, contrast: 0.011, rgb: 252, description: 'Dithered 1.1%', dither: true, ditherRatio: 0.55 },  // LogCS 1.94 = 10^1.94 = 87.1 = 1/87.1 = 1.1%
     { level: 29, logCS: 2.00, contrast: 0.010, rgb: 252, description: 'Dithered 1.0%', dither: true, ditherRatio: 0.50 },  // LogCS 2.00 = 10^2.00 = 100 = 1/100 = 1.0% ← CLINICAL STANDARD
     { level: 30, logCS: 2.10, contrast: 0.008, rgb: 253, description: 'Dithered 0.8%', dither: true, ditherRatio: 0.40 },  // LogCS 2.10 = 10^2.10 = 126 = 1/126 = 0.8%
     { level: 31, logCS: 2.22, contrast: 0.006, rgb: 254, description: 'Dithered 0.6%', dither: true, ditherRatio: 0.30 },  // LogCS 2.22 = 10^2.22 = 166 = 1/166 = 0.6%
@@ -123,11 +122,12 @@ const ContrastSensitivityTest = () => {
     { level: 35, logCS: 2.70, contrast: 0.002, rgb: 255, description: 'Elite Threshold', dither: true, ditherRatio: 0.05 }  // LogCS 2.70 = 10^2.70 = 501 = 1/501 = 0.2% ← SUPERHUMAN
   ]
   
-  // BAYESIAN ADAPTIVE: Start at "seed" level (LogCS 1.28 = Level 18, ~5% contrast)
-  // Clinical recommendation: Start at LogCS 1.3-1.5 (3-5% contrast) for efficiency
-  // This skips the easy trials and finds threshold faster (60 seconds vs 4 minutes)
-  const [currentLevel, setCurrentLevel] = useState(18) // Seed at LogCS 1.28 (5% contrast - clinical standard)
-  const currentLevelRef = useRef(18)
+  // Home screens crush near-white letters, so start readable and do not drop below ~8% contrast.
+  const START_LEVEL = 8 // LogCS 0.53 ≈ 30% contrast
+  const INITIAL_STEP = 0.15
+  const MAX_LOG_CS = 1.13 // ~7% contrast — faintest that stays a letter on typical laptops
+  const [currentLevel, setCurrentLevel] = useState(START_LEVEL)
+  const currentLevelRef = useRef(START_LEVEL)
   
   // Voice recognition
   const [isListening, setIsListening] = useState(false)
@@ -712,7 +712,7 @@ const ContrastSensitivityTest = () => {
         setReversalPoints(prev => [...prev, actualCurrentLevel])
         console.log(`REVERSAL #${newReversals} (fail→pass) step→${newStep.toFixed(3)}`)
       }
-      newLogCS = Math.min(2.70, levelData.logCS + stepSizeRef.current)
+      newLogCS = Math.min(MAX_LOG_CS, levelData.logCS + stepSizeRef.current)
       console.log(`PASS → LogCS ${levelData.logCS.toFixed(2)} + ${stepSizeRef.current.toFixed(3)} = ${newLogCS.toFixed(2)}`)
     } else {
       if (prevResult === true) {           // pass → fail = reversal
@@ -866,18 +866,18 @@ const ContrastSensitivityTest = () => {
   // Reset for next eye
   const startRightEye = () => {
     // Reset refs (synchronous) - BINARY SEARCH: Start at seed level 18
-    currentLevelRef.current = 18 // Seed at LogCS 1.28 (5% contrast - clinical standard)
+    currentLevelRef.current = START_LEVEL
     currentContrastRef.current = 1.0 // For backwards compatibility
-    stepSizeRef.current = 0.3 // BINARY SEARCH: Start with 0.3 LogCS jumps, halve on reversals
+    stepSizeRef.current = INITIAL_STEP
     bayesianPhaseRef.current = 'discovery' // Reset to discovery phase
     reversalCountRef.current = 0
     lastPassLogCSRef.current = null // Reset binary search boundaries
     lastFailLogCSRef.current = null // Reset binary search boundaries
     
     // Reset state (asynchronous)
-    setCurrentLevel(18)
+    setCurrentLevel(START_LEVEL)
     setCurrentContrast(1.0)
-    setStepSize(0.3)
+    setStepSize(INITIAL_STEP)
     setReversals(0)
     setLastResult(null) // Changed from true to null - no previous result yet
     setReversalPoints([])
@@ -958,22 +958,43 @@ const ContrastSensitivityTest = () => {
       <div className="test-prep-scroll space-y-4">
         <div className="test-panel-compact text-center">
           <h1 className="test-prep-title text-gray-900">Screen check</h1>
-          <p className="test-prep-subtitle">Adjust brightness until only Box A is barely visible</p>
+          <p className="test-prep-subtitle">Use your device brightness so Box A is a faint dark square and Box B disappears into black</p>
         </div>
         <TestDetails summary="Turn off auto-brightness & Night Shift">
           <p className="text-xs">Auto-brightness and True Tone will change contrast mid-test. Use a dim room with no glare on the screen.</p>
         </TestDetails>
-        <div className="rounded-2xl p-6 bg-black">
-          <div className="flex justify-center gap-10 mb-4">
+        <div className="rounded-2xl p-8" style={{ backgroundColor: '#000000' }}>
+          <div className="flex justify-center gap-10 mb-5">
             <div className="text-center">
-              <div className="w-20 h-20 mb-2 mx-auto" style={{ backgroundColor: 'rgb(10, 10, 10)', border: '1px solid rgba(255,255,255,0.1)' }} />
-              <p className="text-xs text-gray-400">Box A — barely visible</p>
+              <div
+                className="w-28 h-28 mb-3 mx-auto"
+                style={{
+                  backgroundColor: '#3a3a3a',
+                  boxShadow: 'none',
+                  border: 'none',
+                }}
+                aria-label="Box A, dark gray"
+              />
+              <p className="text-sm text-gray-300">Box A — faint gray square</p>
             </div>
             <div className="text-center">
-              <div className="w-20 h-20 mb-2 mx-auto bg-black border border-gray-800" />
-              <p className="text-xs text-gray-400">Box B — invisible</p>
+              <div
+                className="w-28 h-28 mb-3 mx-auto"
+                style={{
+                  backgroundColor: '#000000',
+                  boxShadow: 'none',
+                  border: 'none',
+                }}
+                aria-label="Box B, true black"
+              />
+              <p className="text-sm text-gray-300">Box B — should vanish</p>
             </div>
           </div>
+          <ul className="text-xs text-gray-400 space-y-1.5 max-w-sm mx-auto text-left">
+            <li>If both boxes look the same, turn brightness up until A looks gray.</li>
+            <li>If B also looks gray, turn brightness down until only A is visible.</li>
+            <li>Stop when A is just barely there and B matches the black background.</li>
+          </ul>
         </div>
       </div>
       <div className="test-prep-bar">
@@ -1081,8 +1102,9 @@ const ContrastSensitivityTest = () => {
   // 6. Testing Screen (The Main Test Interface)
   const renderTesting = () => {
     // Get current level data from 32-level LogCS scale
-    const levelData = LogCS_LEVELS[currentLevel - 1]
-    const grayValue = levelData.rgb
+    const levelData = LogCS_LEVELS[currentLevel - 1] || LogCS_LEVELS[START_LEVEL - 1]
+    // Never wash the letter out to near-white on a laptop screen (rgb 218 ≈ 14% contrast)
+    const grayValue = Math.min(218, levelData.rgb)
     // Show decimals for sub-1% contrast levels (dithered levels)
     const contrastPercent = levelData.contrast >= 0.01 
       ? Math.round(levelData.contrast * 100) 
@@ -1204,13 +1226,17 @@ const ContrastSensitivityTest = () => {
           subtitle={`Trial ${trialNumber} · Letter ${tripletAnswers.length + 1}/3`}
           statusBar={<span className="text-xs font-medium">Rev {reversals}/3</span>}
           stimulus={(
-            <div className="test-stimulus-wrap min-h-[160px] border-0 shadow-none w-full h-full max-h-none">
+            <div
+              className="test-stimulus-wrap min-h-[160px] border-0 shadow-none w-full h-full max-h-none"
+              style={{ backgroundColor: '#ffffff' }}
+            >
               <span
                 className="test-letter-display"
                 style={{
                   color: `rgb(${grayValue}, ${grayValue}, ${grayValue})`,
                   fontFamily: 'Sloan, Arial, sans-serif',
                   fontWeight: 700,
+                  opacity: 1,
                   ...getDitheredStyle(),
                 }}
               >

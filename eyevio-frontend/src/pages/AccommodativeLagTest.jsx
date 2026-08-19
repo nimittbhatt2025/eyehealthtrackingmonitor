@@ -22,6 +22,7 @@ const AccommodativeLagTest = () => {
   const [testState, setTestState] = useState('instructions') // instructions, setup, testing, analyzing, results
   const [cameraReady, setCameraReady] = useState(false)
   const [currentBlurLevel, setCurrentBlurLevel] = useState(0) // 0-10
+  const [currentBlurPx, setCurrentBlurPx] = useState(0)
   const [pupilData, setPupilData] = useState([])
   const [testProgress, setTestProgress] = useState(0)
   const [userResponses, setUserResponses] = useState([])
@@ -41,6 +42,21 @@ const AccommodativeLagTest = () => {
   const TEST_DURATION = 30 // seconds
   const BLUR_STEPS = 10
   const PUPIL_SAMPLE_RATE = 100 // ms
+  // Keep the letter sharp for most of the test; only ease in a light blur near the end.
+  const BLUR_HOLD_RATIO = 0.58
+  const MAX_BLUR_PX = 3.5
+
+  const blurPxFromProgress = (progressPct) => {
+    const p = Math.max(0, Math.min(100, Number(progressPct) || 0)) / 100
+    if (p <= BLUR_HOLD_RATIO) return 0
+    const t = (p - BLUR_HOLD_RATIO) / (1 - BLUR_HOLD_RATIO)
+    return t * t * MAX_BLUR_PX
+  }
+
+  const blurLevelFromPx = (px) => {
+    if (MAX_BLUR_PX <= 0) return 0
+    return Math.max(0, Math.min(BLUR_STEPS, Math.round((px / MAX_BLUR_PX) * BLUR_STEPS)))
+  }
 
   // Initialize camera
   const initializeCamera = useCallback(async () => {
@@ -137,6 +153,7 @@ const AccommodativeLagTest = () => {
   const startTest = useCallback(() => {
     setTestState('testing')
     setCurrentBlurLevel(0)
+    setCurrentBlurPx(0)
     setPupilData([])
     userResponsesRef.current = []
     setUserResponses([])
@@ -159,21 +176,18 @@ const AccommodativeLagTest = () => {
       }
     }, PUPIL_SAMPLE_RATE)
 
-    // Change blur level every 3 seconds
-    const blurInterval = setInterval(() => {
-      blurLevel = Math.min(blurLevel + 1, BLUR_STEPS)
-      setCurrentBlurLevel(blurLevel)
-    }, 3000)
-
-    // Update progress
+    // Update progress and ease blur in only after the hold period
     const progressInterval = setInterval(() => {
       const elapsed = Date.now() - startTime
       const progress = Math.min((elapsed / (TEST_DURATION * 1000)) * 100, 100)
+      const blurPx = blurPxFromProgress(progress)
+      blurLevel = blurLevelFromPx(blurPx)
       setTestProgress(progress)
+      setCurrentBlurPx(blurPx)
+      setCurrentBlurLevel(blurLevel)
 
       if (progress >= 100) {
         clearInterval(pupilInterval)
-        clearInterval(blurInterval)
         clearInterval(progressInterval)
         analyzeResults(pupilMeasurements)
       }
@@ -185,12 +199,14 @@ const AccommodativeLagTest = () => {
   const handleCanSee = useCallback((canSee) => {
     const entry = {
       blurLevel: currentBlurLevel,
+      blurPx: currentBlurPx,
+      progress: testProgress,
       canSee,
       timestamp: Date.now(),
     }
     userResponsesRef.current = [...userResponsesRef.current, entry]
     setUserResponses(userResponsesRef.current)
-  }, [currentBlurLevel])
+  }, [currentBlurLevel, currentBlurPx, testProgress])
 
   // Re-attach camera stream when testing view mounts (setup video is unmounted)
   useEffect(() => {
@@ -219,25 +235,41 @@ const AccommodativeLagTest = () => {
         ? ((initialPupilSize - finalPupilSize) / initialPupilSize) * 100
         : 0
 
-      const clarityThreshold = responses.findIndex((r) => !r.canSee)
-      const accommodationScore = clarityThreshold === -1
-        ? 100
-        : Math.max(0, 100 - clarityThreshold * 10)
+      const canSeeLevels = responses.filter((r) => r.canSee).map((r) => Number(r.blurLevel) || 0)
+      const cannotSeeLevels = responses
+        .filter((r) => !r.canSee && (Number(r.blurLevel) || 0) > 0)
+        .map((r) => Number(r.blurLevel) || 0)
+      const bestCanSee = canSeeLevels.length ? Math.max(...canSeeLevels) : null
+      const firstFail = cannotSeeLevels.length ? Math.min(...cannotSeeLevels) : null
 
-      const pupilScore = Math.max(0, Math.min(100, pupilConstriction * 10))
-      const capacity = clampScore(pupilScore * 0.4 + accommodationScore * 0.6, 50)
-      const lag = clampScore(100 - capacity, 50)
+      let accommodationScore
+      if (firstFail === null) {
+        // Never reported "too blurry" — do not treat missing clicks as fatigue
+        accommodationScore = 90
+      } else if (bestCanSee !== null && bestCanSee >= firstFail) {
+        accommodationScore = Math.round(55 + (bestCanSee / BLUR_STEPS) * 45)
+      } else {
+        // Losing a still-sharp letter is more meaningful than losing it at max blur
+        accommodationScore = Math.round(40 + (firstFail / BLUR_STEPS) * 60)
+      }
+
+      // Webcam darkness is not real pupil tracking — allow a tiny tweak, never 40% of the score
+      const pupilAdjust = Number.isFinite(pupilConstriction)
+        ? Math.max(-6, Math.min(6, pupilConstriction * 0.12))
+        : 0
+      const capacity = clampScore(accommodationScore + pupilAdjust, 80)
+      const lag = clampScore(100 - capacity, 20)
 
       let fatigue = 'low'
       let recommendation = ''
 
-      if (capacity < 40) {
+      if (capacity < 32) {
         fatigue = 'severe'
         recommendation = 'Please take a 20-minute break now. Your eyes are very tired, and pushing on could bring on a headache or eye strain.'
-      } else if (capacity < 60) {
+      } else if (capacity < 50) {
         fatigue = 'moderate'
         recommendation = 'Take a 10-minute break within the next hour. Your focusing muscles are getting tired. Look at distant objects (20+ feet away).'
-      } else if (capacity < 75) {
+      } else if (capacity < 70) {
         fatigue = 'mild'
         recommendation = 'Take a 5-minute break soon. Follow the 20-20-20 rule: every 20 minutes, look at something 20 feet away for 20 seconds.'
       } else {
@@ -343,7 +375,7 @@ const AccommodativeLagTest = () => {
                 </div>
                 <div>
                   <h4 className="font-bold text-gray-900 mb-1">Target Gradually Blurs</h4>
-                  <p className="text-gray-600">Over 30 seconds, the target will slowly become blurrier</p>
+                  <p className="text-gray-600">The letter stays sharp at first, then only gently blurs near the end of the 30 seconds</p>
                 </div>
               </div>
 
@@ -456,7 +488,7 @@ const AccommodativeLagTest = () => {
 
   // Render testing screen
   const renderTesting = () => {
-    const blurAmount = currentBlurLevel * 2 // 0-20px blur
+    const blurAmount = currentBlurPx
 
     return (
       <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center p-4">
@@ -544,16 +576,16 @@ const AccommodativeLagTest = () => {
   // Render results screen
   const renderResults = () => {
     const getCapacityColor = (capacity) => {
-      if (capacity >= 75) return 'text-green-600'
-      if (capacity >= 60) return 'text-yellow-600'
-      if (capacity >= 40) return 'text-orange-600'
+      if (capacity >= 70) return 'text-green-600'
+      if (capacity >= 50) return 'text-yellow-600'
+      if (capacity >= 32) return 'text-orange-600'
       return 'text-red-600'
     }
 
     const getCapacityBg = (capacity) => {
-      if (capacity >= 75) return 'bg-green-100 border-green-300'
-      if (capacity >= 60) return 'bg-yellow-100 border-yellow-300'
-      if (capacity >= 40) return 'bg-orange-100 border-orange-300'
+      if (capacity >= 70) return 'bg-green-100 border-green-300'
+      if (capacity >= 50) return 'bg-yellow-100 border-yellow-300'
+      if (capacity >= 32) return 'bg-orange-100 border-orange-300'
       return 'bg-red-100 border-red-300'
     }
 
@@ -588,10 +620,10 @@ const AccommodativeLagTest = () => {
                 {focusingCapacity}%
               </div>
               <p className="text-lg font-semibold text-gray-700 mb-2">
-                {focusingCapacity >= 75 ? 'Excellent - Eyes are fresh!' :
-                 focusingCapacity >= 60 ? 'Moderate - Getting tired' :
-                 focusingCapacity >= 40 ? 'Fatigued - Need a break soon' :
-                 'Severely Fatigued - URGENT BREAK NEEDED'}
+                {focusingCapacity >= 70 ? 'Excellent - Eyes are fresh!' :
+                 focusingCapacity >= 50 ? 'Mild strain - A short break soon is a good idea' :
+                 focusingCapacity >= 32 ? 'Getting tired - Take a break when you can' :
+                 'Very tired - Take a longer break now'}
               </p>
               <p className="text-sm text-gray-600">
                 Eye tiredness: {accommodativeLag}%

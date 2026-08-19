@@ -21,6 +21,9 @@ const PeripheralAwarenessTest = () => {
   const streamRef = useRef(null)
   const eyeTracker = useRef(null)
   const calibrationCenter = useRef({ x: 0.5, y: 0.5 })
+  const spawnIntervalRef = useRef(null)
+  const timerIntervalRef = useRef(null)
+  const finishingRef = useRef(false)
   const gameStateRef = useRef({
     totalHits: 0,
     totalMisses: 0,
@@ -104,12 +107,21 @@ const PeripheralAwarenessTest = () => {
 
   // Stop camera and eye tracking
   const stopCamera = useCallback(() => {
+    if (spawnIntervalRef.current) {
+      clearInterval(spawnIntervalRef.current)
+      spawnIntervalRef.current = null
+    }
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current)
+      timerIntervalRef.current = null
+    }
     if (streamRef.current) {
       try { cameraManager.release() } catch (e) { try { streamRef.current.getTracks().forEach(track => track.stop()) } catch (err) {} }
       streamRef.current = null
     }
     if (eyeTracker.current) {
-      eyeTracker.current.stop()
+      try { eyeTracker.current.stop() } catch (err) {}
+      eyeTracker.current = null
     }
     setCameraReady(false)
   }, [])
@@ -188,10 +200,10 @@ const PeripheralAwarenessTest = () => {
 
   // Start game
   const startGame = useCallback(() => {
-    // Calibrate: Set current position as "center"
+    finishingRef.current = false
     calibrationCenter.current = { ...eyePosition }
     console.log('Calibrated center position:', calibrationCenter.current)
-    
+
     setTestState('playing')
     setScore(0)
     setLevel(1)
@@ -201,97 +213,116 @@ const PeripheralAwarenessTest = () => {
     setTotalHits(0)
     setTotalMisses(0)
     setReactionTime(0)
-    
-    // Reset ref
+
     gameStateRef.current = {
       totalHits: 0,
       totalMisses: 0,
       reactionTime: 0,
       missedTargets: []
     }
-    
-    // MediaPipe eye tracking is already running from camera initialization
 
-    // Spawn targets periodically
-    const spawnInterval = setInterval(() => {
+    if (spawnIntervalRef.current) clearInterval(spawnIntervalRef.current)
+    if (timerIntervalRef.current) clearInterval(timerIntervalRef.current)
+
+    spawnIntervalRef.current = setInterval(() => {
       spawnTarget()
-    }, Math.max(800, 1500 - level * 50))
+    }, 1200)
 
-    // Game timer
     let timeLeft = gameTime
-    const timerInterval = setInterval(() => {
+    timerIntervalRef.current = setInterval(() => {
       timeLeft -= 1
       setRemainingTime(timeLeft)
 
       if (timeLeft <= 0) {
-        clearInterval(spawnInterval)
-        clearInterval(timerInterval)
-        endGame()
+        clearInterval(spawnIntervalRef.current)
+        clearInterval(timerIntervalRef.current)
+        spawnIntervalRef.current = null
+        timerIntervalRef.current = null
+        endGameRef.current?.()
       }
     }, 1000)
-  }, [gameTime, spawnTarget, level])
+  }, [gameTime, spawnTarget, eyePosition])
+
+  const endGameRef = useRef(() => {})
 
   // End game and analyze results
   const endGame = useCallback(() => {
-    setTestState('analyzing')
-    
-    if (eyeTrackingInterval.current) {
-      clearInterval(eyeTrackingInterval.current)
+    if (finishingRef.current) return
+    finishingRef.current = true
+
+    if (spawnIntervalRef.current) {
+      clearInterval(spawnIntervalRef.current)
+      spawnIntervalRef.current = null
+    }
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current)
+      timerIntervalRef.current = null
     }
 
-    setTimeout(() => {
-      // Use ref values to avoid stale closure
-      const { totalHits, totalMisses, reactionTime, missedTargets } = gameStateRef.current
-      
-      // Analyze missed targets by quadrant
-      const missedByQuadrant = {}
-      Object.keys(QUADRANTS).forEach(q => {
-        missedByQuadrant[q] = 0
-      })
+    setTestState('analyzing')
+    setTargets([])
 
-      missedTargets.forEach(target => {
-        missedByQuadrant[target.quadrant]++
-      })
+    const finish = () => {
+      try {
+        const { totalHits, totalMisses, reactionTime, missedTargets } = gameStateRef.current
 
-      // Identify deficits (quadrants with >30% miss rate)
-      const deficits = []
-      const totalTargets = totalHits + totalMisses
-      
-      Object.entries(missedByQuadrant).forEach(([quadrant, misses]) => {
-        const missRate = totalTargets > 0 ? (misses / totalTargets) * 100 : 0
-        if (missRate > 30) {
-          deficits.push({
-            quadrant: QUADRANTS[quadrant].label,
-            missRate: Math.round(missRate),
-            severity: missRate > 50 ? 'severe' : 'moderate'
-          })
-        }
-      })
+        const missedByQuadrant = {}
+        Object.keys(QUADRANTS).forEach(q => {
+          missedByQuadrant[q] = 0
+        })
 
-      // Calculate overall field score
-      const hitRate = totalTargets > 0 ? (totalHits / totalTargets) * 100 : 0
-      const avgReactionTime = totalHits > 0 ? reactionTime / totalHits : 0
-      const reactionScore = Math.max(0, 100 - (avgReactionTime / 10))
-      const overallScore = Math.round((hitRate * 0.7 + reactionScore * 0.3))
+        missedTargets.forEach(target => {
+          missedByQuadrant[target.quadrant]++
+        })
 
-      setPeripheralDeficits(deficits)
-      setFieldScore(overallScore)
-      setReactionTime(Math.round(avgReactionTime))
-      
-      stopCamera()
-      setTestState('results')
+        const deficits = []
+        const totalTargets = totalHits + totalMisses
 
-      // Submit to backend
-      submitResults({
-        score: overallScore,
-        totalHits,
-        totalMisses,
-        avgReactionTime: Math.round(avgReactionTime),
-        deficits,
-        hitRate: Math.round(hitRate)
-      })
-    }, 2000)
+        Object.entries(missedByQuadrant).forEach(([quadrant, misses]) => {
+          const missRate = totalTargets > 0 ? (misses / totalTargets) * 100 : 0
+          if (missRate > 30) {
+            deficits.push({
+              quadrant: QUADRANTS[quadrant].label,
+              missRate: Math.round(missRate),
+              severity: missRate > 50 ? 'severe' : 'moderate'
+            })
+          }
+        })
+
+        const hitRate = totalTargets > 0 ? (totalHits / totalTargets) * 100 : 0
+        const avgReactionTime = totalHits > 0 ? reactionTime / totalHits : 0
+        const reactionScore = Math.max(0, 100 - (avgReactionTime / 10))
+        const overallScore = totalTargets > 0
+          ? Math.round((hitRate * 0.7 + reactionScore * 0.3))
+          : 0
+
+        setPeripheralDeficits(deficits)
+        setFieldScore(overallScore)
+        setReactionTime(Math.round(avgReactionTime))
+        setTotalHits(totalHits)
+        setTotalMisses(totalMisses)
+
+        submitResults({
+          score: overallScore,
+          totalHits,
+          totalMisses,
+          avgReactionTime: Math.round(avgReactionTime),
+          deficits,
+          hitRate: Math.round(hitRate)
+        })
+      } catch (err) {
+        console.error('Failed to score peripheral test:', err)
+        setFieldScore(0)
+      } finally {
+        stopCamera()
+        setTestState('results')
+      }
+    }
+
+    window.setTimeout(finish, 600)
   }, [stopCamera])
+
+  endGameRef.current = endGame
 
   // Submit results to backend
   const submitResults = async (results) => {
@@ -522,9 +553,18 @@ const PeripheralAwarenessTest = () => {
           <div className="text-xs text-gray-400">TIME</div>
         </div>
 
-        <div className="bg-black/50 backdrop-blur-sm rounded-xl p-4">
-          <div className="text-3xl font-bold text-purple-400">L{level}</div>
-          <div className="text-xs text-gray-400">LEVEL</div>
+        <div className="flex items-start gap-2">
+          <div className="bg-black/50 backdrop-blur-sm rounded-xl p-4">
+            <div className="text-3xl font-bold text-purple-400">L{level}</div>
+            <div className="text-xs text-gray-400">LEVEL</div>
+          </div>
+          <button
+            type="button"
+            onClick={() => endGameRef.current?.()}
+            className="bg-white/10 hover:bg-white/20 backdrop-blur-sm rounded-xl px-4 py-3 text-sm font-semibold min-h-[44px]"
+          >
+            Finish
+          </button>
         </div>
       </div>
 
