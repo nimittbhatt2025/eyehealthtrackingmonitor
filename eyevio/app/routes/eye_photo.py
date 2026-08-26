@@ -17,6 +17,7 @@ from app.utils.eye_photo_comparison import (
     build_monthly_timeline,
     compare_photos,
     compare_to_historical,
+    comparison_snapshot_from_result,
     find_baseline_photo,
     monitoring_status,
 )
@@ -138,6 +139,12 @@ def capture_eye_photo():
 
         comparison = compare_to_historical(user_id, photo)
         alert_created = None
+
+        # Persist comparison snapshot on the photo for confirmation-retake logic.
+        details = dict(photo.analysis_details or {})
+        if comparison.get('has_baseline'):
+            details['comparison_snapshot'] = comparison_snapshot_from_result(comparison)
+        photo.analysis_details = details
 
         if comparison.get('deteriorated'):
             severity = comparison.get('severity', 'medium')

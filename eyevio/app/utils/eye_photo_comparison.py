@@ -25,6 +25,7 @@ MONITOR_THRESHOLD = 10.0
 CONFIRM_THRESHOLD = 18.0
 PERSISTENT_THRESHOLD = 28.0
 LARGE_EYE_CHANGE = 12.0
+CONFIRMATION_WINDOW_DAYS = 14
 
 CONDITION_WEIGHTS = {
     'dry_eye': {
@@ -564,6 +565,110 @@ def _build_comparison_message(
     return f'Your {label.lower()} photo was compared to your reference{window}.'
 
 
+def comparison_snapshot_from_result(comparison: Dict[str, Any]) -> Dict[str, Any]:
+    """Compact comparison record stored on each photo for confirmation retakes."""
+    changes = comparison.get('changes') or {}
+    health = changes.get('health_score') or {}
+    return {
+        'action': comparison.get('action'),
+        'change_burden': comparison.get('change_burden'),
+        'baseline_photo_id': comparison.get('baseline_photo_id'),
+        'baseline_type': comparison.get('baseline_type'),
+        'comparison_confidence': comparison.get('comparison_confidence'),
+        'health_score_delta': health.get('delta'),
+        'algorithm_logged_at': datetime.utcnow().isoformat(),
+    }
+
+
+def _find_prior_confirm_retake(
+    user_id: int,
+    current: EyePhoto,
+    baseline_id: int,
+) -> Optional[EyePhoto]:
+    """Recent photo that asked for a confirmation retake against the same baseline."""
+    if not current.captured_at or not baseline_id:
+        return None
+    window_start = current.captured_at - timedelta(days=CONFIRMATION_WINDOW_DAYS)
+    candidates = (
+        EyePhoto.query.filter(
+            EyePhoto.user_id == user_id,
+            EyePhoto.condition_type == current.condition_type,
+            EyePhoto.id != current.id,
+            EyePhoto.captured_at >= window_start,
+            EyePhoto.captured_at < current.captured_at,
+        )
+        .order_by(EyePhoto.captured_at.desc())
+        .all()
+    )
+    for photo in candidates:
+        details = _details(photo)
+        snap = details.get('comparison_snapshot')
+        if not isinstance(snap, dict):
+            continue
+        if (
+            snap.get('action') == 'RETAKE_TO_CONFIRM_CHANGE'
+            and snap.get('baseline_photo_id') == baseline_id
+        ):
+            return photo
+    return None
+
+
+def _apply_confirmation_upgrade(
+    comparison: Dict[str, Any],
+    prior_photo: EyePhoto,
+    condition: str,
+    days_between: Optional[int],
+) -> Dict[str, Any]:
+    """
+    Second photo within the confirmation window with similar change → persistent change.
+    """
+    if comparison.get('action') != 'RETAKE_TO_CONFIRM_CHANGE':
+        return comparison
+    if comparison.get('change_burden', 0) < CONFIRM_THRESHOLD * 0.75:
+        return comparison
+
+    prior_snap = _details(prior_photo).get('comparison_snapshot') or {}
+    prior_delta = prior_snap.get('health_score_delta')
+    current_delta = (comparison.get('changes') or {}).get('health_score', {}).get('delta')
+    if prior_delta is not None and current_delta is not None:
+        if prior_delta >= 0 or current_delta >= 0:
+            return comparison
+
+    upgraded = dict(comparison)
+    upgraded['action'] = 'PERSISTENT_CHANGE'
+    upgraded['deteriorated'] = True
+    upgraded['recommend_confirm_retake'] = False
+    upgraded['confirmed_by_photo_id'] = prior_photo.id
+    upgraded['confirmation_note'] = (
+        'A second photo in similar lighting showed a similar visible change — treating as sustained.'
+    )
+
+    change_burden = float(comparison.get('change_burden') or 0)
+    if change_burden >= 30:
+        upgraded['severity'] = 'critical'
+    elif change_burden >= 20:
+        upgraded['severity'] = 'high'
+    else:
+        upgraded['severity'] = 'medium'
+
+    if condition == 'glaucoma' and upgraded['severity'] == 'critical':
+        upgraded['severity'] = 'high'
+
+    upgraded['recommend_doctor_visit'] = (
+        upgraded['severity'] in ('high', 'critical') and condition != 'glaucoma'
+    )
+    upgraded['trend'] = 'worsening'
+    upgraded['message'] = _build_comparison_message(
+        'PERSISTENT_CHANGE',
+        comparison.get('reasons') or [],
+        days_between,
+        condition,
+        comparison.get('comparison_confidence', 'moderate'),
+        comparison.get('baseline_type', 'preferred'),
+    )
+    return upgraded
+
+
 def find_baseline_photo(
     user_id: int,
     condition_type: str,
@@ -610,6 +715,16 @@ def compare_to_historical(user_id: int, current: EyePhoto) -> Dict[str, Any]:
         }
 
     comparison = compare_photos(current, baseline, baseline_type=baseline_type or 'preferred')
+
+    prior_confirm = _find_prior_confirm_retake(user_id, current, baseline.id)
+    if prior_confirm:
+        comparison = _apply_confirmation_upgrade(
+            comparison,
+            prior_confirm,
+            current.condition_type or 'general',
+            comparison.get('days_between'),
+        )
+
     comparison['has_baseline'] = True
     comparison['baseline_thumbnail'] = baseline.image_thumbnail
     return comparison

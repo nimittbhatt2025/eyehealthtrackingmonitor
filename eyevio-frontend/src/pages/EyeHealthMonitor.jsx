@@ -605,9 +605,17 @@ export default function EyeHealthMonitor() {
                 {lastResult.comparison?.comparison_confidence && (
                   <p className="text-xs text-gray-500 mt-2">
                     Comparison confidence: <strong>{lastResult.comparison.comparison_confidence}</strong>
-                    {lastResult.comparison.lighting_confidence != null && (
-                      <> · lighting weight {Math.round(lastResult.comparison.lighting_confidence * 100)}%</>
+                    {lastResult.comparison.baseline_type && (
+                      <> · baseline: {lastResult.comparison.baseline_type}</>
                     )}
+                    {lastResult.comparison.action && (
+                      <> · status: {lastResult.comparison.action.replace(/_/g, ' ').toLowerCase()}</>
+                    )}
+                  </p>
+                )}
+                {lastResult.comparison?.confirmation_note && (
+                  <p className="text-xs text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-md px-2 py-1.5 mt-2">
+                    {lastResult.comparison.confirmation_note}
                   </p>
                 )}
                 {lastResult.comparison?.condition_scope?.disclaimer && (
@@ -793,6 +801,18 @@ export default function EyeHealthMonitor() {
             <button type="button" onClick={() => { setView('home'); setLastResult(null) }} className="btn-primary min-h-[44px]">
               Back to monitor
             </button>
+            {lastResult.comparison?.recommend_confirm_retake && (
+              <button
+                type="button"
+                onClick={() => {
+                  setLastResult(null)
+                  setView('glasses-check')
+                }}
+                className="btn-secondary min-h-[44px]"
+              >
+                Retake to confirm
+              </button>
+            )}
             {lastResult.alert?.id && (
               <Link to="/alerts" className="btn-secondary min-h-[44px] inline-flex items-center">
                 View alert
