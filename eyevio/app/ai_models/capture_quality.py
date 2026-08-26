@@ -26,7 +26,7 @@ LEFT_EYE = [33, 133, 160, 159, 158, 157, 173, 144, 145, 153]
 RIGHT_EYE = [362, 263, 387, 386, 385, 384, 398, 373, 374, 380]
 FOREHEAD = [10, 151, 9, 8, 107]
 
-ALGORITHM_VERSION = 2.6
+ALGORITHM_VERSION = 2.7
 
 # Version 1 constants (frozen in M4/M5 datasets — do not change retroactively).
 V1_EXTREME_EYE_MEAN_LOW = 40
@@ -134,25 +134,34 @@ def _roi_stats(frame: np.ndarray, landmarks: Any, indices: List[int], pad: float
     }
 
 
-def _fallback_roi_stats(frame: np.ndarray) -> Dict[str, Dict[str, float]]:
-    h, w = frame.shape[:2]
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    region = gray[int(h * 0.12): int(h * 0.88), int(w * 0.2): int(w * 0.8)]
-    mid = max(1, region.shape[1] // 2)
-    left = region[:, :mid]
-    right = region[:, mid:]
-    forehead = gray[int(h * 0.08): int(h * 0.28), int(w * 0.3): int(w * 0.7)]
-
-    def stats(arr: np.ndarray) -> Dict[str, float]:
-        if arr.size == 0:
-            return {'mean': 0.0, 'under_ratio': 0.0, 'over_ratio': 0.0}
-        return {
-            'mean': float(np.mean(arr)),
-            'under_ratio': float(np.mean(arr < 40)),
-            'over_ratio': float(np.mean(arr > 245)),
-        }
-
-    return {'left': stats(left), 'right': stats(right), 'forehead': stats(forehead)}
+def _face_framing_ok(landmarks: Any) -> bool:
+    """Reject tilted/out-of-frame faces so eye ROIs do not sample bright backgrounds."""
+    if landmarks is None:
+        return False
+    try:
+        eye_idx = LEFT_EYE + RIGHT_EYE
+        ys = [landmarks[i].y for i in eye_idx]
+        xs = [landmarks[i].x for i in eye_idx]
+        chin_y = float(landmarks[152].y)
+        forehead_y = float(landmarks[10].y)
+    except (IndexError, AttributeError, TypeError):
+        return False
+    if not ys or not xs:
+        return False
+    mean_y = float(sum(ys) / len(ys))
+    x_min, x_max = float(min(xs)), float(max(xs))
+    # Tight band — half-visible faces make washout fire on bright murals/walls.
+    if mean_y < 0.15 or mean_y > 0.68:
+        return False
+    if x_min < 0.06 or x_max > 0.94:
+        return False
+    if (x_max - x_min) < 0.10:
+        return False
+    if chin_y > 0.98 or forehead_y < 0.02:
+        return False
+    if (chin_y - forehead_y) < 0.18:
+        return False
+    return True
 
 
 def _frame_backlight_stats(frame: np.ndarray) -> Dict[str, float]:
@@ -425,13 +434,23 @@ def assess_anatomical_lighting(
             'metrics': {},
         }
 
-    if landmarks is not None:
-        left = _roi_stats(frame, landmarks, LEFT_EYE)
-        right = _roi_stats(frame, landmarks, RIGHT_EYE)
-        forehead = _roi_stats(frame, landmarks, FOREHEAD, pad=0.25)
-    else:
-        fb = _fallback_roi_stats(frame)
-        left, right, forehead = fb['left'], fb['right'], fb['forehead']
+    # Geometric fallbacks used to sample the whole mid-frame — bright murals then
+    # looked like an "over-bright face" when the subject tilted out of view.
+    if not _face_framing_ok(landmarks):
+        return {
+            'status': 'extreme_problem',
+            'acceptable': False,
+            'extreme': True,
+            'algorithm_version': version,
+            'issues': ['Face not fully in frame — center your face in the camera'],
+            'recommendations': ['Keep both eyes visible and centered before capturing'],
+            'message': 'Face not fully in frame — center your face in the camera.',
+            'metrics': {},
+        }
+
+    left = _roi_stats(frame, landmarks, LEFT_EYE)
+    right = _roi_stats(frame, landmarks, RIGHT_EYE)
+    forehead = _roi_stats(frame, landmarks, FOREHEAD, pad=0.25)
 
     frame_stats = _frame_backlight_stats(frame)
 

@@ -213,23 +213,52 @@ function appendFrameBacklightIssues(issues, recommendations, frameStats) {
   }
 }
 
+/** Eyes must sit in a sensible band — otherwise ROIs land on background (bright murals). */
+function faceFramingOk(landmarks) {
+  if (!landmarks?.length || landmarks.length < 400) return false
+  const eyeIdx = LEFT_EYE.concat(RIGHT_EYE)
+  let ySum = 0
+  let xMin = 1
+  let xMax = 0
+  for (const i of eyeIdx) {
+    const { x, y } = landmarks[i]
+    ySum += y
+    if (x < xMin) xMin = x
+    if (x > xMax) xMax = x
+  }
+  const meanY = ySum / eyeIdx.length
+  // Tilted out: eyes leave the usable band; ROIs then sample wallpaper and look "over-bright".
+  if (meanY < 0.15 || meanY > 0.68) return false
+  if (xMin < 0.06 || xMax > 0.94) return false
+  if (xMax - xMin < 0.10) return false
+  // Chin / forehead span — rejects half-out-of-frame faces FaceMesh still tracks.
+  const chinY = landmarks[152]?.y
+  const foreheadY = landmarks[10]?.y
+  if (chinY == null || foreheadY == null) return false
+  if (chinY > 0.98 || foreheadY < 0.02) return false
+  if (chinY - foreheadY < 0.18) return false
+  return true
+}
+
 /** Returns 1 = normal, 0 = extreme problem (for stabilizer input). */
 function scoreLighting(imageData, landmarks) {
   const { width, height } = imageData
-  let left
-  let right
-  let forehead
 
-  if (landmarks?.length >= 400) {
-    left = roiStats(imageData, width, height, landmarks, LEFT_EYE)
-    right = roiStats(imageData, width, height, landmarks, RIGHT_EYE)
-    forehead = roiStats(imageData, width, height, landmarks, FOREHEAD, 0.25)
-  } else {
-    const fb = fallbackRoiStats(imageData)
-    left = fb.left
-    right = fb.right
-    forehead = fb.forehead
+  // Never judge lighting from geometric fallbacks / stale landmarks on background.
+  if (!faceFramingOk(landmarks)) {
+    return {
+      confidence: 0,
+      isExtreme: true,
+      issues: ['Face not fully in frame — center your face in the camera'],
+      recommendations: ['Keep both eyes visible and centered before capturing'],
+      metrics: {},
+      message: 'Face not fully in frame — center your face in the camera',
+    }
   }
+
+  const left = roiStats(imageData, width, height, landmarks, LEFT_EYE)
+  const right = roiStats(imageData, width, height, landmarks, RIGHT_EYE)
+  const forehead = roiStats(imageData, width, height, landmarks, FOREHEAD, 0.25)
 
   const eyeMean = (left.mean + right.mean) / 2
   const lrDelta = Math.abs(left.mean - right.mean)
@@ -400,9 +429,8 @@ export class StableLightingPreview {
   async init() {
     this.faceMesh = await getFaceMesh()
     this.faceMesh.onResults((results) => {
-      if (results.multiFaceLandmarks?.[0]) {
-        this.lastLandmarks = results.multiFaceLandmarks[0]
-      }
+      // Clear when face is lost — otherwise stale eye ROIs sample the background mural.
+      this.lastLandmarks = results.multiFaceLandmarks?.[0] || null
       if (this._pendingResolve) {
         this._pendingResolve()
         this._pendingResolve = null
