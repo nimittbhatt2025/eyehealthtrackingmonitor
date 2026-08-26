@@ -21,11 +21,15 @@ import numpy as np
 from app.ai_models.eye_analysis import get_face_landmarker
 from app.ai_models.eye_crop_alignment import build_aligned_crops, eye_asymmetry_metrics
 from app.ai_models.eyewear_detection import detect_eyewear
-from app.ai_models.capture_quality import assess_anatomical_lighting
+from app.ai_models.capture_quality import assess_anatomical_lighting, build_capture_quality_summary
 
 # Wider eye regions for sclera + lid context (MediaPipe indices)
 LEFT_EYE_REGION = [33, 133, 160, 159, 158, 157, 173, 144, 145, 153]
 RIGHT_EYE_REGION = [362, 263, 387, 386, 385, 384, 398, 373, 374, 380]
+
+MIN_SCLERA_BRIGHTNESS = 80
+MAX_SCLERA_SATURATION = 85
+MIN_SCLERA_MASK_COVERAGE = 0.02
 
 
 def decode_base64_image(image_data: str) -> Optional[np.ndarray]:
@@ -96,106 +100,139 @@ def _crop_eye_regions(frame: np.ndarray) -> Dict[str, Any]:
 
 
 def _sclera_mask(bgr: np.ndarray) -> np.ndarray:
-    """Mask likely sclera pixels (bright, low saturation)."""
+    """Conservative sclera mask — bright, low-saturation pixels without extreme highlights."""
     hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
     h, s, v = cv2.split(hsv)
-    # Bright areas with low-to-moderate saturation
-    mask = ((v > 80) & (s < 90)).astype(np.uint8) * 255
+    candidate = (
+        (v > MIN_SCLERA_BRIGHTNESS)
+        & (s < MAX_SCLERA_SATURATION)
+        & (v < 245)
+    ).astype(np.uint8) * 255
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-    return mask
+    candidate = cv2.morphologyEx(candidate, cv2.MORPH_OPEN, kernel)
+    candidate = cv2.morphologyEx(candidate, cv2.MORPH_CLOSE, kernel)
+    return candidate
 
 
-def measure_sclera_redness(eye_bgr: np.ndarray) -> float:
+def measure_sclera_redness(eye_bgr: np.ndarray) -> Dict[str, Any]:
     """
     Sclera redness level 0–100 (higher = more red).
+    Returns reliability metadata — do not treat failed segmentation as normal.
     """
+    empty = {
+        'sclera_redness': None,
+        'redness_rg': None,
+        'red_pixel_fraction': None,
+        'mask_coverage': 0.0,
+        'redness_reliable': False,
+    }
     if eye_bgr is None or eye_bgr.size == 0:
-        return 0.0
+        return empty
 
     mask = _sclera_mask(eye_bgr)
-    if np.count_nonzero(mask) < 50:
-        # Fallback: use lighter pixels in the crop
-        gray = cv2.cvtColor(eye_bgr, cv2.COLOR_BGR2GRAY)
-        mask = (gray > 100).astype(np.uint8) * 255
+    coverage = float(np.count_nonzero(mask)) / mask.size
+    if coverage < MIN_SCLERA_MASK_COVERAGE:
+        return {**empty, 'mask_coverage': round(coverage, 4)}
 
     b, g, r = cv2.split(eye_bgr)
     sclera = mask > 0
-    if not np.any(sclera):
-        return 0.0
-
-    red_dom = (r[sclera].astype(np.float32) - g[sclera].astype(np.float32))
+    r_vals = r[sclera].astype(np.float32)
+    g_vals = g[sclera].astype(np.float32)
+    red_dom = r_vals - g_vals
+    rgb_sum = r_vals + g_vals + b[sclera].astype(np.float32)
+    redness_rg = float(np.mean(red_dom))
+    redness_normalized = float(np.mean(red_dom / np.maximum(rgb_sum, 1.0)))
+    red_pixel_fraction = float(np.mean((r_vals > g_vals + 15).astype(np.float32)))
     redness = float(np.clip(np.mean(red_dom) / 80.0 * 100, 0, 100))
-    return round(redness, 1)
+
+    return {
+        'sclera_redness': round(redness, 1),
+        'redness_rg': round(redness_rg, 2),
+        'red_pixel_fraction': round(red_pixel_fraction, 3),
+        'mask_coverage': round(coverage, 4),
+        'redness_reliable': True,
+    }
 
 
 def analyze_tear_film_surface(eye_bgr: np.ndarray) -> Dict[str, float]:
     """
-    Estimate tear film quality from corneal reflection / texture.
-
-    Returns:
-        tear_film_quality: 0–100 (higher = smoother, healthier-looking surface)
-        surface_irregularity: 0–100 (higher = more irregular — dry-eye proxy)
+    Experimental reflection/texture proxies from corneal zone heuristics.
+    Not validated clinical tear-film measurement.
     """
     if eye_bgr is None or eye_bgr.size == 0:
-        return {'tear_film_quality': 50.0, 'surface_irregularity': 50.0}
+        return {
+            'experimental_tear_proxy': 50.0,
+            'experimental_texture_proxy': 50.0,
+            'tear_film_quality': 50.0,
+            'surface_irregularity': 50.0,
+        }
 
     h, w = eye_bgr.shape[:2]
-    # Central corneal zone (avoid lids)
     y0, y1 = int(h * 0.25), int(h * 0.75)
     x0, x1 = int(w * 0.2), int(w * 0.8)
     cornea = eye_bgr[y0:y1, x0:x1]
     if cornea.size == 0:
-        return {'tear_film_quality': 50.0, 'surface_irregularity': 50.0}
+        return {
+            'experimental_tear_proxy': 50.0,
+            'experimental_texture_proxy': 50.0,
+            'tear_film_quality': 50.0,
+            'surface_irregularity': 50.0,
+        }
 
     gray = cv2.cvtColor(cornea, cv2.COLOR_BGR2GRAY)
     gray = cv2.GaussianBlur(gray, (5, 5), 0)
 
-    # Specular highlights — broken / scattered reflections suggest tear film instability
     _, bright = cv2.threshold(gray, 185, 255, cv2.THRESH_BINARY)
     bright_ratio = float(np.count_nonzero(bright)) / bright.size
-
-    # Local brightness variation (tear film breakup increases patchiness)
     local_std = float(np.std(cv2.Laplacian(gray, cv2.CV_64F)))
     lap_var = float(cv2.Laplacian(gray, cv2.CV_64F).var())
 
-    # Normalize heuristics (tuned conservatively for webcam photos)
     irregularity = float(np.clip(
         bright_ratio * 120 + local_std * 0.8 + lap_var * 0.015,
         0, 100
     ))
-    tear_film_quality = float(np.clip(100 - irregularity * 0.85, 0, 100))
+    tear_proxy = float(np.clip(100 - irregularity * 0.85, 0, 100))
 
     return {
-        'tear_film_quality': round(tear_film_quality, 1),
+        'experimental_tear_proxy': round(tear_proxy, 1),
+        'experimental_texture_proxy': round(irregularity, 1),
+        'tear_film_quality': round(tear_proxy, 1),
         'surface_irregularity': round(irregularity, 1),
     }
 
 
-def _eye_health_score(redness: float, tear_film_quality: float, irregularity: float) -> float:
-    """Per-eye health score 0–100 (higher = healthier / lower dry-eye signs)."""
-    redness_penalty = min(redness * 0.45, 40)
-    irregularity_penalty = min(irregularity * 0.35, 35)
-    score = tear_film_quality * 0.55 + (100 - redness) * 0.25 + (100 - irregularity) * 0.20
-    score -= redness_penalty * 0.15
+def _eye_appearance_score(
+    redness: Optional[float],
+    experimental_tear_proxy: float,
+    experimental_texture_proxy: float,
+) -> float:
+    """Wellness appearance score — not a clinical dry-eye severity score."""
+    if redness is None:
+        redness = 50.0
+    redness_component = 100 - redness
+    experimental_component = (
+        experimental_tear_proxy * 0.6
+        + (100 - experimental_texture_proxy) * 0.4
+    )
+    score = redness_component * 0.65 + experimental_component * 0.35
     return round(float(np.clip(score, 0, 100)), 1)
 
 
 def _risk_from_score(score: float) -> str:
     if score >= 75:
-        return 'low'
+        return 'similar'
     if score >= 55:
-        return 'moderate'
-    return 'elevated'
+        return 'some_variation'
+    return 'larger_change'
 
 
 def _risk_message(risk: str) -> str:
     messages = {
-        'low': 'Your eye surface looks relatively healthy in this photo. Keep taking screen breaks and staying hydrated.',
-        'moderate': 'We see mild signs that could be linked to dry eyes — dryness, redness, or an uneven tear film. Try regular breaks and lubricating drops if you have symptoms.',
-        'elevated': 'This photo shows stronger signs that can be linked to dry eyes. If your eyes often feel dry, gritty, or tired, please book a full eye exam.',
+        'similar': 'This photo looks similar to typical reference photos in good lighting.',
+        'some_variation': 'Some visible variation appears in this photo — lighting and camera quality affect results.',
+        'larger_change': 'This photo shows larger-than-usual visible variation. Retake in similar lighting if tracking month-over-month.',
     }
-    return messages.get(risk, messages['moderate'])
+    return messages.get(risk, messages['some_variation'])
 
 
 def assess_photo_lighting(frame: np.ndarray, face_landmarks: Any = None) -> Dict[str, Any]:
@@ -330,15 +367,25 @@ def assess_photo_lighting(frame: np.ndarray, face_landmarks: Any = None) -> Dict
 
 
 def analyze_eye_patch(eye_bgr: np.ndarray) -> Dict[str, Any]:
-    redness = measure_sclera_redness(eye_bgr)
+    redness_data = measure_sclera_redness(eye_bgr)
     surface = analyze_tear_film_surface(eye_bgr)
-    health = _eye_health_score(redness, surface['tear_film_quality'], surface['surface_irregularity'])
+    redness = redness_data.get('sclera_redness')
+    appearance = _eye_appearance_score(
+        redness,
+        surface['experimental_tear_proxy'],
+        surface['experimental_texture_proxy'],
+    )
     return {
-        'health_score': health,
+        'appearance_score': appearance,
+        'health_score': appearance,
         'sclera_redness': redness,
+        'redness_reliable': redness_data.get('redness_reliable', False),
+        'redness_details': redness_data,
+        'experimental_tear_proxy': surface['experimental_tear_proxy'],
+        'experimental_texture_proxy': surface['experimental_texture_proxy'],
         'tear_film_quality': surface['tear_film_quality'],
         'surface_irregularity': surface['surface_irregularity'],
-        'risk_level': _risk_from_score(health),
+        'risk_level': _risk_from_score(appearance),
     }
 
 
@@ -353,6 +400,7 @@ def analyze_dry_eye_frame(frame: np.ndarray) -> Dict[str, Any]:
 
     lighting = assess_anatomical_lighting(frame, crop_result.get('landmarks'))
     eyewear = detect_eyewear(frame, crop_result.get('landmarks'))
+    capture_quality = build_capture_quality_summary(lighting, eyewear)
 
     crops = crop_result['crops']
     left = analyze_eye_patch(crops['left'])
@@ -360,30 +408,39 @@ def analyze_dry_eye_frame(frame: np.ndarray) -> Dict[str, Any]:
     aligned_crops = build_aligned_crops(crops['left'], crops['right'])
     asymmetry = eye_asymmetry_metrics(left, right)
 
-    overall = round((left['health_score'] + right['health_score']) / 2, 1)
+    left_score = left['appearance_score']
+    right_score = right['appearance_score']
+    overall = round((left_score + right_score) / 2, 1)
+    max_eye_change_proxy = abs(left_score - right_score)
     risk = _risk_from_score(overall)
 
     findings: List[str] = []
-    avg_redness = (left['sclera_redness'] + right['sclera_redness']) / 2
-    avg_irreg = (left['surface_irregularity'] + right['surface_irregularity']) / 2
-    avg_tear = (left['tear_film_quality'] + right['tear_film_quality']) / 2
+    reliable_redness = []
+    if left.get('redness_reliable') and left.get('sclera_redness') is not None:
+        reliable_redness.append(left['sclera_redness'])
+    if right.get('redness_reliable') and right.get('sclera_redness') is not None:
+        reliable_redness.append(right['sclera_redness'])
+    avg_redness = sum(reliable_redness) / len(reliable_redness) if reliable_redness else None
+    avg_irreg = (left['experimental_texture_proxy'] + right['experimental_texture_proxy']) / 2
+    avg_tear = (left['experimental_tear_proxy'] + right['experimental_tear_proxy']) / 2
 
-    if avg_redness > 35:
+    if avg_redness is not None and avg_redness > 35:
         findings.append('Visible redness in the white of the eye')
     if avg_irreg > 45:
-        findings.append('Uneven tear film reflections on the eye surface')
+        findings.append('Uneven reflection patterns on the eye surface')
     if avg_tear < 55:
-        findings.append('Tear film may appear less smooth than typical')
+        findings.append('Reflection consistency appears lower than typical')
     if asymmetry['health_score_asymmetry'] > 20:
-        findings.append('Noticeable difference between left and right eye')
+        findings.append('Noticeable difference between left and right eye appearance')
     if asymmetry['irregularity_asymmetry'] > 15:
         findings.append('Surface texture differs between left and right eye')
 
     if not findings:
-        findings.append('No strong dry-eye signs detected in this photo')
+        findings.append('No large visible differences detected in this photo')
 
     return {
         'score': overall,
+        'appearance_score': overall,
         'risk_level': risk,
         'risk_message': _risk_message(risk),
         'findings': findings,
@@ -391,17 +448,23 @@ def analyze_dry_eye_frame(frame: np.ndarray) -> Dict[str, Any]:
         'right_eye': right,
         'lighting': lighting,
         'eyewear': eyewear,
+        'capture_quality': capture_quality,
         'aligned_crops': aligned_crops,
         'eye_asymmetry': asymmetry,
         'metrics': {
-            'avg_sclera_redness': round(avg_redness, 1),
+            'avg_sclera_redness': round(avg_redness, 1) if avg_redness is not None else None,
             'avg_tear_film_quality': round(avg_tear, 1),
             'avg_surface_irregularity': round(avg_irreg, 1),
+            'avg_experimental_tear_proxy': round(avg_tear, 1),
+            'avg_experimental_texture_proxy': round(avg_irreg, 1),
             'health_score_asymmetry': asymmetry['health_score_asymmetry'],
             'irregularity_asymmetry': asymmetry['irregularity_asymmetry'],
+            'left_appearance_score': left_score,
+            'right_appearance_score': right_score,
+            'max_eye_score_delta': round(max_eye_change_proxy, 1),
         },
         'disclaimer': (
-            'Screening only — not a medical diagnosis. Lighting, makeup, and camera quality affect results.'
+            'Appearance tracking only — not a medical diagnosis. Lighting, makeup, and camera quality affect results.'
         ),
     }
 
@@ -443,4 +506,5 @@ def analyze_tear_film(eye_region: np.ndarray) -> float:
 
 def measure_redness(eye_region: np.ndarray) -> float:
     """Compatibility wrapper — returns sclera redness 0–100."""
-    return measure_sclera_redness(eye_region)
+    result = measure_sclera_redness(eye_region)
+    return float(result.get('sclera_redness') or 0.0)

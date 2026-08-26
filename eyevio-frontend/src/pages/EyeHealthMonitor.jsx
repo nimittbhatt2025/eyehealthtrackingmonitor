@@ -25,7 +25,7 @@ const CONDITIONS = [
   {
     id: 'dry_eye',
     label: 'Dry eye',
-    description: 'Tracks redness, tear film smoothness, surface irregularity, and aligned eye appearance.',
+    description: 'Tracks redness, reflection consistency, surface texture, and aligned eye appearance.',
   },
   {
     id: 'cornea_scar',
@@ -94,6 +94,7 @@ export default function EyeHealthMonitor() {
   const [liveLighting, setLiveLighting] = useState(null)
   const [lightingError, setLightingError] = useState(null)
   const [deletingId, setDeletingId] = useState(null)
+  const [timelineMetric, setTimelineMetric] = useState('overall')
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -231,6 +232,8 @@ export default function EyeHealthMonitor() {
         toast(data.eyewear_warning.message, { icon: '⚠️', duration: 6000 })
       } else if (data.alert) {
         toast.error(data.alert.message, { duration: 6000 })
+      } else if (data.comparison?.recommend_confirm_retake) {
+        toast('Visible change detected — retake in similar lighting to confirm.', { icon: '⚠️', duration: 6000 })
       } else if (data.comparison?.deteriorated) {
         toast('Changes detected — review your comparison.', { icon: '⚠️' })
       } else {
@@ -299,8 +302,8 @@ export default function EyeHealthMonitor() {
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Eye Health Photo Monitor</h1>
         <p className="text-gray-600 mt-1 text-sm max-w-2xl">
-          Take a monthly eye photo to track surface health over time. If metrics worsen before your
-          next doctor visit, EyeVio can alert you to schedule an earlier appointment.
+          Take a monthly eye photo to track visible surface appearance over time under ideal, well-lit conditions.
+          If a sustained visible change is confirmed, EyeVio may suggest checking in with your doctor before your next visit.
         </p>
       </div>
 
@@ -346,7 +349,7 @@ export default function EyeHealthMonitor() {
             <option value={12}>Every 12 months</option>
           </select>
           <p className="text-xs text-gray-500 mt-1.5">
-            Alerts recommend an earlier visit if photos worsen before this schedule.
+            Alerts may recommend an earlier visit if a confirmed visible change appears before this schedule.
           </p>
         </div>
       </div>
@@ -364,7 +367,7 @@ export default function EyeHealthMonitor() {
                 <p className="text-gray-900 font-semibold">{status?.message}</p>
                 {status?.has_photos && (
                   <p className="text-sm text-gray-600 mt-1">
-                    Last score: <strong>{status.last_health_score}</strong>/100
+                    Last appearance score: <strong>{status.last_health_score}</strong>/100
                     {status.days_since_last != null && ` · ${status.days_since_last} days ago`}
                   </p>
                 )}
@@ -383,24 +386,53 @@ export default function EyeHealthMonitor() {
                 <History className="w-4 h-4" />
                 Month-over-month trends
               </h2>
-              <div className="space-y-3">
-                {timeline.map((month) => (
-                  <div key={month.month} className="flex items-center gap-3">
-                    <span className="text-xs font-medium text-gray-500 w-16 shrink-0">{month.label}</span>
-                    <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-accent-500 rounded-full"
-                        style={{ width: `${Math.min(100, month.avg_health_score)}%` }}
-                      />
-                    </div>
-                    <span className="text-sm font-semibold text-gray-800 w-10 text-right">{month.avg_health_score}</span>
-                  </div>
+              <div className="flex flex-wrap gap-2 mb-4">
+                {[
+                  ['overall', 'Overall'],
+                  ['redness', 'Redness'],
+                  ['tear_film', 'Reflection'],
+                  ['irregularity', 'Texture'],
+                  ['asymmetry', 'Asymmetry'],
+                ].map(([key, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setTimelineMetric(key)}
+                    className={`text-xs px-2.5 py-1 rounded-full border ${
+                      timelineMetric === key
+                        ? 'bg-accent-100 border-accent-300 text-accent-900 font-medium'
+                        : 'bg-white border-gray-200 text-gray-600'
+                    }`}
+                  >
+                    {label}
+                  </button>
                 ))}
               </div>
-              <div className="grid grid-cols-3 gap-3 mt-4 text-center text-xs text-gray-500">
-                <div>Redness (lower better)</div>
-                <div>Tear film (higher better)</div>
-                <div>Irregularity (lower better)</div>
+              <div className="space-y-3">
+                {timeline.map((month) => {
+                  const metricValue = {
+                    overall: month.avg_health_score,
+                    redness: month.avg_redness,
+                    tear_film: month.avg_tear_film,
+                    irregularity: month.avg_irregularity,
+                    asymmetry: month.avg_asymmetry ?? 0,
+                  }[timelineMetric] ?? month.avg_health_score
+                  const barWidth = timelineMetric === 'redness' || timelineMetric === 'irregularity' || timelineMetric === 'asymmetry'
+                    ? Math.max(0, 100 - metricValue)
+                    : metricValue
+                  return (
+                    <div key={month.month} className="flex items-center gap-3">
+                      <span className="text-xs font-medium text-gray-500 w-16 shrink-0">{month.label}</span>
+                      <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-accent-500 rounded-full"
+                          style={{ width: `${Math.min(100, barWidth)}%` }}
+                        />
+                      </div>
+                      <span className="text-sm font-semibold text-gray-800 w-10 text-right">{metricValue}</span>
+                    </div>
+                  )
+                })}
               </div>
             </div>
           )}
@@ -473,7 +505,11 @@ export default function EyeHealthMonitor() {
         />
       )}
 
-      {view === 'capture' && (
+      {view === 'capture' && (() => {
+        const framingBlock = liveLighting?.status === 'framing_problem' && liveLighting?.stable
+        const lightingBlock = liveLighting?.status === 'extreme_problem' && liveLighting?.stable
+        const checking = !liveLighting?.stable || liveLighting?.status === 'checking'
+        return (
         <div className="card p-5 space-y-4">
           <h2 className="font-semibold text-gray-900">Capture eye photo</h2>
           <ul className="text-sm text-gray-600 list-disc pl-5 space-y-1">
@@ -484,6 +520,11 @@ export default function EyeHealthMonitor() {
 
           <PhotoLightingBanner lighting={liveLighting} />
           <EyewearReminderBanner />
+          {lightingBlock && (
+            <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              This photo may be saved, but may not be reliable for month-to-month comparison.
+            </p>
+          )}
           <canvas ref={lightingCanvasRef} className="hidden" aria-hidden />
 
           <div className="relative rounded-xl overflow-hidden bg-gray-900 aspect-video max-w-lg mx-auto">
@@ -506,17 +547,28 @@ export default function EyeHealthMonitor() {
             <button
               type="button"
               onClick={() => captureAndAnalyze(false)}
-              disabled={!cameraReady || liveLighting?.blockCapture}
+              disabled={!cameraReady || checking || framingBlock}
               className="btn-primary min-h-[44px] disabled:opacity-50"
             >
               Capture &amp; analyze
             </button>
+            {lightingBlock && !framingBlock && (
+              <button
+                type="button"
+                onClick={() => captureAndAnalyze(true)}
+                disabled={!cameraReady || checking}
+                className="btn-secondary min-h-[44px] disabled:opacity-50"
+              >
+                Capture anyway
+              </button>
+            )}
             <button type="button" onClick={() => { stopCamera(); setView('glasses-check') }} className="btn-secondary min-h-[44px]">
               Cancel
             </button>
           </div>
         </div>
-      )}
+        )
+      })()}
 
       {view === 'analyzing' && (
         <div className="card p-10 text-center">
@@ -541,7 +593,11 @@ export default function EyeHealthMonitor() {
               )}
               <div>
                 <h2 className="font-semibold text-gray-900">
-                  {lastResult.comparison?.deteriorated ? 'Changes detected' : 'Photo saved'}
+                  {lastResult.comparison?.deteriorated
+                    ? 'Confirmed visible change'
+                    : lastResult.comparison?.recommend_confirm_retake
+                      ? 'Retake recommended'
+                      : 'Photo saved'}
                 </h2>
                 <p className="text-sm text-gray-700 mt-1">
                   {lastResult.comparison?.message || 'Your photo has been added to your history.'}
@@ -579,7 +635,10 @@ export default function EyeHealthMonitor() {
                   className="rounded-lg border border-gray-200 w-full aspect-[4/3] object-cover"
                 />
                 <div className="text-sm text-gray-700 space-y-1">
-                  <p><strong>Health score:</strong> {lastResult.photo.health_score}/100</p>
+                  <p><strong>Appearance score:</strong> {lastResult.photo.health_score}/100</p>
+                  {lastResult.analysis?.capture_quality && (
+                    <p><strong>Capture quality:</strong> {lastResult.analysis.capture_quality.grade}</p>
+                  )}
                   <p><strong>Condition:</strong> {conditionLabel(lastResult.photo.condition_type)}</p>
                   <p><strong>Saved:</strong> {new Date(lastResult.photo.captured_at).toLocaleString()}</p>
                   <p className="text-xs text-gray-500 pt-2">
@@ -629,14 +688,25 @@ export default function EyeHealthMonitor() {
 
               {lastResult.comparison.changes && (
                 <div className="bg-gray-50 rounded-lg p-4">
-                  <MetricDelta label="Health score" change={lastResult.comparison.changes.health_score} />
+                  <MetricDelta label="Appearance score" change={lastResult.comparison.changes.health_score} />
                   <MetricDelta label="Redness" change={lastResult.comparison.changes.sclera_redness} higherIsWorse />
-                  <MetricDelta label="Tear film" change={lastResult.comparison.changes.tear_film_quality} />
+                  <MetricDelta label="Reflection consistency" change={lastResult.comparison.changes.tear_film_quality} />
                   <MetricDelta
-                    label="Surface irregularity"
+                    label="Surface texture"
                     change={lastResult.comparison.changes.surface_irregularity}
                     higherIsWorse
                   />
+                  {lastResult.comparison.eye_changes && (
+                    <>
+                      <MetricDelta label="Left eye score" change={lastResult.comparison.eye_changes.left} />
+                      <MetricDelta label="Right eye score" change={lastResult.comparison.eye_changes.right} />
+                      {lastResult.comparison.eye_changes.asymmetry_flag && (
+                        <p className="text-xs text-amber-800 pt-2">
+                          One eye changed more than the other — review both eyes in the comparison crops.
+                        </p>
+                      )}
+                    </>
+                  )}
                   {lastResult.comparison.changes.irregularity_asymmetry && (
                     <MetricDelta
                       label="L/R irregularity asymmetry"
@@ -649,7 +719,7 @@ export default function EyeHealthMonitor() {
 
               {lastResult.comparison.visual_comparison?.available && (
                 <div className="mt-5 border-t border-gray-100 pt-4">
-                  <h4 className="font-semibold text-gray-900 mb-1">Aligned eye comparison (SSIM)</h4>
+                  <h4 className="font-semibold text-gray-900 mb-1">Photo similarity comparison</h4>
                   <p className="text-xs text-gray-500 mb-3">
                     {lastResult.comparison.visual_comparison.message}
                     {lastResult.comparison.visual_comparison.ssim_avg != null && (

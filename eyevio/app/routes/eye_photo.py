@@ -124,7 +124,7 @@ def capture_eye_photo():
             condition_type=condition_type,
             image_thumbnail=_create_thumbnail_data_url(image_data),
             health_score=float(analysis.get('score', 0)),
-            sclera_redness=float(metrics.get('avg_sclera_redness', 0)),
+            sclera_redness=float(metrics.get('avg_sclera_redness') or 0),
             tear_film_quality=float(metrics.get('avg_tear_film_quality', 0)),
             surface_irregularity=float(metrics.get('avg_surface_irregularity', 0)),
             left_eye_score=float(left.get('health_score', 0)),

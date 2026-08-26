@@ -649,3 +649,41 @@ def run_capture_quality_gate(frame: np.ndarray, landmarks: Any = None) -> Dict[s
         'eyewear_warning': eyewear_warning,
         'failures': failures,
     }
+
+
+def build_capture_quality_summary(
+    lighting: Optional[Dict[str, Any]],
+    eyewear: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """
+    Data-quality score for a captured photo — not a clinical health score.
+    Separates 'capture passed' from 'safe to compare longitudinally'.
+    """
+    lighting = lighting or {}
+    eyewear = eyewear or {}
+    score = 100.0
+    reasons: List[str] = []
+
+    status = lighting.get('status')
+    if status == 'framing_problem':
+        score -= 60
+        reasons.append('framing_problem')
+    elif status == 'extreme_problem':
+        score -= 50
+        reasons.append('extreme_lighting')
+
+    if eyewear.get('detected') and eyewear.get('confidence', 0) >= 55:
+        score -= 15
+        reasons.append('possible_eyewear')
+
+    score = max(0.0, score)
+    grade = 'high' if score >= 85 else ('moderate' if score >= 65 else 'low')
+
+    return {
+        'score': round(score),
+        'grade': grade,
+        'usable': score >= 50,
+        'lighting_status': status or 'unknown',
+        'algorithm_version': lighting.get('algorithm_version', ALGORITHM_VERSION),
+        'reasons': reasons,
+    }

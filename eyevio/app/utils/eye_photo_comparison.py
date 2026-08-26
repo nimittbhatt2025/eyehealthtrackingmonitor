@@ -1,27 +1,30 @@
 """
 Month-over-month eye photo comparison and deterioration detection.
 
-Phase 1 careful comparison:
-- Metric deltas (redness, tear film, irregularity, asymmetry)
-- Landmark-aligned crop SSIM visual change
-- Lighting confidence weighting
-- Condition-specific emphasis (dry eye / cornea / general)
-- Glaucoma selfie mode is surface-proxy only (not optic-nerve screening)
+Pairwise comparability is separate from single-photo capture quality.
+Change decisions use confirmation-aware logic — not raw threshold accumulation alone.
 """
 
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
-from app.ai_models.eye_crop_alignment import (
-    compare_aligned_crops,
-    lighting_confidence,
-)
+from app.ai_models.eye_crop_alignment import compare_aligned_crops
 from app.models import EyePhoto
 
-BASELINE_WINDOW_DAYS = (20, 45)
 MONTHLY_CHECK_INTERVAL_DAYS = 30
+
+BASELINE_WINDOWS = {
+    'preferred': (20, 45),
+    'extended': (46, 90),
+    'historical': (91, 180),
+}
+
+MONITOR_THRESHOLD = 10.0
+CONFIRM_THRESHOLD = 18.0
+PERSISTENT_THRESHOLD = 28.0
+LARGE_EYE_CHANGE = 12.0
 
 CONDITION_WEIGHTS = {
     'dry_eye': {
@@ -41,7 +44,6 @@ CONDITION_WEIGHTS = {
         'asymmetry': 1.5,
     },
     'glaucoma': {
-        # Selfie photos cannot assess optic nerve — treat as surface comfort proxy only
         'health_score': 0.8,
         'sclera_redness': 0.9,
         'tear_film_quality': 0.7,
@@ -50,7 +52,6 @@ CONDITION_WEIGHTS = {
         'asymmetry': 0.7,
     },
     'cataract': {
-        # Opacity grade / clarity are primary; surface redness is secondary
         'health_score': 1.4,
         'sclera_redness': 0.4,
         'tear_film_quality': 0.3,
@@ -79,11 +80,11 @@ CONDITION_LABELS = {
 
 CONDITION_SCOPE = {
     'dry_eye': {
-        'tracks': ['Redness', 'Tear film smoothness', 'Surface irregularity', 'Aligned eye appearance'],
-        'disclaimer': 'Screening trend only — not a dry-eye diagnosis.',
+        'tracks': ['Redness', 'Reflection consistency', 'Surface texture', 'Aligned eye appearance'],
+        'disclaimer': 'Appearance tracking only — not a dry-eye diagnosis.',
     },
     'cornea_scar': {
-        'tracks': ['Surface irregularity', 'Left/right asymmetry', 'Aligned eye appearance'],
+        'tracks': ['Surface texture', 'Left/right asymmetry', 'Aligned eye appearance'],
         'disclaimer': 'Tracks visible surface texture proxies from a selfie — not slit-lamp cornea diagnosis.',
     },
     'glaucoma': {
@@ -104,8 +105,8 @@ CONDITION_SCOPE = {
         'opacity_monitor': True,
     },
     'general': {
-        'tracks': ['Overall surface health', 'Redness', 'Tear film', 'Aligned appearance'],
-        'disclaimer': 'Screening only — not a medical diagnosis.',
+        'tracks': ['Overall surface appearance', 'Redness', 'Reflection consistency', 'Aligned appearance'],
+        'disclaimer': 'Appearance tracking only — not a medical diagnosis.',
     },
 }
 
@@ -133,6 +134,90 @@ def _metric_delta(current: float, baseline: float, higher_is_worse: bool = False
 
 def _details(photo: EyePhoto) -> Dict[str, Any]:
     return photo.analysis_details if isinstance(photo.analysis_details, dict) else {}
+
+
+def _capture_quality_from_photo(photo: EyePhoto) -> Dict[str, Any]:
+    details = _details(photo)
+    cq = details.get('capture_quality')
+    if isinstance(cq, dict) and 'score' in cq:
+        return cq
+    lighting = details.get('lighting') or {}
+    status = lighting.get('status')
+    score = 100.0
+    if status == 'framing_problem':
+        score -= 60
+    elif status == 'extreme_problem':
+        score -= 50
+    eyewear = details.get('eyewear') or {}
+    if eyewear.get('detected') and eyewear.get('confidence', 0) >= 55:
+        score -= 15
+    score = max(0.0, score)
+    return {
+        'score': round(score),
+        'grade': 'high' if score >= 85 else ('moderate' if score >= 65 else 'low'),
+        'usable': score >= 50,
+    }
+
+
+def _eye_brightness_from_photo(photo: EyePhoto) -> float:
+    if photo.health_score is not None:
+        return float(photo.health_score)
+    details = _details(photo)
+    metrics = details.get('metrics') or {}
+    left = float(metrics.get('left_appearance_score') or photo.left_eye_score or 0)
+    right = float(metrics.get('right_appearance_score') or photo.right_eye_score or 0)
+    return (left + right) / 2 if (left or right) else 50.0
+
+
+def calculate_comparison_confidence(
+    current: EyePhoto,
+    baseline: EyePhoto,
+    visual: Dict[str, Any],
+    days_between: Optional[int],
+) -> Dict[str, Any]:
+    """Pairwise comparability — not the same as current-photo lighting alone."""
+    score = 100.0
+    reasons: List[str] = []
+
+    current_cq = _capture_quality_from_photo(current)
+    baseline_cq = _capture_quality_from_photo(baseline)
+
+    for label, cq in (('current', current_cq), ('baseline', baseline_cq)):
+        if cq.get('score', 100) < 65:
+            penalty = min(25, 65 - cq['score'])
+            score -= penalty
+            reasons.append(f'{label}_capture_quality_low')
+        if not cq.get('usable', True):
+            score -= 15
+            reasons.append(f'{label}_capture_not_usable')
+
+    brightness_delta = abs(_eye_brightness_from_photo(current) - _eye_brightness_from_photo(baseline))
+    if brightness_delta > 15:
+        score -= min(brightness_delta * 0.8, 20)
+        reasons.append('brightness_mismatch')
+
+    if not visual.get('available'):
+        score -= 15
+        reasons.append('no_aligned_crops')
+
+    if days_between is not None:
+        if days_between > 90:
+            score -= 10
+            reasons.append('extended_interval')
+        if days_between > 180:
+            score -= 25
+            reasons.append('historical_interval')
+
+    score = max(0.0, min(100.0, score))
+    level = 'high' if score >= 80 else ('moderate' if score >= 60 else 'low')
+
+    return {
+        'score': round(score),
+        'level': level,
+        'reasons': reasons,
+        'current_capture_quality': current_cq,
+        'baseline_capture_quality': baseline_cq,
+    }
 
 
 def _asymmetry_from_photo(photo: EyePhoto) -> Dict[str, float]:
@@ -175,16 +260,130 @@ def _opacity_from_photo(photo: EyePhoto) -> Dict[str, Any]:
     }
 
 
-def compare_photos(current: EyePhoto, baseline: EyePhoto) -> Dict[str, Any]:
-    """Compare two eye photos with metrics + aligned visual SSIM."""
+def _compute_change_burden(
+    changes: Dict[str, Any],
+    cur_asym: Dict[str, float],
+    base_asym: Dict[str, float],
+    visual: Dict[str, Any],
+    condition: str,
+    weights: Dict[str, float],
+    cur_opacity: Dict[str, Any],
+    base_opacity: Dict[str, Any],
+) -> Tuple[float, List[str], Dict[str, Any]]:
+    raw_score = 0.0
+    reasons: List[str] = []
+    flags: Dict[str, Any] = {
+        'redness_change_significant': False,
+        'asymmetry_change_significant': False,
+        'visual_only_change': False,
+    }
+
+    health_drop = -changes['health_score']['delta']
+    if health_drop >= 8:
+        raw_score += health_drop * weights['health_score']
+        reasons.append(f'Appearance score dropped {health_drop:.0f} points')
+
+    if condition == 'cataract' and changes.get('opacity_score'):
+        opacity_rise = changes['opacity_score']['delta']
+        if opacity_rise >= 8:
+            raw_score += opacity_rise * weights.get('opacity_grade', 1.5)
+            reasons.append(f'Opacity score increased by {opacity_rise:.0f} points')
+
+    if condition == 'cataract' and changes.get('grade_level'):
+        grade_rise = changes['grade_level']['delta']
+        if grade_rise >= 1:
+            raw_score += grade_rise * 18 * weights.get('opacity_grade', 1.5)
+            cur_g = cur_opacity.get('opacity_grade') or f"level {int(cur_opacity['grade_level'])}"
+            base_g = base_opacity.get('opacity_grade') or f"level {int(base_opacity['grade_level'])}"
+            reasons.append(f'Opacity grade moved from {base_g} to {cur_g}')
+
+    redness_rise = changes['sclera_redness']['delta']
+    if condition != 'cataract' and redness_rise >= 6:
+        raw_score += redness_rise * weights['sclera_redness']
+        flags['redness_change_significant'] = True
+        reasons.append(f'Redness increased by {redness_rise:.0f} points')
+
+    tear_drop = -changes['tear_film_quality']['delta']
+    if condition != 'cataract' and tear_drop >= 8:
+        raw_score += tear_drop * weights['tear_film_quality']
+        reasons.append(f'Reflection consistency decreased by {tear_drop:.0f} points')
+
+    irregular_rise = changes['surface_irregularity']['delta']
+    if irregular_rise >= 8:
+        raw_score += irregular_rise * weights['surface_irregularity']
+        label = 'Opacity / media irregularity' if condition == 'cataract' else 'Surface texture'
+        reasons.append(f'{label} increased by {irregular_rise:.0f} points')
+
+    asym_rise = changes['irregularity_asymmetry']['delta']
+    if condition == 'cornea_scar' and asym_rise >= 6:
+        raw_score += asym_rise * weights['asymmetry']
+        flags['asymmetry_change_significant'] = True
+        reasons.append(f'Left/right surface asymmetry increased by {asym_rise:.0f} points')
+    elif asym_rise >= 10:
+        raw_score += asym_rise * weights['asymmetry'] * 0.7
+        flags['asymmetry_change_significant'] = True
+        reasons.append(f'Left/right eye difference increased by {asym_rise:.0f} points')
+
+    visual_added = False
+    if visual.get('available') and visual.get('significant_visual_change'):
+        change = float(visual.get('change_score') or 0)
+        metric_support = (
+            flags['redness_change_significant']
+            or flags['asymmetry_change_significant']
+            or health_drop >= 8
+        )
+        if metric_support:
+            raw_score += change * 0.35 * weights['visual_change']
+            visual_added = True
+            reasons.append(
+                f'Photo similarity decreased (change {change:.0f}/100)'
+            )
+        else:
+            flags['visual_only_change'] = True
+
+    return raw_score, reasons, {**flags, 'visual_contributed': visual_added}
+
+
+def _decide_comparison_action(
+    change_burden: float,
+    confidence_level: str,
+    baseline_type: str,
+    flags: Dict[str, Any],
+) -> str:
+    if confidence_level == 'low':
+        return 'RETAKE_FOR_QUALITY'
+    if baseline_type == 'historical' and change_burden >= CONFIRM_THRESHOLD:
+        return 'RETAKE_TO_CONFIRM_CHANGE'
+    if change_burden < MONITOR_THRESHOLD:
+        return 'STABLE'
+    if change_burden < CONFIRM_THRESHOLD:
+        return 'MONITOR'
+    if flags.get('visual_only_change') and not flags.get('visual_contributed'):
+        return 'RETAKE_TO_CONFIRM_CHANGE'
+    if (
+        change_burden >= PERSISTENT_THRESHOLD
+        and confidence_level == 'high'
+        and baseline_type == 'preferred'
+    ):
+        return 'PERSISTENT_CHANGE'
+    if change_burden >= CONFIRM_THRESHOLD:
+        return 'RETAKE_TO_CONFIRM_CHANGE'
+    return 'MONITOR'
+
+
+def compare_photos(
+    current: EyePhoto,
+    baseline: EyePhoto,
+    *,
+    baseline_type: str = 'preferred',
+) -> Dict[str, Any]:
+    """Compare two eye photos with metrics + aligned visual similarity."""
     condition = current.condition_type or 'general'
     weights = CONDITION_WEIGHTS.get(condition, CONDITION_WEIGHTS['general'])
     scope = CONDITION_SCOPE.get(condition, CONDITION_SCOPE['general'])
 
     current_details = _details(current)
     baseline_details = _details(baseline)
-    lighting = current_details.get('lighting') or {}
-    confidence = lighting_confidence(lighting)
 
     changes = {
         'health_score': _metric_delta(current.health_score, baseline.health_score, higher_is_worse=False),
@@ -194,6 +393,10 @@ def compare_photos(current: EyePhoto, baseline: EyePhoto) -> Dict[str, Any]:
             current.surface_irregularity, baseline.surface_irregularity, higher_is_worse=True
         ),
     }
+
+    left_change = _metric_delta(current.left_eye_score, baseline.left_eye_score, higher_is_worse=False)
+    right_change = _metric_delta(current.right_eye_score, baseline.right_eye_score, higher_is_worse=False)
+    max_eye_change = max(abs(left_change['delta']), abs(right_change['delta']))
 
     cur_opacity = _opacity_from_photo(current)
     base_opacity = _opacity_from_photo(baseline)
@@ -228,123 +431,71 @@ def compare_photos(current: EyePhoto, baseline: EyePhoto) -> Dict[str, Any]:
         baseline_details.get('aligned_crops'),
     )
 
-    raw_score = 0.0
-    reasons: List[str] = []
-
-    health_drop = -changes['health_score']['delta']
-    if health_drop >= 8:
-        raw_score += health_drop * weights['health_score']
-        if condition == 'cataract':
-            reasons.append(f'Lens clarity score dropped {health_drop:.0f} points')
-        else:
-            reasons.append(f'Overall eye surface health score dropped {health_drop:.0f} points')
-
-    if condition == 'cataract' and changes.get('opacity_score'):
-        opacity_rise = changes['opacity_score']['delta']
-        if opacity_rise >= 8:
-            raw_score += opacity_rise * weights.get('opacity_grade', 1.5)
-            reasons.append(f'Opacity score increased by {opacity_rise:.0f} points')
-
-    if condition == 'cataract' and changes.get('grade_level'):
-        grade_rise = changes['grade_level']['delta']
-        if grade_rise >= 1:
-            raw_score += grade_rise * 18 * weights.get('opacity_grade', 1.5)
-            cur_g = cur_opacity.get('opacity_grade') or f"level {int(cur_opacity['grade_level'])}"
-            base_g = base_opacity.get('opacity_grade') or f"level {int(base_opacity['grade_level'])}"
-            reasons.append(f'Opacity grade moved from {base_g} to {cur_g}')
-
-    redness_rise = changes['sclera_redness']['delta']
-    if condition != 'cataract' and redness_rise >= 6:
-        raw_score += redness_rise * weights['sclera_redness']
-        reasons.append(f'Redness increased by {redness_rise:.0f} points')
-
-    tear_drop = -changes['tear_film_quality']['delta']
-    if condition != 'cataract' and tear_drop >= 8:
-        raw_score += tear_drop * weights['tear_film_quality']
-        reasons.append(f'Tear film smoothness decreased by {tear_drop:.0f} points')
-
-    irregular_rise = changes['surface_irregularity']['delta']
-    if irregular_rise >= 8:
-        raw_score += irregular_rise * weights['surface_irregularity']
-        label = 'Opacity / media irregularity' if condition == 'cataract' else 'Surface irregularity'
-        reasons.append(f'{label} increased by {irregular_rise:.0f} points')
-
-    asym_rise = changes['irregularity_asymmetry']['delta']
-    if condition == 'cornea_scar' and asym_rise >= 6:
-        raw_score += asym_rise * weights['asymmetry']
-        reasons.append(f'Left/right surface asymmetry increased by {asym_rise:.0f} points')
-    elif asym_rise >= 10:
-        raw_score += asym_rise * weights['asymmetry'] * 0.7
-        reasons.append(f'Left/right eye difference increased by {asym_rise:.0f} points')
-
-    if visual.get('available') and visual.get('significant_visual_change'):
-        change = float(visual.get('change_score') or 0)
-        raw_score += change * 0.35 * weights['visual_change']
-        reasons.append(
-            f'Aligned eye appearance changed (SSIM {visual.get("ssim_avg")}, change {change:.0f}/100)'
-        )
-
-    # Lighting confidence: fair/poor lighting reduces alert strength
-    deterioration_score = raw_score * confidence
-
-    # Stricter threshold when lighting is imperfect
-    threshold = 12.0
-    if confidence < 0.7:
-        threshold = 16.0
-    if confidence < 0.5:
-        threshold = 22.0
-
-    # Glaucoma selfie mode: never escalate to "critical glaucoma" — surface proxy only
-    if condition == 'glaucoma':
-        threshold = max(threshold, 18.0)
-
-    deteriorated = deterioration_score >= threshold
-    severity = 'low'
-    if deterioration_score >= 30:
-        severity = 'critical'
-    elif deterioration_score >= 20:
-        severity = 'high'
-    elif deterioration_score >= threshold:
-        severity = 'medium'
-
-    if condition == 'glaucoma' and severity == 'critical':
-        severity = 'high'
-
     days_between = (
         (current.captured_at - baseline.captured_at).days
         if current.captured_at and baseline.captured_at
         else None
     )
 
-    trend = 'stable'
+    comp_confidence = calculate_comparison_confidence(current, baseline, visual, days_between)
+    confidence_level = comp_confidence['level']
+
+    change_burden, reasons, flags = _compute_change_burden(
+        changes, cur_asym, base_asym, visual, condition, weights, cur_opacity, base_opacity
+    )
+
+    if max_eye_change >= LARGE_EYE_CHANGE:
+        flags['asymmetry_change_significant'] = True
+
+    action = _decide_comparison_action(change_burden, confidence_level, baseline_type, flags)
+    deteriorated = action == 'PERSISTENT_CHANGE'
+
+    severity = 'low'
     if deteriorated:
+        if change_burden >= 30:
+            severity = 'critical'
+        elif change_burden >= 20:
+            severity = 'high'
+        else:
+            severity = 'medium'
+
+    if condition == 'glaucoma' and severity == 'critical':
+        severity = 'high'
+
+    health_drop = -changes['health_score']['delta']
+    redness_rise = changes['sclera_redness']['delta']
+    trend = 'stable'
+    if deteriorated or action == 'RETAKE_TO_CONFIRM_CHANGE':
         trend = 'worsening'
     elif health_drop < -5 or (condition != 'cataract' and redness_rise < -5):
         trend = 'improving'
-    elif condition == 'cataract' and changes.get('opacity_score') and changes['opacity_score']['delta'] <= -5:
-        trend = 'improving'
-
-    comparison_confidence = 'high' if confidence >= 0.9 else ('medium' if confidence >= 0.65 else 'low')
-    if not visual.get('available'):
-        comparison_confidence = 'medium' if comparison_confidence == 'high' else comparison_confidence
 
     recommend_visit = deteriorated and severity in ('high', 'critical') and condition != 'glaucoma'
-    if condition == 'glaucoma' and deteriorated and severity in ('high', 'critical'):
-        # Soft nudge only — do not imply optic-nerve progression from a selfie
-        recommend_visit = False
+    recommend_confirm_retake = action == 'RETAKE_TO_CONFIRM_CHANGE'
 
-    message = _build_comparison_message(trend, reasons, days_between, condition, confidence)
+    message = _build_comparison_message(
+        action, reasons, days_between, condition, confidence_level, baseline_type
+    )
 
     return {
         'deteriorated': deteriorated,
+        'action': action,
         'severity': severity,
-        'deterioration_score': round(deterioration_score, 1),
-        'raw_deterioration_score': round(raw_score, 1),
-        'lighting_confidence': round(confidence, 2),
-        'comparison_confidence': comparison_confidence,
+        'change_burden': round(change_burden, 1),
+        'deterioration_score': round(change_burden, 1),
+        'raw_deterioration_score': round(change_burden, 1),
+        'comparison_confidence': confidence_level,
+        'comparison_confidence_detail': comp_confidence,
+        'lighting_confidence': round(comp_confidence['score'] / 100.0, 2),
         'trend': trend,
         'reasons': reasons,
         'changes': changes,
+        'eye_changes': {
+            'left': left_change,
+            'right': right_change,
+            'max_eye_change': round(max_eye_change, 1),
+            'asymmetry_flag': max_eye_change >= LARGE_EYE_CHANGE,
+        },
         'opacity': {
             'current': cur_opacity,
             'baseline': base_opacity,
@@ -357,8 +508,10 @@ def compare_photos(current: EyePhoto, baseline: EyePhoto) -> Dict[str, Any]:
             'change_score': visual.get('change_score'),
             'significant_visual_change': visual.get('significant_visual_change'),
             'message': visual.get('message'),
+            'visual_only_change': flags.get('visual_only_change', False),
         },
         'baseline_photo_id': baseline.id,
+        'baseline_type': baseline_type,
         'baseline_captured_at': baseline.captured_at.isoformat() if baseline.captured_at else None,
         'current_photo_id': current.id,
         'days_between': days_between,
@@ -366,6 +519,7 @@ def compare_photos(current: EyePhoto, baseline: EyePhoto) -> Dict[str, Any]:
         'condition_label': CONDITION_LABELS.get(condition, condition),
         'condition_scope': scope,
         'recommend_doctor_visit': recommend_visit,
+        'recommend_confirm_retake': recommend_confirm_retake,
         'message': message,
         'baseline_left_crop': visual.get('baseline_left'),
         'baseline_right_crop': visual.get('baseline_right'),
@@ -375,105 +529,87 @@ def compare_photos(current: EyePhoto, baseline: EyePhoto) -> Dict[str, Any]:
 
 
 def _build_comparison_message(
-    trend: str,
+    action: str,
     reasons: List[str],
     days_between: Optional[int],
     condition: str,
-    confidence: float,
+    confidence_level: str,
+    baseline_type: str,
 ) -> str:
-    label = CONDITION_LABELS.get(condition, 'eye health')
-    lighting_note = ''
-    if confidence < 0.7:
-        lighting_note = ' Lighting was not ideal, so treat this comparison with caution.'
+    label = CONDITION_LABELS.get(condition, 'eye appearance')
+    window = f' over the last {days_between} days' if days_between else ''
 
-    if condition == 'glaucoma':
-        base = (
-            'Between-visit surface appearance was compared (not optic-nerve / pressure screening).'
-        )
-        if trend == 'worsening' and reasons:
-            return (
-                f'{base} Possible surface change{(" over " + str(days_between) + " days") if days_between else ""}: '
-                + '; '.join(reasons[:2])
-                + '.'
-                + lighting_note
-                + ' Follow your glaucoma care plan and contact your doctor if symptoms worsen.'
-            )
-        return base + ' Surface metrics look stable.' + lighting_note
-
-    if condition == 'cataract':
-        if trend == 'worsening' and reasons:
-            window = f' over the last {days_between} days' if days_between else ' since your last photo'
-            return (
-                f'Your cataract opacity screening shows worsening signs{window}: '
-                + '; '.join(reasons[:3])
-                + '.'
-                + lighting_note
-                + ' Consider a dilated eye exam — this is not LOCS III diagnosis.'
-            )
-        if trend == 'improving':
-            return 'Your cataract opacity grade looks stable or clearer vs your previous screening photo.' + lighting_note
-        return 'Your cataract opacity grade is stable compared to your previous screening photo.' + lighting_note
-
-    if trend == 'worsening' and reasons:
-        window = f' over the last {days_between} days' if days_between else ' since your last photo'
+    if action == 'RETAKE_FOR_QUALITY':
         return (
-            f'Your {label.lower()} metrics show worsening signs{window}: '
-            + '; '.join(reasons[:3])
-            + '.'
-            + lighting_note
-            + ' Consider contacting your eye doctor before your next scheduled visit.'
+            f'Photo saved, but comparison reliability is low. '
+            f'Retake in similar, even front-facing light for a trustworthy month-over-month comparison.'
         )
-    if trend == 'improving':
-        return f'Your {label.lower()} metrics look stable or improved compared to your previous photo.' + lighting_note
-    return f'Your {label.lower()} metrics are stable compared to your previous photo.' + lighting_note
-
-
-def find_baseline_photo(user_id: int, condition_type: str, before_date: datetime) -> Optional[EyePhoto]:
-    """Find the best baseline photo from ~30 days before the current capture."""
-    min_date = before_date - timedelta(days=BASELINE_WINDOW_DAYS[1])
-    max_date = before_date - timedelta(days=BASELINE_WINDOW_DAYS[0])
-
-    candidate = (
-        EyePhoto.query.filter(
-            EyePhoto.user_id == user_id,
-            EyePhoto.condition_type == condition_type,
-            EyePhoto.captured_at >= min_date,
-            EyePhoto.captured_at <= max_date,
+    if action == 'STABLE':
+        return f'Your {label.lower()} photo looks similar to your reference photo{window}.'
+    if action == 'MONITOR':
+        note = f' Minor visible variation{window}.' if reasons else ''
+        return f'Your {label.lower()} photo shows small changes worth watching{note} No action needed yet.'
+    if action == 'RETAKE_TO_CONFIRM_CHANGE':
+        detail = '; '.join(reasons[:2]) if reasons else 'visible variation detected'
+        return (
+            f'Larger-than-usual visible change{window}: {detail}. '
+            f'Take another photo in similar lighting to confirm before treating this as a real trend.'
         )
-        .order_by(EyePhoto.captured_at.desc())
-        .first()
-    )
-
-    if candidate:
-        return candidate
-
-    return (
-        EyePhoto.query.filter(
-            EyePhoto.user_id == user_id,
-            EyePhoto.condition_type == condition_type,
-            EyePhoto.captured_at < min_date,
+    if action == 'PERSISTENT_CHANGE':
+        detail = '; '.join(reasons[:3]) if reasons else 'sustained visible change'
+        return (
+            f'Your {label.lower()} photos show a sustained visible change{window}: {detail}. '
+            f'Consider discussing this with your eye doctor before your next scheduled visit.'
         )
-        .order_by(EyePhoto.captured_at.desc())
-        .first()
-    )
+    return f'Your {label.lower()} photo was compared to your reference{window}.'
+
+
+def find_baseline_photo(
+    user_id: int,
+    condition_type: str,
+    before_date: datetime,
+) -> Tuple[Optional[EyePhoto], Optional[str], Optional[int]]:
+    """Find baseline photo with tier metadata."""
+    for tier, (min_days, max_days) in BASELINE_WINDOWS.items():
+        min_date = before_date - timedelta(days=max_days)
+        max_date = before_date - timedelta(days=min_days)
+        candidate = (
+            EyePhoto.query.filter(
+                EyePhoto.user_id == user_id,
+                EyePhoto.condition_type == condition_type,
+                EyePhoto.captured_at >= min_date,
+                EyePhoto.captured_at <= max_date,
+            )
+            .order_by(EyePhoto.captured_at.desc())
+            .first()
+        )
+        if candidate:
+            days = (before_date - candidate.captured_at).days if candidate.captured_at else None
+            return candidate, tier, days
+
+    return None, None, None
 
 
 def compare_to_historical(user_id: int, current: EyePhoto) -> Dict[str, Any]:
     """Compare current photo to the best available historical baseline."""
-    baseline = find_baseline_photo(user_id, current.condition_type, current.captured_at or datetime.utcnow())
+    before = current.captured_at or datetime.utcnow()
+    baseline, baseline_type, days_between = find_baseline_photo(
+        user_id, current.condition_type, before
+    )
     scope = CONDITION_SCOPE.get(current.condition_type or 'general', CONDITION_SCOPE['general'])
 
     if not baseline or baseline.id == current.id:
         return {
             'has_baseline': False,
             'deteriorated': False,
+            'action': 'STABLE',
             'condition_type': current.condition_type,
             'condition_label': CONDITION_LABELS.get(current.condition_type or 'general'),
             'condition_scope': scope,
             'message': 'First photo saved for this condition. Take another in about a month for careful comparison.',
         }
 
-    comparison = compare_photos(current, baseline)
+    comparison = compare_photos(current, baseline, baseline_type=baseline_type or 'preferred')
     comparison['has_baseline'] = True
     comparison['baseline_thumbnail'] = baseline.image_thumbnail
     return comparison
@@ -497,14 +633,19 @@ def build_monthly_timeline(photos: List[EyePhoto]) -> List[Dict[str, Any]]:
                 'avg_redness': 0,
                 'avg_tear_film': 0,
                 'avg_irregularity': 0,
+                'avg_asymmetry': 0,
                 'avg_opacity_score': None,
                 'avg_grade_level': None,
             }
         photo_dict = photo.to_dict(include_thumbnail=True)
         opacity = _opacity_from_photo(photo)
+        details = _details(photo)
         photo_dict['opacity_score'] = opacity.get('opacity_score')
         photo_dict['opacity_grade'] = opacity.get('opacity_grade')
         photo_dict['grade_level'] = opacity.get('grade_level')
+        photo_dict['capture_quality'] = details.get('capture_quality')
+        asym = _asymmetry_from_photo(photo)
+        photo_dict['health_score_asymmetry'] = asym.get('health_score_asymmetry')
         buckets[key]['photos'].append(photo_dict)
         buckets[key]['photo_models'].append(photo)
 
@@ -520,6 +661,9 @@ def build_monthly_timeline(photos: List[EyePhoto]) -> List[Dict[str, Any]]:
         bucket['avg_tear_film'] = round(sum(p['tear_film_quality'] or 0 for p in photos_in_month) / n, 1)
         bucket['avg_irregularity'] = round(
             sum(p['surface_irregularity'] or 0 for p in photos_in_month) / n, 1
+        )
+        bucket['avg_asymmetry'] = round(
+            sum(p.get('health_score_asymmetry') or 0 for p in photos_in_month) / n, 1
         )
 
         opacity_vals = [o for o in (_opacity_from_photo(m)['opacity_score'] for m in models) if o is not None]
