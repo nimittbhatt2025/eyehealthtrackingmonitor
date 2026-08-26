@@ -173,6 +173,31 @@ export function assessVideoLighting(video, canvas) {
   return assessLightingFromImageData(imageData)
 }
 
+export function getLightingUiCopy(lighting) {
+  if (!lighting || lighting.status === 'checking' || lighting.stable === false) {
+    return {
+      label: 'Checking lighting…',
+      message: 'Hold still while we check your setup.',
+    }
+  }
+  if (lighting.status === 'framing_problem') {
+    return {
+      label: 'Position not ideal',
+      message: 'Center your face in the camera with both eyes clearly visible before capturing.',
+    }
+  }
+  if (lighting.status === 'extreme_problem') {
+    return {
+      label: 'Lighting not ideal',
+      message: 'Use a well-lit room with soft, even front-facing light. Avoid backlight, glare, deep shadows, or relying on your screen in the dark.',
+    }
+  }
+  return {
+    label: 'Good lighting',
+    message: 'You’re under ideal, well-lit conditions — ready to capture.',
+  }
+}
+
 export function getLightingStatusClasses(lighting) {
   if (!lighting || lighting.status === 'checking' || lighting.stable === false) {
     return 'bg-gray-50 border-gray-200 text-gray-700'
@@ -183,11 +208,11 @@ export function getLightingStatusClasses(lighting) {
 }
 
 export function getLightingStatusLabel(lighting) {
-  if (!lighting) return 'Checking lighting…'
-  if (lighting.stable === false || lighting.status === 'checking') return 'Checking lighting…'
-  if (lighting.status === 'framing_problem') return 'Face not in frame'
-  if (lighting.status === 'extreme_problem') return 'Extreme lighting'
-  return 'Lighting looks good'
+  return getLightingUiCopy(lighting).label
+}
+
+export function getLightingStatusMessage(lighting) {
+  return getLightingUiCopy(lighting).message
 }
 
 export default assessVideoLighting

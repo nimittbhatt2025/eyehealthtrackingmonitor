@@ -19,6 +19,7 @@ import PhotoLightingBanner from '../components/PhotoLightingBanner'
 import EyewearReminderBanner from '../components/EyewearReminderBanner'
 import GlassesContactsCheck from '../components/GlassesContactsCheck'
 import SamdDisclaimer from '../components/SamdDisclaimer'
+import { getLightingUiCopy } from '../utils/photoLightingCheck'
 
 const CONDITIONS = [
   {
@@ -242,13 +243,15 @@ export default function EyeHealthMonitor() {
       const lighting = err.response?.data?.lighting
 
       if (errorCode === 'face_framing' && lighting) {
+        const copy = getLightingUiCopy({ status: 'framing_problem', stable: true })
         setLightingError(lighting)
-        setError(lighting.message || 'Center your face in the camera and try again.')
-        toast.error('Face not in frame — center your face before capturing.', { duration: 5000 })
+        setError(copy.message)
+        toast.error(copy.label, { duration: 5000 })
       } else if (errorCode === 'poor_lighting' && lighting) {
+        const copy = getLightingUiCopy({ status: 'extreme_problem', stable: true })
         setLightingError(lighting)
-        setError(lighting.message || 'Lighting is not suitable. Adjust your lighting and try again.')
-        toast.error('Extreme lighting — improve conditions before capturing.', { duration: 5000 })
+        setError(copy.message)
+        toast.error(copy.label, { duration: 5000 })
       } else {
         const msg = err.response?.data?.message || err.response?.data?.error || 'Analysis failed. Try again in even, bright lighting.'
         setError(msg)
@@ -476,7 +479,7 @@ export default function EyeHealthMonitor() {
           <ul className="text-sm text-gray-600 list-disc pl-5 space-y-1">
             <li>Use soft, even front-facing light (not backlight from a window)</li>
             <li>Remove glasses and contact lenses (confirmed in prior step)</li>
-            <li>Lighting indicator stays green unless conditions are extremely poor</li>
+            <li>Wait for the green “Good lighting” indicator before capturing</li>
           </ul>
 
           <PhotoLightingBanner lighting={liveLighting} />
@@ -496,12 +499,7 @@ export default function EyeHealthMonitor() {
           <canvas ref={canvasRef} className="hidden" />
 
           {error && (
-            <div className="space-y-2">
-              <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>
-              {lightingError?.recommendations?.map((tip) => (
-                <p key={tip} className="text-xs text-red-700 pl-1">• {tip}</p>
-              ))}
-            </div>
+            <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>
           )}
 
           <div className="flex flex-wrap gap-3 justify-center">

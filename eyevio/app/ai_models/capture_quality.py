@@ -1,7 +1,7 @@
 """
 Capture-quality gate for eye photos (ISO/IEC 29794-5 inspired heuristics).
 
-Version 2.5 (post Milestone 5 calibration):
+Version 2.10 (post Milestone 5 calibration):
   - Removed standalone max-ROI under_ratio (pupils/eyelashes caused webcam FPs)
   - Shadow checks gated by ROI brightness context
   - Even washout + targeted backlight checks (v2.3)
@@ -26,7 +26,7 @@ LEFT_EYE = [33, 133, 160, 159, 158, 157, 173, 144, 145, 153]
 RIGHT_EYE = [362, 263, 387, 386, 385, 384, 398, 373, 374, 380]
 FOREHEAD = [10, 151, 9, 8, 107]
 
-ALGORITHM_VERSION = 2.7
+ALGORITHM_VERSION = 2.10
 
 # Version 1 constants (frozen in M4/M5 datasets — do not change retroactively).
 V1_EXTREME_EYE_MEAN_LOW = 40
@@ -63,9 +63,18 @@ FRAME_BACKLIGHT_LOWER_DARK_MAX = 100
 # v2.5 — left/right clipped bloom catches one-sided lamp glare that eye ROIs miss.
 FRAME_SIDE_GLARE_MAX_OVER245_MIN = 0.12
 FRAME_SIDE_GLARE_OVER245_DELTA_MIN = 0.10
+# Softer window probe when landmarks are missing but the face is still centered in frame.
+FRAME_BACKLIGHT_RELAXED_VERTICAL_DELTA_MIN = 38
+FRAME_BACKLIGHT_RELAXED_UPPER_MEAN_MIN = 118
+FRAME_BACKLIGHT_RELAXED_LOWER_MEAN_MAX = 118
 EYE_DARK_MEAN_MAX = 42
 EYE_DARK_UNDER = 0.55
 EXTREME_OVER_RATIO = 0.15
+# v2.9 — screen-only glow in a dark room (eyes lit from monitor, forehead/room dark).
+SCREEN_GLOW_FOREHEAD_MAX = 48
+SCREEN_GLOW_EYE_FOREHEAD_DELTA_MIN = 18
+SCREEN_GLOW_FRAME_LOWER_MAX = 72
+SCREEN_GLOW_UPPER_MEAN_MAX = 130
 
 
 def frozen_threshold_snapshot(version: int = ALGORITHM_VERSION) -> Dict[str, Any]:
@@ -134,10 +143,14 @@ def _roi_stats(frame: np.ndarray, landmarks: Any, indices: List[int], pad: float
     }
 
 
-def _face_framing_ok(landmarks: Any) -> bool:
-    """Reject tilted/out-of-frame faces so eye ROIs do not sample bright backgrounds."""
+def _framing_failure_kind(landmarks: Any) -> Optional[str]:
+    """
+    None = framing OK.
+    'position' = tilt / off-center / cut off — always framing_problem (never lighting).
+    'uncertain' = missing landmarks or partial span — may be backlight silhouette.
+    """
     if landmarks is None:
-        return False
+        return 'uncertain'
     try:
         eye_idx = LEFT_EYE + RIGHT_EYE
         ys = [landmarks[i].y for i in eye_idx]
@@ -145,23 +158,26 @@ def _face_framing_ok(landmarks: Any) -> bool:
         chin_y = float(landmarks[152].y)
         forehead_y = float(landmarks[10].y)
     except (IndexError, AttributeError, TypeError):
-        return False
+        return 'uncertain'
     if not ys or not xs:
-        return False
+        return 'uncertain'
     mean_y = float(sum(ys) / len(ys))
     x_min, x_max = float(min(xs)), float(max(xs))
-    # Tight band — half-visible faces make washout fire on bright murals/walls.
     if mean_y < 0.15 or mean_y > 0.68:
-        return False
+        return 'position'
     if x_min < 0.06 or x_max > 0.94:
-        return False
+        return 'position'
     if (x_max - x_min) < 0.10:
-        return False
+        return 'position'
     if chin_y > 0.98 or forehead_y < 0.02:
-        return False
+        return 'position'
     if (chin_y - forehead_y) < 0.18:
-        return False
-    return True
+        return 'uncertain'
+    return None
+
+
+def _face_framing_ok(landmarks: Any) -> bool:
+    return _framing_failure_kind(landmarks) is None
 
 
 def _frame_backlight_stats(frame: np.ndarray) -> Dict[str, float]:
@@ -210,20 +226,19 @@ def _frame_backlight_stats(frame: np.ndarray) -> Dict[str, float]:
     }
 
 
-def _append_frame_backlight_issues(
-    issues: List[str],
-    recommendations: List[str],
+def _is_window_backlight_frame(
     frame_stats: Optional[Dict[str, float]],
-) -> None:
+    *,
+    relaxed: bool = False,
+) -> bool:
+    """Vertical window/flare behind subject — not one-sided lamp bloom."""
     if not frame_stats:
-        return
-
+        return False
     vertical_delta = frame_stats['vertical_delta']
     upper_mean = frame_stats['upper_mean']
     lower_mean = frame_stats['lower_mean']
     upper_bright200 = frame_stats['upper_bright200_ratio']
     lower_bright200 = frame_stats['lower_bright200_ratio']
-
     gradient_backlight = (
         vertical_delta > FRAME_BACKLIGHT_VERTICAL_DELTA_MIN
         and upper_mean > FRAME_BACKLIGHT_UPPER_MEAN_MIN
@@ -234,18 +249,108 @@ def _append_frame_backlight_issues(
         and lower_bright200 < FRAME_BACKLIGHT_LOWER_BRIGHT200_MAX
         and lower_mean < FRAME_BACKLIGHT_LOWER_DARK_MAX
     )
+    severe_upper_washout = (
+        upper_bright200 > 0.72
+        and vertical_delta > 52
+        and upper_mean > 190
+    )
+    if gradient_backlight or flare_backlight or severe_upper_washout:
+        return True
+    if not relaxed:
+        return False
+    relaxed_gradient = (
+        vertical_delta > FRAME_BACKLIGHT_RELAXED_VERTICAL_DELTA_MIN
+        and upper_mean > FRAME_BACKLIGHT_RELAXED_UPPER_MEAN_MIN
+        and lower_mean < FRAME_BACKLIGHT_RELAXED_LOWER_MEAN_MAX
+    )
+    if relaxed_gradient:
+        return True
+    return _is_backlit_silhouette_frame(frame_stats)
 
-    if gradient_backlight or flare_backlight:
-        issues.append('Bright window or light source is behind you — face is too dark')
-        recommendations.append('Turn around to face the window, or close curtains and use front lighting')
 
+def _is_backlit_silhouette_frame(frame_stats: Dict[str, float]) -> bool:
+    """Centered silhouette with one-sided window bloom — landmarks often missing."""
+    left_mean = frame_stats.get('left_mean', 255.0)
+    right_mean = frame_stats.get('right_mean', 255.0)
+    dim_side = min(left_mean, right_mean)
+    bright_side = max(left_mean, right_mean)
     side_glare = (
         frame_stats.get('side_over245_max', 0.0) > FRAME_SIDE_GLARE_MAX_OVER245_MIN
         and frame_stats.get('side_over245_delta', 0.0) > FRAME_SIDE_GLARE_OVER245_DELTA_MIN
     )
-    if side_glare:
-        issues.append('Strong one-sided glare is washing out part of your face')
-        recommendations.append('Move the lamp in front of you, or turn so light hits both eyes evenly')
+    return (
+        side_glare
+        and dim_side < 98
+        and (bright_side - dim_side) > 55
+    )
+
+
+def _append_frame_backlight_issues(
+    issues: List[str],
+    recommendations: List[str],
+    frame_stats: Optional[Dict[str, float]],
+    *,
+    window_only: bool = False,
+) -> bool:
+    """Append frame-level backlight / side-glare issues. Returns True if any were added."""
+    if not frame_stats:
+        return False
+
+    before = len(issues)
+
+    if _is_window_backlight_frame(frame_stats):
+        issues.append('Bright window or light source is behind you — face is too dark')
+        recommendations.append('Turn around to face the window, or close curtains and use front lighting')
+
+    if not window_only:
+        side_glare = (
+            frame_stats.get('side_over245_max', 0.0) > FRAME_SIDE_GLARE_MAX_OVER245_MIN
+            and frame_stats.get('side_over245_delta', 0.0) > FRAME_SIDE_GLARE_OVER245_DELTA_MIN
+        )
+        if side_glare:
+            issues.append('Strong one-sided glare is washing out part of your face')
+            recommendations.append('Move the lamp in front of you, or turn so light hits both eyes evenly')
+
+    return len(issues) > before
+
+
+def _frame_supports_harsh_asymmetry(frame_stats: Optional[Dict[str, float]]) -> bool:
+    """Frame-level glare/backlight — ignore eye-ROI asymmetry from background mirrors alone."""
+    if not frame_stats:
+        return False
+    if _is_window_backlight_frame(frame_stats):
+        return True
+    if _is_backlit_silhouette_frame(frame_stats):
+        return True
+    return (
+        frame_stats.get('side_over245_max', 0.0) > FRAME_SIDE_GLARE_MAX_OVER245_MIN
+        and frame_stats.get('side_over245_delta', 0.0) > FRAME_SIDE_GLARE_OVER245_DELTA_MIN
+    )
+
+
+def _is_screen_glow_in_dark_room(
+    left: Dict[str, float],
+    right: Dict[str, float],
+    forehead: Dict[str, float],
+    frame_stats: Optional[Dict[str, float]],
+) -> bool:
+    """Eyes lit from monitor while forehead and room stay dark."""
+    if frame_stats is None:
+        return False
+    eye_mean = (left['mean'] + right['mean']) / 2
+    if eye_mean < EXTREME_EYE_MEAN_LOW:
+        return False
+    if forehead['mean'] >= SCREEN_GLOW_FOREHEAD_MAX:
+        return False
+    if (eye_mean - forehead['mean']) < SCREEN_GLOW_EYE_FOREHEAD_DELTA_MIN:
+        return False
+    if frame_stats.get('lower_mean', 999.0) > SCREEN_GLOW_FRAME_LOWER_MAX:
+        return False
+    if frame_stats.get('upper_mean', 0.0) > SCREEN_GLOW_UPPER_MEAN_MAX:
+        return False
+    if _is_window_backlight_frame(frame_stats):
+        return False
+    return True
 
 
 def evaluate_lighting_v1(
@@ -314,13 +419,17 @@ def evaluate_lighting_v2(
         issues.append('Face is evenly over-bright — soften lighting for reliable analysis')
         recommendations.append('Move away from strong backlight or reduce direct front light')
 
-    if lr_delta > EXTREME_LR_DELTA:
+    if lr_delta > EXTREME_LR_DELTA and _frame_supports_harsh_asymmetry(frame_stats):
         issues.append('Strong uneven lighting across your eyes')
         recommendations.append('Face the light source directly — avoid one-sided lamps')
 
     if eye_mean < EYE_DARK_MEAN_MAX and eye_under_max > EYE_DARK_UNDER:
         issues.append('Eye regions too dark with heavy shadow')
         recommendations.append('Brighten evenly from the front')
+
+    if _is_screen_glow_in_dark_room(left, right, forehead, frame_stats):
+        issues.append('Room is too dark — turn on front-facing lights')
+        recommendations.append('Move away from relying on your screen for light; use a lamp in front of you')
 
     if over_ratio > EXTREME_OVER_RATIO:
         issues.append('Severe glare or overexposure on your face')
@@ -346,6 +455,7 @@ def evaluate_lighting_v2(
         and eye_ratio >= BACKLIGHT_SILHOUETTE_RATIO_MIN
         and bright_eye >= BACKLIGHT_SILHOUETTE_BRIGHT_MIN
         and dim_eye <= BACKLIGHT_SILHOUETTE_DIM_MAX
+        and _frame_supports_harsh_asymmetry(frame_stats)
     ):
         issues.append('Backlight is creating harsh shadows on your face')
         recommendations.append('Close curtains or rotate so light hits your face from the front')
@@ -354,6 +464,7 @@ def evaluate_lighting_v2(
         lr_delta >= BACKLIGHT_WINDOW_FLARE_LR_MIN
         and eye_ratio >= BACKLIGHT_WINDOW_FLARE_RATIO_MIN
         and bright_eye >= BACKLIGHT_WINDOW_FLARE_BRIGHT_MIN
+        and _frame_supports_harsh_asymmetry(frame_stats)
     ):
         issues.append('Strong glare from a bright source behind you')
         recommendations.append('Move so windows or lamps are in front of you, not behind')
@@ -436,7 +547,44 @@ def assess_anatomical_lighting(
 
     # Geometric fallbacks used to sample the whole mid-frame — bright murals then
     # looked like an "over-bright face" when the subject tilted out of view.
-    if not _face_framing_ok(landmarks):
+    frame_stats = _frame_backlight_stats(frame)
+
+    framing_kind = _framing_failure_kind(landmarks)
+    if framing_kind is not None:
+        if framing_kind == 'position':
+            return {
+                'status': 'framing_problem',
+                'acceptable': False,
+                'extreme': False,
+                'framing': True,
+                'algorithm_version': version,
+                'issues': ['Face not fully in frame — center your face in the camera'],
+                'recommendations': ['Keep both eyes visible and centered before capturing'],
+                'message': 'Face not fully in frame — center your face in the camera.',
+                'metrics': {},
+            }
+        # Silhouette / lost landmarks — window-backlight overrides framing (not side glare).
+        if _is_window_backlight_frame(frame_stats, relaxed=True):
+            frame_issues: List[str] = []
+            frame_recs: List[str] = []
+            if _is_backlit_silhouette_frame(frame_stats):
+                frame_issues.append('Strong one-sided glare is washing out part of your face')
+                frame_recs.append('Move the lamp in front of you, or turn so light hits both eyes evenly')
+            _append_frame_backlight_issues(frame_issues, frame_recs, frame_stats, window_only=True)
+            return {
+                'status': 'extreme_problem',
+                'acceptable': False,
+                'extreme': True,
+                'algorithm_version': version,
+                'issues': frame_issues,
+                'recommendations': frame_recs,
+                'message': frame_issues[0] + '.',
+                'metrics': {
+                    'frame_upper_mean': round(frame_stats['upper_mean'], 1),
+                    'frame_lower_mean': round(frame_stats['lower_mean'], 1),
+                    'frame_vertical_delta': round(frame_stats['vertical_delta'], 1),
+                },
+            }
         return {
             'status': 'framing_problem',
             'acceptable': False,
@@ -452,8 +600,6 @@ def assess_anatomical_lighting(
     left = _roi_stats(frame, landmarks, LEFT_EYE)
     right = _roi_stats(frame, landmarks, RIGHT_EYE)
     forehead = _roi_stats(frame, landmarks, FOREHEAD, pad=0.25)
-
-    frame_stats = _frame_backlight_stats(frame)
 
     if version == 1:
         issues, recommendations = evaluate_lighting_v1(left, right, forehead)

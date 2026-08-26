@@ -5,12 +5,13 @@
 
 import { FaceMesh } from '@mediapipe/face_mesh'
 import { QualityStabilizer } from './captureQualityStabilizer'
+import { getLightingUiCopy } from './photoLightingCheck'
 
 const LEFT_EYE = [33, 133, 160, 159, 158, 157, 173, 144, 145, 153]
 const RIGHT_EYE = [362, 263, 387, 386, 385, 384, 398, 373, 374, 380]
 const FOREHEAD = [10, 151, 9, 8, 107]
 
-// Version 2.5 — mirrors eyevio/app/ai_models/capture_quality.py (post M5 calibration)
+// Version 2.10 — mirrors eyevio/app/ai_models/capture_quality.py (post M5 calibration)
 const EXTREME_EYE_MEAN_LOW = 40
 const EXTREME_EYE_MEAN_HIGH = 230
 const MODERATE_EYE_MEAN_HIGH = 170
@@ -35,9 +36,16 @@ const FRAME_BACKLIGHT_LOWER_BRIGHT200_MAX = 0.15
 const FRAME_BACKLIGHT_LOWER_DARK_MAX = 100
 const FRAME_SIDE_GLARE_MAX_OVER245_MIN = 0.12
 const FRAME_SIDE_GLARE_OVER245_DELTA_MIN = 0.10
+const FRAME_BACKLIGHT_RELAXED_VERTICAL_DELTA_MIN = 38
+const FRAME_BACKLIGHT_RELAXED_UPPER_MEAN_MIN = 118
+const FRAME_BACKLIGHT_RELAXED_LOWER_MEAN_MAX = 118
 const EYE_DARK_MEAN_MAX = 42
 const EYE_DARK_UNDER = 0.55
 const EXTREME_OVER_RATIO = 0.15
+const SCREEN_GLOW_FOREHEAD_MAX = 48
+const SCREEN_GLOW_EYE_FOREHEAD_DELTA_MIN = 18
+const SCREEN_GLOW_FRAME_LOWER_MAX = 72
+const SCREEN_GLOW_UPPER_MEAN_MAX = 130
 
 let sharedFaceMesh = null
 let meshInitPromise = null
@@ -189,7 +197,17 @@ function frameBacklightStats(imageData) {
   }
 }
 
-function appendFrameBacklightIssues(issues, recommendations, frameStats) {
+function isBacklitSilhouetteFrame(frameStats) {
+  const dimSide = Math.min(frameStats.leftMean, frameStats.rightMean)
+  const brightSide = Math.max(frameStats.leftMean, frameStats.rightMean)
+  const sideGlare = (
+    frameStats.sideOver245Max > FRAME_SIDE_GLARE_MAX_OVER245_MIN
+    && frameStats.sideOver245Delta > FRAME_SIDE_GLARE_OVER245_DELTA_MIN
+  )
+  return sideGlare && dimSide < 98 && (brightSide - dimSide) > 55
+}
+
+function isWindowBacklightFrame(frameStats, { relaxed = false } = {}) {
   const gradientBacklight = (
     frameStats.verticalDelta > FRAME_BACKLIGHT_VERTICAL_DELTA_MIN
     && frameStats.upperMean > FRAME_BACKLIGHT_UPPER_MEAN_MIN
@@ -200,22 +218,76 @@ function appendFrameBacklightIssues(issues, recommendations, frameStats) {
     && frameStats.lowerBright200Ratio < FRAME_BACKLIGHT_LOWER_BRIGHT200_MAX
     && frameStats.lowerMean < FRAME_BACKLIGHT_LOWER_DARK_MAX
   )
-  if (gradientBacklight || flareBacklight) {
+  const severeUpperWashout = (
+    frameStats.upperBright200Ratio > 0.72
+    && frameStats.verticalDelta > 52
+    && frameStats.upperMean > 190
+  )
+  if (gradientBacklight || flareBacklight || severeUpperWashout) return true
+  if (!relaxed) return false
+  const relaxedGradient = (
+    frameStats.verticalDelta > FRAME_BACKLIGHT_RELAXED_VERTICAL_DELTA_MIN
+    && frameStats.upperMean > FRAME_BACKLIGHT_RELAXED_UPPER_MEAN_MIN
+    && frameStats.lowerMean < FRAME_BACKLIGHT_RELAXED_LOWER_MEAN_MAX
+  )
+  if (relaxedGradient) return true
+  return isBacklitSilhouetteFrame(frameStats)
+}
+
+function appendFrameBacklightIssues(issues, recommendations, frameStats, { windowOnly = false } = {}) {
+  const before = issues.length
+  if (isWindowBacklightFrame(frameStats)) {
     issues.push('Bright window or light source is behind you — face is too dark')
     recommendations.push('Turn around to face the window, or close curtains and use front lighting')
   }
-  if (
+  if (!windowOnly) {
+    if (
+      frameStats.sideOver245Max > FRAME_SIDE_GLARE_MAX_OVER245_MIN
+      && frameStats.sideOver245Delta > FRAME_SIDE_GLARE_OVER245_DELTA_MIN
+    ) {
+      issues.push('Strong one-sided glare is washing out part of your face')
+      recommendations.push('Move the lamp in front of you, or turn so light hits both eyes evenly')
+    }
+  }
+  return issues.length > before
+}
+
+function frameSupportsHarshAsymmetry(frameStats) {
+  if (isWindowBacklightFrame(frameStats)) return true
+  if (isBacklitSilhouetteFrame(frameStats)) return true
+  return (
     frameStats.sideOver245Max > FRAME_SIDE_GLARE_MAX_OVER245_MIN
     && frameStats.sideOver245Delta > FRAME_SIDE_GLARE_OVER245_DELTA_MIN
-  ) {
-    issues.push('Strong one-sided glare is washing out part of your face')
-    recommendations.push('Move the lamp in front of you, or turn so light hits both eyes evenly')
+  )
+}
+
+function isScreenGlowInDarkRoom(left, right, forehead, frameStats) {
+  const eyeMean = (left.mean + right.mean) / 2
+  if (eyeMean < EXTREME_EYE_MEAN_LOW) return false
+  if (forehead.mean >= SCREEN_GLOW_FOREHEAD_MAX) return false
+  if (eyeMean - forehead.mean < SCREEN_GLOW_EYE_FOREHEAD_DELTA_MIN) return false
+  if (frameStats.lowerMean > SCREEN_GLOW_FRAME_LOWER_MAX) return false
+  if (frameStats.upperMean > SCREEN_GLOW_UPPER_MEAN_MAX) return false
+  if (isWindowBacklightFrame(frameStats)) return false
+  return true
+}
+
+function frameMetricsFromStats(frameStats) {
+  return {
+    frame_upper_mean: Math.round(frameStats.upperMean),
+    frame_lower_mean: Math.round(frameStats.lowerMean),
+    frame_vertical_delta: Math.round(frameStats.verticalDelta),
+    frame_upper_bright200_ratio: Math.round(frameStats.upperBright200Ratio * 1000) / 1000,
+    frame_lower_bright200_ratio: Math.round(frameStats.lowerBright200Ratio * 1000) / 1000,
+    frame_side_over245_max: Math.round(frameStats.sideOver245Max * 1000) / 1000,
+    frame_side_over245_delta: Math.round(frameStats.sideOver245Delta * 1000) / 1000,
+    frame_horizontal_delta: Math.round(frameStats.horizontalDelta),
   }
 }
 
-/** Eyes must sit in a sensible band — otherwise ROIs land on background (bright murals). */
-function faceFramingOk(landmarks) {
-  if (!landmarks?.length || landmarks.length < 400) return false
+/** Returns null if OK, else 'position' | 'uncertain'. */
+function framingFailureKind(landmarks) {
+  if (!landmarks?.length || landmarks.length < 400) return 'uncertain'
   const eyeIdx = LEFT_EYE.concat(RIGHT_EYE)
   let ySum = 0
   let xMin = 1
@@ -227,25 +299,57 @@ function faceFramingOk(landmarks) {
     if (x > xMax) xMax = x
   }
   const meanY = ySum / eyeIdx.length
-  // Tilted out: eyes leave the usable band; ROIs then sample wallpaper and look "over-bright".
-  if (meanY < 0.15 || meanY > 0.68) return false
-  if (xMin < 0.06 || xMax > 0.94) return false
-  if (xMax - xMin < 0.10) return false
-  // Chin / forehead span — rejects half-out-of-frame faces FaceMesh still tracks.
+  if (meanY < 0.15 || meanY > 0.68) return 'position'
+  if (xMin < 0.06 || xMax > 0.94) return 'position'
+  if (xMax - xMin < 0.10) return 'position'
   const chinY = landmarks[152]?.y
   const foreheadY = landmarks[10]?.y
-  if (chinY == null || foreheadY == null) return false
-  if (chinY > 0.98 || foreheadY < 0.02) return false
-  if (chinY - foreheadY < 0.18) return false
-  return true
+  if (chinY == null || foreheadY == null) return 'uncertain'
+  if (chinY > 0.98 || foreheadY < 0.02) return 'position'
+  if (chinY - foreheadY < 0.18) return 'uncertain'
+  return null
+}
+
+function faceFramingOk(landmarks) {
+  return framingFailureKind(landmarks) == null
 }
 
 /** Returns 1 = normal, 0 = extreme problem (for stabilizer input). */
 function scoreLighting(imageData, landmarks) {
   const { width, height } = imageData
+  const frameStats = frameBacklightStats(imageData)
 
-  // Never judge lighting from geometric fallbacks / stale landmarks on background.
-  if (!faceFramingOk(landmarks)) {
+  const framingKind = framingFailureKind(landmarks)
+  if (framingKind != null) {
+    if (framingKind === 'position') {
+      return {
+        confidence: 0,
+        isExtreme: true,
+        reason: 'framing',
+        issues: ['Face not fully in frame — center your face in the camera'],
+        recommendations: ['Keep both eyes visible and centered before capturing'],
+        metrics: {},
+        message: 'Face not fully in frame — center your face in the camera',
+      }
+    }
+    if (isWindowBacklightFrame(frameStats, { relaxed: true })) {
+      const issues = []
+      const recommendations = []
+      if (isBacklitSilhouetteFrame(frameStats)) {
+        issues.push('Strong one-sided glare is washing out part of your face')
+        recommendations.push('Move the lamp in front of you, or turn so light hits both eyes evenly')
+      }
+      appendFrameBacklightIssues(issues, recommendations, frameStats, { windowOnly: true })
+      return {
+        confidence: 0,
+        isExtreme: true,
+        reason: 'lighting',
+        issues,
+        recommendations,
+        metrics: frameMetricsFromStats(frameStats),
+        message: issues[0],
+      }
+    }
     return {
       confidence: 0,
       isExtreme: true,
@@ -268,7 +372,6 @@ function scoreLighting(imageData, landmarks) {
   const dimEye = Math.min(left.mean, right.mean)
   const brightEye = Math.max(left.mean, right.mean)
   const eyeRatio = brightEye / Math.max(dimEye, 1)
-  const frameStats = frameBacklightStats(imageData)
 
   const issues = []
   const recommendations = []
@@ -285,13 +388,17 @@ function scoreLighting(imageData, landmarks) {
     issues.push('Face is evenly over-bright — soften lighting for reliable analysis')
     recommendations.push('Move away from strong backlight or reduce direct front light')
   }
-  if (lrDelta > EXTREME_LR_DELTA) {
+  if (lrDelta > EXTREME_LR_DELTA && frameSupportsHarshAsymmetry(frameStats)) {
     issues.push('Strong uneven lighting across your eyes')
     recommendations.push('Face the light source directly')
   }
   if (eyeMean < EYE_DARK_MEAN_MAX && eyeUnderMax > EYE_DARK_UNDER) {
     issues.push('Eye regions too dark with heavy shadow')
     recommendations.push('Brighten evenly from the front')
+  }
+  if (isScreenGlowInDarkRoom(left, right, forehead, frameStats)) {
+    issues.push('Room is too dark — turn on front-facing lights')
+    recommendations.push('Move away from relying on your screen for light; use a lamp in front of you')
   }
   if (overRatio > EXTREME_OVER_RATIO) {
     issues.push('Severe glare or overexposure on your face')
@@ -315,6 +422,7 @@ function scoreLighting(imageData, landmarks) {
     && eyeRatio >= BACKLIGHT_SILHOUETTE_RATIO_MIN
     && brightEye >= BACKLIGHT_SILHOUETTE_BRIGHT_MIN
     && dimEye <= BACKLIGHT_SILHOUETTE_DIM_MAX
+    && frameSupportsHarshAsymmetry(frameStats)
   ) {
     issues.push('Backlight is creating harsh shadows on your face')
     recommendations.push('Close curtains or rotate so light hits your face from the front')
@@ -323,6 +431,7 @@ function scoreLighting(imageData, landmarks) {
     lrDelta >= BACKLIGHT_WINDOW_FLARE_LR_MIN
     && eyeRatio >= BACKLIGHT_WINDOW_FLARE_RATIO_MIN
     && brightEye >= BACKLIGHT_WINDOW_FLARE_BRIGHT_MIN
+    && frameSupportsHarshAsymmetry(frameStats)
   ) {
     issues.push('Strong glare from a bright source behind you')
     recommendations.push('Move so windows or lamps are in front of you, not behind')
@@ -357,51 +466,45 @@ function scoreLighting(imageData, landmarks) {
       left_right_delta: Math.round(lrDelta),
       under_ratio: Math.round(Math.max(eyeUnderMax, forehead.underRatio) * 1000) / 1000,
       over_ratio: Math.round(overRatio * 1000) / 1000,
-      frame_upper_mean: Math.round(frameStats.upperMean),
-      frame_lower_mean: Math.round(frameStats.lowerMean),
-      frame_vertical_delta: Math.round(frameStats.verticalDelta),
-      frame_upper_bright200_ratio: Math.round(frameStats.upperBright200Ratio * 1000) / 1000,
-      frame_lower_bright200_ratio: Math.round(frameStats.lowerBright200Ratio * 1000) / 1000,
-      frame_side_over245_max: Math.round(frameStats.sideOver245Max * 1000) / 1000,
-      frame_side_over245_delta: Math.round(frameStats.sideOver245Delta * 1000) / 1000,
-      frame_horizontal_delta: Math.round(frameStats.horizontalDelta),
+      ...frameMetricsFromStats(frameStats),
     },
     message: issues[0] || 'Lighting looks good.',
   }
 }
 
-function toUi(stabilized, raw, prevUi) {
+function dominantReason(reasonHistory, fallback) {
+  if (!reasonHistory.length) return fallback
+  const counts = {}
+  for (const r of reasonHistory) {
+    if (r === 'ok') continue
+    counts[r] = (counts[r] || 0) + 1
+  }
+  let best = fallback
+  let bestN = 0
+  for (const [reason, n] of Object.entries(counts)) {
+    if (n > bestN) {
+      best = reason
+      bestN = n
+    }
+  }
+  return best
+}
+
+function toUi(stabilized, raw, reasonHistory) {
   const { state } = stabilized
   const checking = state === 'checking'
   const isBlocked = state === 'extreme'
-  const isFraming = isBlocked && (
-    raw.reason === 'framing'
-    || (prevUi?.status === 'framing_problem' && raw.reason !== 'lighting')
-  )
-
-  // Message must match stabilized state — not the latest raw frame.
-  let message
-  if (checking) {
-    message = 'Checking lighting…'
-  } else if (isFraming) {
-    message = raw.reason === 'framing'
-      ? raw.message
-      : (prevUi?.status === 'framing_problem' ? prevUi.message : null)
-        || 'Face not fully in frame — center your face in the camera'
-  } else if (isBlocked) {
-    message = raw.isExtreme && raw.reason !== 'framing'
-      ? raw.message
-      : (prevUi?.status === 'extreme_problem' ? prevUi.message : null)
-        || raw.issues[0]
-        || 'Extreme lighting — improve conditions before capture.'
-  } else {
-    message = 'Keep even front-facing light on both eyes.'
-  }
+  const stableReason = isBlocked
+    ? dominantReason(reasonHistory, raw.reason)
+    : 'ok'
+  const isFraming = isBlocked && stableReason === 'framing'
 
   let status = 'normal'
   if (checking) status = 'checking'
   else if (isFraming) status = 'framing_problem'
   else if (isBlocked) status = 'extreme_problem'
+
+  const copy = getLightingUiCopy({ status, stable: !checking })
 
   return {
     status,
@@ -413,7 +516,8 @@ function toUi(stabilized, raw, prevUi) {
     issues: raw.issues,
     metrics: raw.metrics,
     recommendations: raw.recommendations,
-    message,
+    message: copy.message,
+    label: copy.label,
   }
 }
 
@@ -433,12 +537,14 @@ export class StableLightingPreview {
     this.lastLandmarks = null
     this._pendingResolve = null
     this._lastUi = null
+    this._reasonHistory = []
   }
 
   reset() {
     this.stabilizer.reset()
     this.lastLandmarks = null
     this._lastUi = null
+    this._reasonHistory = []
   }
 
   async init() {
@@ -475,7 +581,9 @@ export class StableLightingPreview {
 
     const raw = scoreLighting(imageData, this.lastLandmarks)
     const stabilized = this.stabilizer.push(raw.confidence)
-    const ui = toUi(stabilized, raw, this._lastUi)
+    this._reasonHistory.push(raw.reason)
+    if (this._reasonHistory.length > 6) this._reasonHistory.shift()
+    const ui = toUi(stabilized, raw, this._reasonHistory)
     this._lastUi = ui
     return ui
   }
