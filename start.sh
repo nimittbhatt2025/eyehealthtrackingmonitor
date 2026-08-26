@@ -10,6 +10,12 @@ sleep 2
 # Start backend
 echo "🔧 Starting backend on port 5002..."
 cd /Users/vivaanbhatt/Desktop/research-project/eyevio
+echo "📦 Applying database migrations..."
+FLASK_APP=run.py /Users/vivaanbhatt/Desktop/research-project/eyevio/venv/bin/python3.12 -m flask db upgrade > /tmp/backend_migrate.log 2>&1
+if [ $? -ne 0 ]; then
+    echo "   ❌ Migration failed! Check /tmp/backend_migrate.log"
+    exit 1
+fi
 nohup /Users/vivaanbhatt/Desktop/research-project/eyevio/venv/bin/python3.12 run.py > /tmp/backend.log 2>&1 &
 BACKEND_PID=$!
 echo "   Backend PID: $BACKEND_PID"
@@ -51,6 +57,7 @@ echo "Backend:  http://localhost:5002"
 echo ""
 echo "To view logs:"
 echo "  tail -f /tmp/backend.log"
+echo "  tail -f /tmp/backend_migrate.log"
 echo "  tail -f /tmp/frontend.log"
 echo ""
 echo "To stop:"

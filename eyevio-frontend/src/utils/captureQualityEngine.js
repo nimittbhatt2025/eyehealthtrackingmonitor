@@ -46,21 +46,21 @@ function sampleFrame(video, canvas) {
 export class CaptureQualityEngine {
   constructor() {
     this.lightingStabilizer = new QualityStabilizer({
-      enterThreshold: 0.72,
-      exitThreshold: 0.50,
-      alpha: 0.18,
-      minPositiveFrames: 6,
-      minNegativeFrames: 4,
+      windowSize: 6,
+      failWindow: 3,
+      badToExtreme: 2,
+      recoverWindow: 4,
+      goodToNormal: 3,
       positiveState: 'positive',
       negativeState: 'negative',
       initialState: 'checking',
     })
     this.glassesStabilizer = new QualityStabilizer({
-      enterThreshold: 0.68,
-      exitThreshold: 0.42,
-      alpha: 0.2,
-      minPositiveFrames: 5,
-      minNegativeFrames: 3,
+      windowSize: 6,
+      failWindow: 3,
+      badToExtreme: 2,
+      recoverWindow: 4,
+      goodToNormal: 3,
       positiveState: 'likely',
       negativeState: 'clear',
       initialState: 'checking',

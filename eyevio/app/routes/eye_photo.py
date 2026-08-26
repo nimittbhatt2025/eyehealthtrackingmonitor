@@ -97,12 +97,12 @@ def capture_eye_photo():
                 'eyewear': eyewear,
             }
 
-        # Only block on extremely poor lighting (very dark / unusable).
-        if lighting and lighting.get('confidence', 1) < 0.30 and not acknowledge_poor_lighting:
+        # Extreme lighting is the only hard capture blocker.
+        if lighting.get('status') == 'extreme_problem' and not acknowledge_poor_lighting:
             return jsonify({
                 'error': 'poor_lighting',
                 'lighting': lighting,
-                'message': lighting.get('message', 'Lighting is not suitable. Please retake in better conditions.'),
+                'message': lighting.get('message', 'Extreme lighting — improve conditions before capture.'),
             }), 422
 
         metrics = analysis.get('metrics') or {}
@@ -177,7 +177,6 @@ def capture_eye_photo():
             'comparison': comparison,
             'alert': alert_created,
             'lighting': lighting,
-            'lighting_warning': lighting.get('quality') == 'fair' or lighting.get('confidence', 1) < 0.72,
             'eyewear_warning': eyewear_warning,
         }), 201
 

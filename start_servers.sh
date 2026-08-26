@@ -17,6 +17,12 @@ sleep 1
 # Start Backend
 echo -e "${BLUE}🔧 Starting Backend on port 5002...${NC}"
 cd /Users/vivaanbhatt/Desktop/research-project/eyevio
+# Ensure database schema is up to date before serving requests.
+FLASK_APP=run.py /Users/vivaanbhatt/Desktop/research-project/eyevio/venv/bin/python3.12 -m flask db upgrade > /tmp/backend_migrate.log 2>&1
+if [ $? -ne 0 ]; then
+    echo -e "${RED}❌ Database migration failed. Check /tmp/backend_migrate.log${NC}"
+    exit 1
+fi
 PORT=5002 FLASK_ENV=development /Users/vivaanbhatt/Desktop/research-project/eyevio/venv/bin/python3.12 run.py > /tmp/backend.log 2>&1 &
 BACKEND_PID=$!
 echo -e "${GREEN}✅ Backend started (PID: $BACKEND_PID)${NC}"
@@ -25,7 +31,7 @@ echo -e "${GREEN}✅ Backend started (PID: $BACKEND_PID)${NC}"
 sleep 3
 
 # Test backend
-if curl -s http://localhost:5002/api/health > /dev/null 2>&1 || lsof -i:5002 > /dev/null 2>&1; then
+if curl -s http://localhost:5002/health > /dev/null 2>&1 || lsof -i:5002 > /dev/null 2>&1; then
     echo -e "${GREEN}✅ Backend is responding on http://localhost:5002${NC}"
 else
     echo -e "${RED}❌ Backend failed to start. Check /tmp/backend.log${NC}"
@@ -45,6 +51,7 @@ echo -e "${BLUE}Frontend:${NC} http://localhost:3000"
 echo -e "${BLUE}Backend:${NC}  http://localhost:5002"
 echo -e "\n${BLUE}📝 Logs:${NC}"
 echo -e "  Backend:  tail -f /tmp/backend.log"
+echo -e "  Migrate:  tail -f /tmp/backend_migrate.log"
 echo -e "  Frontend: tail -f /tmp/frontend.log"
 echo -e "\n${BLUE}🛑 To stop servers:${NC}"
 echo -e "  kill $BACKEND_PID $FRONTEND_PID"

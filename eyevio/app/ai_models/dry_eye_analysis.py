@@ -421,15 +421,14 @@ def check_photo_lighting_from_base64(image_data: str) -> Dict[str, Any]:
 
     crop_result = _crop_eye_regions(frame)
     if crop_result.get('error'):
-        # Still assess whole-frame lighting when face is not detected
-        lighting = assess_photo_lighting(frame)
+        lighting = assess_anatomical_lighting(frame)
         return {
             'lighting': lighting,
             'face_detected': False,
             'warning': crop_result.get('error'),
         }
 
-    lighting = assess_photo_lighting(frame, crop_result.get('landmarks'))
+    lighting = assess_anatomical_lighting(frame, crop_result.get('landmarks'))
     return {
         'lighting': lighting,
         'face_detected': True,

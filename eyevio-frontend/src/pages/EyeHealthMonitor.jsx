@@ -188,7 +188,7 @@ export default function EyeHealthMonitor() {
     }
 
     tick()
-    const intervalId = setInterval(tick, 1000)
+    const intervalId = setInterval(tick, 300)
     return () => {
       cancelled = true
       clearInterval(intervalId)
@@ -228,11 +228,6 @@ export default function EyeHealthMonitor() {
 
       if (data.eyewear_warning) {
         toast(data.eyewear_warning.message, { icon: '⚠️', duration: 6000 })
-      } else if (data.lighting_warning) {
-        toast('Photo saved, but lighting was not ideal — month-over-month comparison may be less reliable.', {
-          icon: '⚠️',
-          duration: 6000,
-        })
       } else if (data.alert) {
         toast.error(data.alert.message, { duration: 6000 })
       } else if (data.comparison?.deteriorated) {
@@ -249,7 +244,7 @@ export default function EyeHealthMonitor() {
       if (poorLighting && lighting) {
         setLightingError(lighting)
         setError(lighting.message || 'Lighting is not suitable. Adjust your lighting and try again.')
-        toast.error('Poor lighting — please fix before capturing.', { duration: 5000 })
+        toast.error('Extreme lighting — improve conditions before capturing.', { duration: 5000 })
       } else {
         const msg = err.response?.data?.message || err.response?.data?.error || 'Analysis failed. Try again in even, bright lighting.'
         setError(msg)
@@ -477,7 +472,7 @@ export default function EyeHealthMonitor() {
           <ul className="text-sm text-gray-600 list-disc pl-5 space-y-1">
             <li>Use soft, even front-facing light (not backlight from a window)</li>
             <li>Remove glasses and contact lenses (confirmed in prior step)</li>
-            <li>Lighting indicator is advisory — only extreme darkness blocks capture</li>
+            <li>Lighting indicator stays green unless conditions are extremely poor</li>
           </ul>
 
           <PhotoLightingBanner lighting={liveLighting} />
@@ -509,7 +504,7 @@ export default function EyeHealthMonitor() {
             <button
               type="button"
               onClick={() => captureAndAnalyze(false)}
-              disabled={!cameraReady}
+              disabled={!cameraReady || liveLighting?.blockCapture}
               className="btn-primary min-h-[44px] disabled:opacity-50"
             >
               Capture &amp; analyze
@@ -532,14 +527,6 @@ export default function EyeHealthMonitor() {
       {view === 'results' && lastResult && (
         <div className="space-y-4">
           <SamdDisclaimer testType={conditionType} />
-          {(lastResult.lighting_warning || lastResult.lighting?.quality === 'fair') && (
-            <div className="card p-4 border-l-4 border-l-amber-500 bg-amber-50">
-              <p className="text-sm font-semibold text-amber-900">Lighting warning</p>
-              <p className="text-sm text-amber-800 mt-1">
-                {lastResult.lighting?.message || 'This photo was taken in suboptimal lighting. Retake next month in better light for more reliable comparisons.'}
-              </p>
-            </div>
-          )}
 
           <div className={`card p-5 border-l-4 ${
             lastResult.comparison?.deteriorated ? 'border-l-red-500' : 'border-l-emerald-500'

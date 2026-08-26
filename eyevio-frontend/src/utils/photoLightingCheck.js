@@ -174,20 +174,18 @@ export function assessVideoLighting(video, canvas) {
 }
 
 export function getLightingStatusClasses(lighting) {
-  if (!lighting || lighting.quality === 'checking' || lighting.stable === false) {
+  if (!lighting || lighting.status === 'checking' || lighting.stable === false) {
     return 'bg-gray-50 border-gray-200 text-gray-700'
   }
-  if (lighting.quality === 'poor') return 'bg-red-50 border-red-200 text-red-800'
-  if (lighting.quality === 'fair') return 'bg-amber-50 border-amber-200 text-amber-900'
+  if (lighting.status === 'extreme_problem') return 'bg-red-50 border-red-200 text-red-800'
   return 'bg-emerald-50 border-emerald-200 text-emerald-800'
 }
 
 export function getLightingStatusLabel(lighting) {
   if (!lighting) return 'Checking lighting…'
-  if (lighting.stable === false || lighting.quality === 'checking') return 'Checking lighting…'
-  if (!lighting.acceptable) return 'Poor lighting (advisory)'
-  if (lighting.quality === 'fair') return 'Fair lighting (advisory)'
-  return 'Good lighting'
+  if (lighting.stable === false || lighting.status === 'checking') return 'Checking lighting…'
+  if (lighting.status === 'extreme_problem') return 'Extreme lighting'
+  return 'Lighting looks good'
 }
 
 export default assessVideoLighting

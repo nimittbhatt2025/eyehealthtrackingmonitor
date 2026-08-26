@@ -194,15 +194,21 @@ def compare_aligned_crops(
 
 def lighting_confidence(lighting: Optional[Dict[str, Any]]) -> float:
     """
-    0–1 confidence multiplier from lighting quality.
-    Fair lighting down-weights deterioration; poor lighting heavily down-weights.
+    0–1 confidence multiplier from lighting quality for month-over-month alerts.
     """
     if not lighting:
         return 0.85
+    status = lighting.get('status')
+    if status == 'normal' or (status is None and lighting.get('acceptable', True)):
+        return 1.0
+    if status == 'extreme_problem' or not lighting.get('acceptable', True):
+        return 0.35
+    # Legacy good/fair/poor payloads
     quality = lighting.get('quality', 'fair')
-    score = float(lighting.get('score', 70) or 70)
     if quality == 'good' and lighting.get('acceptable', True):
         return 1.0
     if quality == 'fair':
+        score = float(lighting.get('score', 70) or 70)
         return float(np.clip(0.55 + score / 250.0, 0.55, 0.85))
+    score = float(lighting.get('score', 70) or 70)
     return float(np.clip(0.25 + score / 400.0, 0.25, 0.5))
