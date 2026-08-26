@@ -356,6 +356,25 @@ export default function EyeHealthMonitor() {
 
       {view === 'home' && (
         <>
+          <div className="card p-5 bg-slate-50 border-slate-200">
+            <h2 className="font-semibold text-gray-900 mb-2">How this works (simple)</h2>
+            <ol className="text-sm text-gray-700 space-y-2 list-decimal pl-5">
+              <li><strong>Take a photo</strong> once a month in a well-lit room, face centered, glasses off.</li>
+              <li>
+                <strong>Watch the banner</strong> while the camera is open:
+                <span className="text-emerald-700"> Green = good lighting</span>,
+                <span className="text-amber-700"> Amber = fix your position</span>,
+                <span className="text-red-700"> Red = fix lighting</span> (or use Capture anyway — saved but less reliable for comparison).
+              </li>
+              <li><strong>We score the photo</strong> (0–100 appearance score). This is tracking only — not a diagnosis.</li>
+              <li><strong>We compare to last month</strong>. Small changes → no alert. Large change → we ask you to <strong>retake once</strong> to confirm.</li>
+              <li><strong>Only confirmed changes</strong> can trigger an alert suggesting an earlier doctor visit.</li>
+            </ol>
+            <p className="text-xs text-gray-500 mt-3">
+              Not medical advice. Use even front-facing light and the same setup each month for best results.
+            </p>
+          </div>
+
           {/* Status card */}
           <div className={`card p-5 border-l-4 ${status?.check_due ? 'border-l-amber-500' : 'border-l-emerald-500'}`}>
             <div className="flex flex-wrap items-start justify-between gap-4">
