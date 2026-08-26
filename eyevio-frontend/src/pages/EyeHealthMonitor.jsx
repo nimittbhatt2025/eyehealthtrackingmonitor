@@ -238,10 +238,14 @@ export default function EyeHealthMonitor() {
 
       loadData()
     } catch (err) {
-      const poorLighting = err.response?.data?.error === 'poor_lighting'
+      const errorCode = err.response?.data?.error
       const lighting = err.response?.data?.lighting
 
-      if (poorLighting && lighting) {
+      if (errorCode === 'face_framing' && lighting) {
+        setLightingError(lighting)
+        setError(lighting.message || 'Center your face in the camera and try again.')
+        toast.error('Face not in frame — center your face before capturing.', { duration: 5000 })
+      } else if (errorCode === 'poor_lighting' && lighting) {
         setLightingError(lighting)
         setError(lighting.message || 'Lighting is not suitable. Adjust your lighting and try again.')
         toast.error('Extreme lighting — improve conditions before capturing.', { duration: 5000 })

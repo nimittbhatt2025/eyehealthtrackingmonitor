@@ -438,9 +438,10 @@ def assess_anatomical_lighting(
     # looked like an "over-bright face" when the subject tilted out of view.
     if not _face_framing_ok(landmarks):
         return {
-            'status': 'extreme_problem',
+            'status': 'framing_problem',
             'acceptable': False,
-            'extreme': True,
+            'extreme': False,
+            'framing': True,
             'algorithm_version': version,
             'issues': ['Face not fully in frame — center your face in the camera'],
             'recommendations': ['Keep both eyes visible and centered before capturing'],

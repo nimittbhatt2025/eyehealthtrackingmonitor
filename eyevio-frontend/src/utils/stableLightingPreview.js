@@ -249,6 +249,7 @@ function scoreLighting(imageData, landmarks) {
     return {
       confidence: 0,
       isExtreme: true,
+      reason: 'framing',
       issues: ['Face not fully in frame — center your face in the camera'],
       recommendations: ['Keep both eyes visible and centered before capturing'],
       metrics: {},
@@ -346,6 +347,7 @@ function scoreLighting(imageData, landmarks) {
   return {
     confidence: isExtreme ? 0 : 1,
     isExtreme,
+    reason: isExtreme ? 'lighting' : 'ok',
     issues,
     recommendations: recommendations.length ? recommendations : ['Keep even front-facing light on both eyes.'],
     metrics: {
@@ -371,30 +373,43 @@ function scoreLighting(imageData, landmarks) {
 function toUi(stabilized, raw, prevUi) {
   const { state } = stabilized
   const checking = state === 'checking'
-  const isExtreme = state === 'extreme'
+  const isBlocked = state === 'extreme'
+  const isFraming = isBlocked && (
+    raw.reason === 'framing'
+    || (prevUi?.status === 'framing_problem' && raw.reason !== 'lighting')
+  )
 
-  // Message must match stabilized state — not the latest raw frame (avoids
-  // "Extreme lighting" title + "Lighting looks good" body during recovery).
+  // Message must match stabilized state — not the latest raw frame.
   let message
   if (checking) {
     message = 'Checking lighting…'
-  } else if (isExtreme) {
-    message = raw.isExtreme
+  } else if (isFraming) {
+    message = raw.reason === 'framing'
+      ? raw.message
+      : (prevUi?.status === 'framing_problem' ? prevUi.message : null)
+        || 'Face not fully in frame — center your face in the camera'
+  } else if (isBlocked) {
+    message = raw.isExtreme && raw.reason !== 'framing'
       ? raw.message
       : (prevUi?.status === 'extreme_problem' ? prevUi.message : null)
         || raw.issues[0]
         || 'Extreme lighting — improve conditions before capture.'
   } else {
-    // When green, never show tips from a flickering extreme raw frame.
     message = 'Keep even front-facing light on both eyes.'
   }
 
+  let status = 'normal'
+  if (checking) status = 'checking'
+  else if (isFraming) status = 'framing_problem'
+  else if (isBlocked) status = 'extreme_problem'
+
   return {
-    status: checking ? 'checking' : (isExtreme ? 'extreme_problem' : 'normal'),
-    acceptable: !isExtreme,
-    blockCapture: isExtreme && !checking,
+    status,
+    acceptable: !isBlocked,
+    blockCapture: isBlocked && !checking,
     stable: !checking,
     ema: Math.round(stabilized.ema * 100),
+    reason: isFraming ? 'framing' : (isBlocked ? 'lighting' : 'ok'),
     issues: raw.issues,
     metrics: raw.metrics,
     recommendations: raw.recommendations,

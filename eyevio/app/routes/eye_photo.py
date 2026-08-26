@@ -97,7 +97,17 @@ def capture_eye_photo():
                 'eyewear': eyewear,
             }
 
-        # Extreme lighting is the only hard capture blocker.
+        # Framing and extreme lighting both hard-block capture (different user-facing reasons).
+        if lighting.get('status') == 'framing_problem':
+            return jsonify({
+                'error': 'face_framing',
+                'lighting': lighting,
+                'message': lighting.get(
+                    'message',
+                    'Face not fully in frame — center your face in the camera.',
+                ),
+            }), 422
+
         if lighting.get('status') == 'extreme_problem' and not acknowledge_poor_lighting:
             return jsonify({
                 'error': 'poor_lighting',

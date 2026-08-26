@@ -177,6 +177,7 @@ export function getLightingStatusClasses(lighting) {
   if (!lighting || lighting.status === 'checking' || lighting.stable === false) {
     return 'bg-gray-50 border-gray-200 text-gray-700'
   }
+  if (lighting.status === 'framing_problem') return 'bg-amber-50 border-amber-200 text-amber-900'
   if (lighting.status === 'extreme_problem') return 'bg-red-50 border-red-200 text-red-800'
   return 'bg-emerald-50 border-emerald-200 text-emerald-800'
 }
@@ -184,6 +185,7 @@ export function getLightingStatusClasses(lighting) {
 export function getLightingStatusLabel(lighting) {
   if (!lighting) return 'Checking lighting…'
   if (lighting.stable === false || lighting.status === 'checking') return 'Checking lighting…'
+  if (lighting.status === 'framing_problem') return 'Face not in frame'
   if (lighting.status === 'extreme_problem') return 'Extreme lighting'
   return 'Lighting looks good'
 }
