@@ -481,7 +481,9 @@ def run_capture_quality_gate(frame: np.ndarray, landmarks: Any = None) -> Dict[s
     lighting = assess_anatomical_lighting(frame, landmarks)
     eyewear = detect_eyewear(frame, landmarks, strict=False)
 
-    if lighting.get('status') == 'extreme_problem':
+    if lighting.get('status') == 'framing_problem':
+        failures.append(lighting.get('message', 'Face not fully in frame — center your face in the camera.'))
+    elif lighting.get('status') == 'extreme_problem':
         failures.append(lighting.get('message', 'Extreme lighting — improve conditions before capture'))
 
     eyewear_warning = None
