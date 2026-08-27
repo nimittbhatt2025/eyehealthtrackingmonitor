@@ -79,7 +79,10 @@ def capture_eye_photo():
         if condition_type == 'cataract':
             analysis = analyze_cataract_from_base64(image_data)
         else:
-            analysis = analyze_dry_eye_from_base64(image_data)
+            analysis = analyze_dry_eye_from_base64(
+                image_data,
+                capture_mode=data.get('capture_mode', 'camera'),
+            )
         if analysis.get('error'):
             return jsonify(analysis), 400
 

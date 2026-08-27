@@ -29,12 +29,13 @@ from app.ai_models.ocular_ml_preprocess import (
     RIGHT_EYE_REGION,
     calibrate_webcam_ml_score,
     external_eye_crop_meta,
+    haar_eye_crop_meta,
     is_webcam_face_capture,
     looks_like_eye_crop,
     ml_eye_patches_from_landmarks,
     prepare_ocular_patch,
 )
-from app.ai_models.sclera_redness_model import ml_redness_finding, predict_both_eyes
+from app.ai_models.sclera_redness_model import ml_redness_finding, model_status, predict_both_eyes, predict_eye_patch
 
 # Wider heuristic crops reuse the same landmark indices as ML (see ocular_ml_preprocess).
 MAX_SCLERA_SATURATION = 85
@@ -54,6 +55,20 @@ def decode_base64_image(image_data: str) -> Optional[np.ndarray]:
         arr = np.frombuffer(raw, dtype=np.uint8)
         frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
         return frame
+    except Exception:
+        return None
+
+
+def base64_to_bytes(image_data: str) -> Optional[bytes]:
+    """Extract raw image bytes from a base64 or data-URL payload."""
+    if not image_data:
+        return None
+    payload = image_data
+    if ',' in payload:
+        payload = payload.split(',', 1)[1]
+    payload = re.sub(r'\s', '', payload)
+    try:
+        return base64.b64decode(payload)
     except Exception:
         return None
 
@@ -94,6 +109,9 @@ def _crop_eye_regions(frame: np.ndarray) -> Dict[str, Any]:
     if not results.face_landmarks:
         if looks_like_eye_crop(frame):
             return external_eye_crop_meta(frame)
+        haar_meta = haar_eye_crop_meta(frame)
+        if haar_meta is not None:
+            return haar_meta
         return {
             'error': (
                 'No face detected. Use a front-facing selfie with both eyes visible, '
@@ -485,11 +503,37 @@ def _analyze_cropped_eyes(
 
     left = analyze_eye_patch(crops['left'], side='left')
     right = analyze_eye_patch(crops['right'], side='right')
-    if landmarks is not None and not external_eye_only:
-        raw_shapes = {}
-        try:
-            ml_patches, raw_shapes = ml_eye_patches_from_landmarks(frame, landmarks)
-        except ValueError:
+
+    if external_eye_only:
+        macro = predict_eye_patch(frame, prepared=False)
+        ml_redness = {
+            'available': macro.get('available', False),
+            'score': macro.get('score'),
+            'uncertainty_std': macro.get('uncertainty_std'),
+            'discretized_grade': macro.get('discretized_grade'),
+            'grade_label': macro.get('grade_label'),
+            'left': macro,
+            'right': macro,
+            'model_version': macro.get('model_version'),
+            'macro_binocular': True,
+        }
+        if not macro.get('available'):
+            ml_redness['error'] = macro.get('error', 'Inference unavailable')
+    else:
+        raw_shapes: Dict[str, Tuple[int, int, int]] = {}
+        if landmarks is not None:
+            try:
+                ml_patches, raw_shapes = ml_eye_patches_from_landmarks(frame, landmarks)
+            except ValueError:
+                ml_patches = {
+                    'left': prepare_ocular_patch(crops['left'], side='left'),
+                    'right': prepare_ocular_patch(crops['right'], side='right'),
+                }
+                raw_shapes = {
+                    'left': crops['left'].shape,
+                    'right': crops['right'].shape,
+                }
+        else:
             ml_patches = {
                 'left': prepare_ocular_patch(crops['left'], side='left'),
                 'right': prepare_ocular_patch(crops['right'], side='right'),
@@ -498,20 +542,12 @@ def _analyze_cropped_eyes(
                 'left': crops['left'].shape,
                 'right': crops['right'].shape,
             }
-    else:
-        ml_patches = {
-            'left': prepare_ocular_patch(crops['left'], side='left'),
-            'right': prepare_ocular_patch(crops['right'], side='right'),
-        }
-        raw_shapes = {
-            'left': crops['left'].shape,
-            'right': crops['right'].shape,
-        }
-    ml_redness = predict_both_eyes(ml_patches['left'], ml_patches['right'], prepared=True)
-    ml_redness = calibrate_webcam_ml_score(
-        ml_redness,
-        apply=is_webcam_face_capture(frame, raw_shapes, external_eye_only=external_eye_only),
-    )
+        ml_redness = predict_both_eyes(ml_patches['left'], ml_patches['right'], prepared=True)
+        ml_redness = calibrate_webcam_ml_score(
+            ml_redness,
+            apply=is_webcam_face_capture(frame, raw_shapes, external_eye_only=False),
+            architecture=model_status().get('architecture'),
+        )
     if ml_redness.get('available'):
         left['ml_redness'] = ml_redness.get('left')
         right['ml_redness'] = ml_redness.get('right')
@@ -567,6 +603,7 @@ def _analyze_cropped_eyes(
             'ml_sclera_score': ml_redness.get('score'),
             'ml_sclera_grade': ml_redness.get('discretized_grade'),
             'ml_sclera_grade_label': ml_redness.get('grade_label'),
+            'ml_sclera_uncertainty_std': ml_redness.get('uncertainty_std'),
             'ml_sclera_available': ml_redness.get('available', False),
             'ml_model_version': ml_redness.get('model_version'),
             'avg_tear_film_quality': round(avg_tear, 1),
@@ -605,11 +642,63 @@ def analyze_dry_eye_frame(frame: np.ndarray) -> Dict[str, Any]:
     )
 
 
-def analyze_dry_eye_from_base64(image_data: str) -> Dict[str, Any]:
+def analyze_dry_eye_from_base64(image_data: str, *, capture_mode: str = 'camera') -> Dict[str, Any]:
     frame = decode_base64_image(image_data)
     if frame is None:
         return {'error': 'Could not decode image. Please capture again.'}
-    return analyze_dry_eye_frame(frame)
+
+    raw_bytes = base64_to_bytes(image_data)
+    production = None
+    if raw_bytes:
+        from app.ai_models.sclera_inference import predict_sclera_redness_production
+
+        production = predict_sclera_redness_production(raw_bytes)
+
+    result = analyze_dry_eye_frame(frame)
+
+    from app.ai_models.sclera_inference import apply_production_ml_redness, production_to_ml_redness
+
+    if production is not None:
+        result['production_sclera'] = production
+
+    if result.get('error') and production and production.get('status') == 'success':
+        ml_redness = production_to_ml_redness(production)
+        if ml_redness is not None:
+            findings = []
+            ml_finding = ml_redness_finding(ml_redness)
+            if ml_finding:
+                findings.append(ml_finding)
+            elif ml_redness.get('discretized_grade', 0) == 0:
+                findings.append('No large visible differences detected in this photo')
+            if not findings:
+                findings.append('No large visible differences detected in this photo')
+            result.pop('error', None)
+            result.update({
+                'score': 50.0,
+                'appearance_score': 50.0,
+                'risk_level': 'low',
+                'risk_message': 'Production ML scoring only — full eye analysis unavailable.',
+                'findings': findings,
+                'ml_redness': ml_redness,
+                'production_fallback': True,
+                'scoring_path': 'production_upload',
+                'metrics': {
+                    'ml_sclera_score': ml_redness.get('score'),
+                    'ml_sclera_grade': ml_redness.get('discretized_grade'),
+                    'ml_sclera_grade_label': ml_redness.get('grade_label'),
+                    'ml_sclera_uncertainty_std': ml_redness.get('uncertainty_std'),
+                    'ml_sclera_available': True,
+                    'ml_model_version': ml_redness.get('model_version'),
+                },
+                'disclaimer': (
+                    'Appearance tracking only — not a medical diagnosis. '
+                    'Face landmarks were unavailable; score used smart-crop production pipeline.'
+                ),
+            })
+    elif capture_mode == 'upload' and not result.get('error') and production and production.get('status') == 'success':
+        apply_production_ml_redness(result, production)
+
+    return result
 
 
 def check_photo_lighting_from_base64(image_data: str) -> Dict[str, Any]:

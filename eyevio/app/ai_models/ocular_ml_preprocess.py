@@ -26,6 +26,115 @@ MAX_SCLERA_SATURATION = 85
 WEBCAM_ML_EYE_FRAME_RATIO_MAX = 0.15
 WEBCAM_ML_CALIB_FACTOR = 0.35
 
+_haar_face_cascade = None
+_haar_eye_cascade = None
+
+
+def _get_haar_cascades() -> Tuple[cv2.CascadeClassifier, cv2.CascadeClassifier]:
+    """Lazy-load OpenCV Haar cascades (fallback when MediaPipe misses a face)."""
+    global _haar_face_cascade, _haar_eye_cascade
+    if _haar_eye_cascade is None:
+        _haar_face_cascade = cv2.CascadeClassifier(
+            cv2.data.haarcascades + 'haarcascade_frontalface_default.xml',
+        )
+        _haar_eye_cascade = cv2.CascadeClassifier(
+            cv2.data.haarcascades + 'haarcascade_eye.xml',
+        )
+    return _haar_face_cascade, _haar_eye_cascade
+
+
+def _padded_rect(
+    x: int,
+    y: int,
+    rw: int,
+    rh: int,
+    frame_w: int,
+    frame_h: int,
+    *,
+    pad_ratio: float = 0.30,
+) -> Tuple[int, int, int, int]:
+    pad = int(rw * pad_ratio)
+    x0 = max(0, x - pad)
+    y0 = max(0, y - pad)
+    x1 = min(frame_w, x + rw + pad)
+    y1 = min(frame_h, y + rh + pad)
+    return x0, y0, x1, y1
+
+
+def crop_eyes_haar(frame_bgr: np.ndarray) -> Optional[Dict[str, np.ndarray]]:
+    """
+    Detect eyes with OpenCV Haar cascades and return left/right BGR patches.
+
+    Searches the upper ~65% of the frame (or within a detected face ROI when available).
+    """
+    if frame_bgr is None or frame_bgr.size == 0:
+        return None
+
+    h, w = frame_bgr.shape[:2]
+    gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+    face_cascade, eye_cascade = _get_haar_cascades()
+
+    roi_y1 = h
+    roi_x0, roi_y0 = 0, 0
+    faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(80, 80))
+    if len(faces) > 0:
+        fx, fy, fw, fh = max(faces, key=lambda f: f[2] * f[3])
+        roi_x0 = fx
+        roi_y0 = fy
+        roi_y1 = min(h, fy + int(fh * 0.72))
+    else:
+        roi_y1 = int(h * 0.65)
+
+    roi_gray = gray[roi_y0:roi_y1, roi_x0:w]
+    roi_bgr = frame_bgr[roi_y0:roi_y1, roi_x0:w]
+    if roi_gray.size == 0:
+        return None
+
+    eyes = eye_cascade.detectMultiScale(
+        roi_gray,
+        scaleFactor=1.1,
+        minNeighbors=5,
+        minSize=(30, 30),
+    )
+    if len(eyes) == 0:
+        return None
+
+    eyes = sorted(eyes, key=lambda e: e[0])
+    crops: Dict[str, np.ndarray] = {}
+
+    if len(eyes) >= 2:
+        pairs = (('left', eyes[0]), ('right', eyes[-1]))
+    else:
+        ex, ey, ew, eh = eyes[0]
+        x0, y0, x1, y1 = _padded_rect(ex, ey, ew, eh, roi_bgr.shape[1], roi_bgr.shape[0])
+        single = roi_bgr[y0:y1, x0:x1].copy()
+        if single.size == 0:
+            return None
+        return {'left': single, 'right': single.copy()}
+
+    for side, (ex, ey, ew, eh) in pairs:
+        x0, y0, x1, y1 = _padded_rect(ex, ey, ew, eh, roi_bgr.shape[1], roi_bgr.shape[0])
+        patch = roi_bgr[y0:y1, x0:x1].copy()
+        if patch.size == 0:
+            return None
+        crops[side] = patch
+
+    return crops
+
+
+def haar_eye_crop_meta(frame_bgr: np.ndarray) -> Optional[Dict[str, Any]]:
+    """Build crop metadata from Haar eye detection."""
+    crops = crop_eyes_haar(frame_bgr)
+    if not crops:
+        return None
+    return {
+        'crops': crops,
+        'face_detected': False,
+        'landmarks': None,
+        'external_eye_only': False,
+        'crop_method': 'haar_eye',
+    }
+
 
 def landmark_bbox(
     face_landmarks: Any,
@@ -167,12 +276,18 @@ def split_binocular_eye_crop(frame_bgr: np.ndarray) -> Tuple[np.ndarray, np.ndar
 
 def external_eye_crop_meta(frame_bgr: np.ndarray) -> Dict[str, Any]:
     """Build crop metadata when the upload is already an ocular close-up."""
+    haar = haar_eye_crop_meta(frame_bgr)
+    if haar is not None:
+        haar['external_eye_only'] = True
+        haar['crop_method'] = 'haar_eye_macro'
+        return haar
     left, right = split_binocular_eye_crop(frame_bgr)
     return {
         'crops': {'left': left, 'right': right},
         'face_detected': False,
         'landmarks': None,
         'external_eye_only': True,
+        'crop_method': 'binocular_split',
     }
 
 
@@ -181,7 +296,13 @@ def ensure_ocular_input(bgr: np.ndarray, side: Optional[str] = None) -> np.ndarr
     if bgr is None or bgr.size == 0:
         return bgr
     if looks_like_full_face_frame(bgr):
-        bgr = fallback_upper_face_eye_band(bgr)
+        haar = crop_eyes_haar(bgr)
+        if haar and side in haar:
+            bgr = haar[side]
+        elif haar and side is None:
+            bgr = haar.get('left') or next(iter(haar.values()))
+        else:
+            bgr = fallback_upper_face_eye_band(bgr)
     return prepare_ocular_patch(bgr, side=side)
 
 
@@ -225,6 +346,7 @@ def calibrate_webcam_ml_score(
     ml_redness: Dict[str, Any],
     *,
     apply: bool,
+    architecture: Optional[str] = None,
 ) -> Dict[str, Any]:
     if not ml_redness.get('available') or ml_redness.get('score') is None:
         return ml_redness
@@ -235,6 +357,9 @@ def calibrate_webcam_ml_score(
         'webcam_calibrated': False,
         'ocular_crop': True,
     }
+    # Bounded clamp model is calibrated for ocular crops; skip legacy scaling.
+    if architecture == 'bounded_clamp':
+        return ml_redness
     if not apply:
         return ml_redness
 
@@ -245,4 +370,9 @@ def calibrate_webcam_ml_score(
     ml_redness['discretized_grade'] = grade
     ml_redness['grade_label'] = labels.get(grade, 'Unknown')
     ml_redness['webcam_calibrated'] = True
+    if ml_redness.get('uncertainty_std') is not None:
+        ml_redness['uncertainty_std'] = round(
+            float(ml_redness['uncertainty_std']) * WEBCAM_ML_CALIB_FACTOR,
+            4,
+        )
     return ml_redness

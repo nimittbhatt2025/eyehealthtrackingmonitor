@@ -11,7 +11,6 @@ import {
   ChevronRight,
   History,
   Trash2,
-  Upload,
 } from 'lucide-react'
 import cameraManager from '../utils/cameraManager'
 import { eyePhotoAPI } from '../services/api'
@@ -127,7 +126,6 @@ export default function EyeHealthMonitor() {
   const lightingCanvasRef = useRef(null)
   const lightingPreviewRef = useRef(null)
   const streamRef = useRef(null)
-  const uploadInputRef = useRef(null)
 
   const [conditionType, setConditionType] = useState('dry_eye')
   const [doctorMonths, setDoctorMonths] = useState(() => {
@@ -135,7 +133,6 @@ export default function EyeHealthMonitor() {
     return stored ? parseInt(stored, 10) : 6
   })
   const [view, setView] = useState('home') // home | glasses-check | capture | analyzing | results
-  const [captureMode, setCaptureMode] = useState('camera') // camera | upload
   const [status, setStatus] = useState(null)
   const [timeline, setTimeline] = useState([])
   const [photos, setPhotos] = useState([])
@@ -314,46 +311,6 @@ export default function EyeHealthMonitor() {
     }
   }
 
-  const handleUploadFile = async (event) => {
-    const file = event.target.files?.[0]
-    event.target.value = ''
-    if (!file) {
-      setView('home')
-      return
-    }
-
-    if (!file.type.startsWith('image/')) {
-      toast.error('Please choose a JPEG, PNG, or WebP image.')
-      setView('home')
-      return
-    }
-
-    if (file.size > 15 * 1024 * 1024) {
-      toast.error('Image is too large — use a file under 15 MB.')
-      setView('home')
-      return
-    }
-
-    setView('analyzing')
-    setError(null)
-    setLightingError(null)
-
-    const reader = new FileReader()
-    reader.onload = async () => {
-      try {
-        const data = await submitCapture(reader.result, false)
-        finishCaptureResult(data)
-      } catch (err) {
-        handleCaptureError(err)
-      }
-    }
-    reader.onerror = () => {
-      toast.error('Could not read that file.')
-      setView('home')
-    }
-    reader.readAsDataURL(file)
-  }
-
   const captureAndAnalyze = async (acknowledgePoorLighting = false) => {
     const video = videoRef.current
     const canvas = canvasRef.current
@@ -412,13 +369,6 @@ export default function EyeHealthMonitor() {
 
   return (
     <div className="max-w-5xl mx-auto space-y-6 pb-10">
-      <input
-        ref={uploadInputRef}
-        type="file"
-        accept="image/jpeg,image/png,image/webp"
-        className="hidden"
-        onChange={handleUploadFile}
-      />
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Eye Health Photo Monitor</h1>
         <p className="text-gray-600 mt-1 text-sm max-w-2xl">
@@ -535,25 +485,13 @@ export default function EyeHealthMonitor() {
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
-                  onClick={() => { setCaptureMode('camera'); setView('glasses-check') }}
+                  onClick={() => setView('glasses-check')}
                   className="btn-primary min-h-[44px]"
                 >
                   <Camera className="w-4 h-4 mr-2 inline" />
                   {status?.check_due ? 'Take monthly photo' : 'Take photo now'}
                 </button>
-                <button
-                  type="button"
-                  onClick={() => { setCaptureMode('upload'); setView('glasses-check') }}
-                  className="btn-secondary min-h-[44px]"
-                  title="JPEG/PNG close-up or full-face selfie"
-                >
-                  <Upload className="w-4 h-4 mr-2 inline" />
-                  Upload photo
-                </button>
               </div>
-              <p className="text-xs text-gray-500 mt-2 w-full">
-                Upload accepts a full-face selfie or a close-up with both eyes visible (forehead to nose bridge).
-              </p>
             </div>
           </div>
 
@@ -670,11 +608,7 @@ export default function EyeHealthMonitor() {
           onBack={() => setView('home')}
           onComplete={() => {
             setError(null)
-            if (captureMode === 'upload') {
-              uploadInputRef.current?.click()
-            } else {
-              setView('capture')
-            }
+            setView('capture')
           }}
         />
       )}
@@ -851,7 +785,10 @@ export default function EyeHealthMonitor() {
                         ({lastResult.analysis.ml_redness.grade_label})
                       </p>
                       <p className="text-xs text-teal-700/80 mt-1">
-                        Wellness tracking only — pilot model (~0.49 MAE on initial test split).
+                        Wellness tracking only — bounded ordinal model with test-time augmentation.
+                        {lastResult.analysis.ml_redness.uncertainty_std != null && (
+                          <> Uncertainty (σ): {lastResult.analysis.ml_redness.uncertainty_std.toFixed(3)}.</>
+                        )}
                         {lastResult.analysis.ml_redness.webcam_calibrated && (
                           <> Scored from tight ocular crops (webcam-calibrated).</>
                         )}
