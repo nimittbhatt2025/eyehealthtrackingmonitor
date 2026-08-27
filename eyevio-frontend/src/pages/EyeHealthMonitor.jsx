@@ -11,6 +11,7 @@ import {
   ChevronRight,
   History,
   Trash2,
+  Upload,
 } from 'lucide-react'
 import cameraManager from '../utils/cameraManager'
 import { eyePhotoAPI } from '../services/api'
@@ -21,11 +22,62 @@ import GlassesContactsCheck from '../components/GlassesContactsCheck'
 import SamdDisclaimer from '../components/SamdDisclaimer'
 import { getLightingUiCopy } from '../utils/photoLightingCheck'
 
+const TIMELINE_METRICS = [
+  ['overall', 'Tracking', { baselineOnly: true }],
+  ['redness', 'Redness trend', { requiresComparison: true }],
+]
+
+function captureQualityLabel(grade) {
+  const labels = { high: 'Good', moderate: 'Fair', low: 'Poor' }
+  return labels[grade] || grade
+}
+
+function comparisonActionLabel(comparison) {
+  if (!comparison?.has_baseline) return 'Baseline saved'
+  switch (comparison?.action) {
+    case 'PERSISTENT_CHANGE':
+      return 'Visible change confirmed'
+    case 'RETAKE_TO_CONFIRM_CHANGE':
+      return 'Change detected — retake to confirm'
+    case 'RETAKE_FOR_QUALITY':
+      return 'Retake for better lighting'
+    case 'MONITOR':
+      return 'Minor change — keep monitoring'
+    case 'STABLE':
+    default:
+      return 'Matches baseline'
+  }
+}
+
+function monthTrackingStatus(month, monthIndex, timeline, metricKey) {
+  if (monthIndex === 0) return 'Baseline'
+  const prev = timeline[monthIndex - 1]
+  if (metricKey === 'redness') {
+    const delta = (month.avg_redness ?? 0) - (prev.avg_redness ?? 0)
+    if (Math.abs(delta) < 8) return 'Stable vs last month'
+    return delta > 0 ? 'More red tint vs last month' : 'Less red tint vs last month'
+  }
+  const delta = (month.avg_health_score ?? 0) - (prev.avg_health_score ?? 0)
+  if (Math.abs(delta) < 10) return 'Stable vs last month'
+  return delta > 0 ? 'More consistent vs last month' : 'Looks different vs last month'
+}
+
+function timelineMetricCaption(metricKey) {
+  switch (metricKey) {
+    case 'overall':
+      return 'Qualitative month-over-month status — compares you to your past photos, not a clinical grade.'
+    case 'redness':
+      return 'Whether red-tint in the photo shifted vs your prior month. Lighting and shadows affect this.'
+    default:
+      return ''
+  }
+}
+
 const CONDITIONS = [
   {
     id: 'dry_eye',
     label: 'Dry eye',
-    description: 'Tracks redness, reflection consistency, surface texture, and aligned eye appearance.',
+    description: 'Monthly photo diary for visible surface appearance — compares this month to last, not a dry-eye diagnosis.',
   },
   {
     id: 'cornea_scar',
@@ -75,6 +127,7 @@ export default function EyeHealthMonitor() {
   const lightingCanvasRef = useRef(null)
   const lightingPreviewRef = useRef(null)
   const streamRef = useRef(null)
+  const uploadInputRef = useRef(null)
 
   const [conditionType, setConditionType] = useState('dry_eye')
   const [doctorMonths, setDoctorMonths] = useState(() => {
@@ -82,6 +135,7 @@ export default function EyeHealthMonitor() {
     return stored ? parseInt(stored, 10) : 6
   })
   const [view, setView] = useState('home') // home | glasses-check | capture | analyzing | results
+  const [captureMode, setCaptureMode] = useState('camera') // camera | upload
   const [status, setStatus] = useState(null)
   const [timeline, setTimeline] = useState([])
   const [photos, setPhotos] = useState([])
@@ -120,6 +174,12 @@ export default function EyeHealthMonitor() {
   useEffect(() => {
     loadData()
   }, [loadData])
+
+  useEffect(() => {
+    if (photos.length < 2 && timelineMetric !== 'overall') {
+      setTimelineMetric('overall')
+    }
+  }, [photos.length, timelineMetric])
 
   useEffect(() => {
     localStorage.setItem(DOCTOR_INTERVAL_KEY, String(doctorMonths))
@@ -207,6 +267,93 @@ export default function EyeHealthMonitor() {
     return response.data
   }
 
+  const finishCaptureResult = (data) => {
+    setLastResult(data)
+    setView('results')
+
+    if (data.eyewear_warning) {
+      toast(data.eyewear_warning.message, { icon: '⚠️', duration: 6000 })
+    } else if (data.alert) {
+      toast.error(data.alert.message, { duration: 6000 })
+    } else if (data.comparison?.recommend_confirm_retake) {
+      toast('Visible change detected — retake in similar lighting to confirm.', { icon: '⚠️', duration: 6000 })
+    } else if (data.comparison?.deteriorated) {
+      toast('Changes detected — review your comparison.', { icon: '⚠️' })
+    } else {
+      toast.success('Photo saved. Comparison updated.')
+    }
+
+    loadData()
+  }
+
+  const handleCaptureError = (err, { reopenCamera = false } = {}) => {
+    const errorCode = err.response?.data?.error
+    const lighting = err.response?.data?.lighting
+
+    if (errorCode === 'face_framing' && lighting) {
+      const copy = getLightingUiCopy({ status: 'framing_problem', stable: true })
+      setLightingError(lighting)
+      setError(copy.message)
+      toast.error(copy.label, { duration: 5000 })
+    } else if (errorCode === 'poor_lighting' && lighting) {
+      const copy = getLightingUiCopy({ status: 'extreme_problem', stable: true })
+      setLightingError(lighting)
+      setError(copy.message)
+      toast.error(copy.label, { duration: 5000 })
+    } else {
+      const msg = err.response?.data?.message || err.response?.data?.error || 'Analysis failed. Try again in even, bright lighting.'
+      setError(msg)
+      toast.error(msg, { duration: 5000 })
+    }
+
+    if (reopenCamera) {
+      setView('capture')
+      initializeCamera()
+    } else {
+      setView('home')
+    }
+  }
+
+  const handleUploadFile = async (event) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) {
+      setView('home')
+      return
+    }
+
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please choose a JPEG, PNG, or WebP image.')
+      setView('home')
+      return
+    }
+
+    if (file.size > 15 * 1024 * 1024) {
+      toast.error('Image is too large — use a file under 15 MB.')
+      setView('home')
+      return
+    }
+
+    setView('analyzing')
+    setError(null)
+    setLightingError(null)
+
+    const reader = new FileReader()
+    reader.onload = async () => {
+      try {
+        const data = await submitCapture(reader.result, false)
+        finishCaptureResult(data)
+      } catch (err) {
+        handleCaptureError(err)
+      }
+    }
+    reader.onerror = () => {
+      toast.error('Could not read that file.')
+      setView('home')
+    }
+    reader.readAsDataURL(file)
+  }
+
   const captureAndAnalyze = async (acknowledgePoorLighting = false) => {
     const video = videoRef.current
     const canvas = canvasRef.current
@@ -224,43 +371,9 @@ export default function EyeHealthMonitor() {
 
     try {
       const data = await submitCapture(dataUrl, acknowledgePoorLighting)
-
-      setLastResult(data)
-      setView('results')
-
-      if (data.eyewear_warning) {
-        toast(data.eyewear_warning.message, { icon: '⚠️', duration: 6000 })
-      } else if (data.alert) {
-        toast.error(data.alert.message, { duration: 6000 })
-      } else if (data.comparison?.recommend_confirm_retake) {
-        toast('Visible change detected — retake in similar lighting to confirm.', { icon: '⚠️', duration: 6000 })
-      } else if (data.comparison?.deteriorated) {
-        toast('Changes detected — review your comparison.', { icon: '⚠️' })
-      } else {
-        toast.success('Photo saved. Comparison updated.')
-      }
-
-      loadData()
+      finishCaptureResult(data)
     } catch (err) {
-      const errorCode = err.response?.data?.error
-      const lighting = err.response?.data?.lighting
-
-      if (errorCode === 'face_framing' && lighting) {
-        const copy = getLightingUiCopy({ status: 'framing_problem', stable: true })
-        setLightingError(lighting)
-        setError(copy.message)
-        toast.error(copy.label, { duration: 5000 })
-      } else if (errorCode === 'poor_lighting' && lighting) {
-        const copy = getLightingUiCopy({ status: 'extreme_problem', stable: true })
-        setLightingError(lighting)
-        setError(copy.message)
-        toast.error(copy.label, { duration: 5000 })
-      } else {
-        const msg = err.response?.data?.message || err.response?.data?.error || 'Analysis failed. Try again in even, bright lighting.'
-        setError(msg)
-      }
-      setView('capture')
-      initializeCamera()
+      handleCaptureError(err, { reopenCamera: true })
     }
   }
 
@@ -299,6 +412,13 @@ export default function EyeHealthMonitor() {
 
   return (
     <div className="max-w-5xl mx-auto space-y-6 pb-10">
+      <input
+        ref={uploadInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        className="hidden"
+        onChange={handleUploadFile}
+      />
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Eye Health Photo Monitor</h1>
         <p className="text-gray-600 mt-1 text-sm max-w-2xl">
@@ -359,15 +479,22 @@ export default function EyeHealthMonitor() {
           <div className="card p-5 bg-slate-50 border-slate-200">
             <h2 className="font-semibold text-gray-900 mb-2">How this works (simple)</h2>
             <ol className="text-sm text-gray-700 space-y-2 list-decimal pl-5">
-              <li><strong>Take a photo</strong> once a month in a well-lit room, face centered, glasses off.</li>
+              <li><strong>Take a photo</strong> once a month in a well-lit room — <strong>move close</strong> so both eyes fill the frame (glasses off).</li>
               <li>
                 <strong>Watch the banner</strong> while the camera is open:
                 <span className="text-emerald-700"> Green = good lighting</span>,
-                <span className="text-amber-700"> Amber = fix your position</span>,
+                <span className="text-amber-700"> Amber = move closer or fix eye framing</span>,
                 <span className="text-red-700"> Red = fix lighting</span> (or use Capture anyway — saved but less reliable for comparison).
               </li>
-              <li><strong>We score the photo</strong> (0–100 appearance score). This is tracking only — not a diagnosis.</li>
-              <li><strong>We compare to last month</strong>. Small changes → no alert. Large change → we ask you to <strong>retake once</strong> to confirm.</li>
+              <li>
+                <strong>First photo = baseline.</strong> We save a reference photo — not a doctor-grade score.
+                After your second monthly photo you will see <strong>Matches baseline</strong> or{' '}
+                <strong>Change detected</strong>.
+              </li>
+              <li>
+                <strong>We compare to last month.</strong> Small changes → no alert. Large change → we ask you to{' '}
+                <strong>retake once</strong> to confirm before any doctor visit suggestion.
+              </li>
               <li><strong>Only confirmed changes</strong> can trigger an alert suggesting an earlier doctor visit.</li>
             </ol>
             <p className="text-xs text-gray-500 mt-3">
@@ -386,33 +513,69 @@ export default function EyeHealthMonitor() {
                 <p className="text-gray-900 font-semibold">{status?.message}</p>
                 {status?.has_photos && (
                   <p className="text-sm text-gray-600 mt-1">
-                    Last appearance score: <strong>{status.last_health_score}</strong>/100
-                    {status.days_since_last != null && ` · ${status.days_since_last} days ago`}
+                    {photos.length < 2 ? (
+                      <>
+                        Baseline saved — take another photo in about a month to start comparing.
+                        {status.days_since_last != null && ` (${status.days_since_last} days since baseline)`}
+                      </>
+                    ) : timeline.length >= 2 ? (
+                      <>
+                        Tracking: <strong>{monthTrackingStatus(timeline[timeline.length - 1], timeline.length - 1, timeline, 'overall')}</strong>
+                        {status.days_since_last != null && ` · ${status.days_since_last} days ago`}
+                      </>
+                    ) : (
+                      <>
+                        Monthly photo saved
+                        {status.days_since_last != null && ` · ${status.days_since_last} days ago`}
+                      </>
+                    )}
                   </p>
                 )}
               </div>
-              <button type="button" onClick={() => setView('glasses-check')} className="btn-primary min-h-[44px]">
-                <Camera className="w-4 h-4 mr-2 inline" />
-                {status?.check_due ? 'Take monthly photo' : 'Take photo now'}
-              </button>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => { setCaptureMode('camera'); setView('glasses-check') }}
+                  className="btn-primary min-h-[44px]"
+                >
+                  <Camera className="w-4 h-4 mr-2 inline" />
+                  {status?.check_due ? 'Take monthly photo' : 'Take photo now'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setCaptureMode('upload'); setView('glasses-check') }}
+                  className="btn-secondary min-h-[44px]"
+                  title="JPEG/PNG close-up or full-face selfie"
+                >
+                  <Upload className="w-4 h-4 mr-2 inline" />
+                  Upload photo
+                </button>
+              </div>
+              <p className="text-xs text-gray-500 mt-2 w-full">
+                Upload accepts a full-face selfie or a close-up with both eyes visible (forehead to nose bridge).
+              </p>
             </div>
           </div>
 
           {/* Timeline */}
           {timeline.length > 0 && (
             <div className="card p-5">
-              <h2 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
+              <h2 className="font-semibold text-gray-900 mb-1 flex items-center gap-2">
                 <History className="w-4 h-4" />
                 Month-over-month trends
               </h2>
-              <div className="flex flex-wrap gap-2 mb-4">
-                {[
-                  ['overall', 'Overall'],
-                  ['redness', 'Redness'],
-                  ['tear_film', 'Reflection'],
-                  ['irregularity', 'Texture'],
-                  ['asymmetry', 'Asymmetry'],
-                ].map(([key, label]) => (
+              <p className="text-xs text-gray-500 mb-4">
+                Tracks change vs your own past photos. Absolute numbers are not clinical grades.
+              </p>
+              {photos.length < 2 && (
+                <p className="text-xs text-slate-700 bg-slate-50 border border-slate-200 rounded-md px-3 py-2 mb-4">
+                  <strong>Baseline month.</strong> Redness trend unlocks after your second monthly photo.
+                </p>
+              )}
+              <div className="flex flex-wrap gap-2 mb-3">
+                {TIMELINE_METRICS.filter(
+                  ([, , meta]) => !(meta.requiresComparison && photos.length < 2),
+                ).map(([key, label]) => (
                   <button
                     key={key}
                     type="button"
@@ -427,28 +590,14 @@ export default function EyeHealthMonitor() {
                   </button>
                 ))}
               </div>
+              <p className="text-xs text-gray-500 mb-4">{timelineMetricCaption(timelineMetric)}</p>
               <div className="space-y-3">
-                {timeline.map((month) => {
-                  const metricValue = {
-                    overall: month.avg_health_score,
-                    redness: month.avg_redness,
-                    tear_film: month.avg_tear_film,
-                    irregularity: month.avg_irregularity,
-                    asymmetry: month.avg_asymmetry ?? 0,
-                  }[timelineMetric] ?? month.avg_health_score
-                  const barWidth = timelineMetric === 'redness' || timelineMetric === 'irregularity' || timelineMetric === 'asymmetry'
-                    ? Math.max(0, 100 - metricValue)
-                    : metricValue
+                {timeline.map((month, monthIndex) => {
+                  const statusLabel = monthTrackingStatus(month, monthIndex, timeline, timelineMetric)
                   return (
                     <div key={month.month} className="flex items-center gap-3">
                       <span className="text-xs font-medium text-gray-500 w-16 shrink-0">{month.label}</span>
-                      <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-accent-500 rounded-full"
-                          style={{ width: `${Math.min(100, barWidth)}%` }}
-                        />
-                      </div>
-                      <span className="text-sm font-semibold text-gray-800 w-10 text-right">{metricValue}</span>
+                      <span className="text-sm text-gray-800 flex-1">{statusLabel}</span>
                     </div>
                   )
                 })}
@@ -476,7 +625,9 @@ export default function EyeHealthMonitor() {
                       className="w-full aspect-[4/3] object-cover"
                     />
                     <div className="p-2 text-xs">
-                      <div className="font-semibold text-gray-900">{photo.health_score}/100</div>
+                      <div className="font-semibold text-gray-900">
+                        {allPhotos.length === 1 ? 'Baseline' : `${photo.health_score}/100`}
+                      </div>
                       <div className="text-gray-500">
                         {new Date(photo.captured_at).toLocaleDateString()}
                       </div>
@@ -519,7 +670,11 @@ export default function EyeHealthMonitor() {
           onBack={() => setView('home')}
           onComplete={() => {
             setError(null)
-            setView('capture')
+            if (captureMode === 'upload') {
+              uploadInputRef.current?.click()
+            } else {
+              setView('capture')
+            }
           }}
         />
       )}
@@ -532,6 +687,7 @@ export default function EyeHealthMonitor() {
         <div className="card p-5 space-y-4">
           <h2 className="font-semibold text-gray-900">Capture eye photo</h2>
           <ul className="text-sm text-gray-600 list-disc pl-5 space-y-1">
+            <li>Move <strong>closer</strong> until both eyes fill most of the frame (chin/forehead can be out of view)</li>
             <li>Use soft, even front-facing light (not backlight from a window)</li>
             <li>Remove glasses and contact lenses (confirmed in prior step)</li>
             <li>Wait for the green “Good lighting” indicator before capturing</li>
@@ -555,6 +711,13 @@ export default function EyeHealthMonitor() {
               className="w-full h-full object-cover"
               style={{ transform: 'scaleX(-1)' }}
             />
+            <div
+              className="pointer-events-none absolute inset-[18%_12%] border-2 border-dashed border-white/40 rounded-lg"
+              aria-hidden
+            />
+            <p className="pointer-events-none absolute bottom-2 left-0 right-0 text-center text-xs text-white/80 px-2">
+              Frame both eyes inside the box — move closer for detail
+            </p>
           </div>
           <canvas ref={canvasRef} className="hidden" />
 
@@ -662,9 +825,38 @@ export default function EyeHealthMonitor() {
                   className="rounded-lg border border-gray-200 w-full aspect-[4/3] object-cover"
                 />
                 <div className="text-sm text-gray-700 space-y-1">
-                  <p><strong>Appearance score:</strong> {lastResult.photo.health_score}/100</p>
+                  <p>
+                    <strong>Tracking status:</strong>{' '}
+                    {comparisonActionLabel(lastResult.comparison)}
+                  </p>
+                  {!lastResult.comparison?.has_baseline && (
+                    <p className="text-xs text-gray-500">
+                      Your first reference photo — compare again in about a month under similar lighting.
+                    </p>
+                  )}
                   {lastResult.analysis?.capture_quality && (
-                    <p><strong>Capture quality:</strong> {lastResult.analysis.capture_quality.grade}</p>
+                    <p>
+                      <strong>Lighting &amp; framing:</strong>{' '}
+                      {captureQualityLabel(lastResult.analysis.capture_quality.grade)}
+                    </p>
+                  )}
+                  {lastResult.analysis?.ml_redness?.available && (
+                    <div className="mt-2 p-3 rounded-lg bg-teal-50 border border-teal-100">
+                      <p className="text-sm font-medium text-teal-900">Sclera redness (trained model)</p>
+                      <p className="text-sm text-teal-800 mt-1">
+                        Score: <strong>{lastResult.analysis.ml_redness.score?.toFixed(2)}</strong> / 4
+                        {' · '}
+                        Grade: <strong>{lastResult.analysis.ml_redness.discretized_grade}</strong>
+                        {' '}
+                        ({lastResult.analysis.ml_redness.grade_label})
+                      </p>
+                      <p className="text-xs text-teal-700/80 mt-1">
+                        Wellness tracking only — pilot model (~0.49 MAE on initial test split).
+                        {lastResult.analysis.ml_redness.webcam_calibrated && (
+                          <> Scored from tight ocular crops (webcam-calibrated).</>
+                        )}
+                      </p>
+                    </div>
                   )}
                   <p><strong>Condition:</strong> {conditionLabel(lastResult.photo.condition_type)}</p>
                   <p><strong>Saved:</strong> {new Date(lastResult.photo.captured_at).toLocaleString()}</p>
@@ -715,31 +907,15 @@ export default function EyeHealthMonitor() {
 
               {lastResult.comparison.changes && (
                 <div className="bg-gray-50 rounded-lg p-4">
-                  <MetricDelta label="Appearance score" change={lastResult.comparison.changes.health_score} />
-                  <MetricDelta label="Redness" change={lastResult.comparison.changes.sclera_redness} higherIsWorse />
-                  <MetricDelta label="Reflection consistency" change={lastResult.comparison.changes.tear_film_quality} />
-                  <MetricDelta
-                    label="Surface texture"
-                    change={lastResult.comparison.changes.surface_irregularity}
-                    higherIsWorse
-                  />
-                  {lastResult.comparison.eye_changes && (
-                    <>
-                      <MetricDelta label="Left eye score" change={lastResult.comparison.eye_changes.left} />
-                      <MetricDelta label="Right eye score" change={lastResult.comparison.eye_changes.right} />
-                      {lastResult.comparison.eye_changes.asymmetry_flag && (
-                        <p className="text-xs text-amber-800 pt-2">
-                          One eye changed more than the other — review both eyes in the comparison crops.
-                        </p>
-                      )}
-                    </>
-                  )}
-                  {lastResult.comparison.changes.irregularity_asymmetry && (
-                    <MetricDelta
-                      label="L/R irregularity asymmetry"
-                      change={lastResult.comparison.changes.irregularity_asymmetry}
-                      higherIsWorse
-                    />
+                  <p className="text-sm font-medium text-gray-900 mb-2">
+                    {comparisonActionLabel(lastResult.comparison)}
+                  </p>
+                  <MetricDelta label="Baseline consistency" change={lastResult.comparison.changes.health_score} />
+                  <MetricDelta label="Redness tint" change={lastResult.comparison.changes.sclera_redness} higherIsWorse />
+                  {lastResult.comparison.eye_changes?.asymmetry_flag && (
+                    <p className="text-xs text-amber-800 pt-2">
+                      One eye changed more than the other — review both eyes in the comparison crops below.
+                    </p>
                   )}
                 </div>
               )}

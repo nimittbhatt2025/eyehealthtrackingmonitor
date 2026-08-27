@@ -11,7 +11,11 @@ const LEFT_EYE = [33, 133, 160, 159, 158, 157, 173, 144, 145, 153]
 const RIGHT_EYE = [362, 263, 387, 386, 385, 384, 398, 373, 374, 380]
 const FOREHEAD = [10, 151, 9, 8, 107]
 
-// Version 2.10 — mirrors eyevio/app/ai_models/capture_quality.py (post M5 calibration)
+// Version 2.11 — eye-first framing (mirrors capture_quality.py)
+const MIN_EYE_SPAN = 0.20
+const EYE_EDGE_MARGIN = 0.04
+const EYE_CENTER_Y_MIN = 0.10
+const EYE_CENTER_Y_MAX = 0.75
 const EXTREME_EYE_MEAN_LOW = 40
 const EXTREME_EYE_MEAN_HIGH = 230
 const MODERATE_EYE_MEAN_HIGH = 170
@@ -285,7 +289,7 @@ function frameMetricsFromStats(frameStats) {
   }
 }
 
-/** Returns null if OK, else 'position' | 'uncertain'. */
+/** Returns null if OK, else 'too_far' | 'position' | 'uncertain'. */
 function framingFailureKind(landmarks) {
   if (!landmarks?.length || landmarks.length < 400) return 'uncertain'
   const eyeIdx = LEFT_EYE.concat(RIGHT_EYE)
@@ -299,15 +303,40 @@ function framingFailureKind(landmarks) {
     if (x > xMax) xMax = x
   }
   const meanY = ySum / eyeIdx.length
-  if (meanY < 0.15 || meanY > 0.68) return 'position'
-  if (xMin < 0.06 || xMax > 0.94) return 'position'
-  if (xMax - xMin < 0.10) return 'position'
-  const chinY = landmarks[152]?.y
-  const foreheadY = landmarks[10]?.y
-  if (chinY == null || foreheadY == null) return 'uncertain'
-  if (chinY > 0.98 || foreheadY < 0.02) return 'position'
-  if (chinY - foreheadY < 0.18) return 'uncertain'
+  const eyeSpan = xMax - xMin
+
+  if (eyeSpan < MIN_EYE_SPAN) return 'too_far'
+  if (meanY < EYE_CENTER_Y_MIN || meanY > EYE_CENTER_Y_MAX) return 'position'
+  if (xMin < EYE_EDGE_MARGIN || xMax > 1 - EYE_EDGE_MARGIN) return 'position'
   return null
+}
+
+function framingCopy(kind) {
+  if (kind === 'too_far') {
+    return {
+      issues: ['Eyes too small in frame — move closer to the camera'],
+      recommendations: [
+        'Fill the frame with both eyes — chin and forehead can be out of view',
+        'Move closer until both eyes are large and sharp',
+      ],
+      message: 'Move closer so both eyes fill more of the frame for accurate analysis.',
+    }
+  }
+  if (kind === 'position') {
+    return {
+      issues: ['Both eyes not fully in view'],
+      recommendations: [
+        'Keep both eyes inside the frame and level',
+        'Look straight at the camera with even light on both eyes',
+      ],
+      message: 'Keep both eyes fully in view before capturing.',
+    }
+  }
+  return {
+    issues: ['Could not detect both eyes clearly'],
+    recommendations: ['Remove glasses, face the camera, and move closer'],
+    message: 'Could not detect both eyes — move closer and look at the camera.',
+  }
 }
 
 function faceFramingOk(landmarks) {
@@ -321,15 +350,17 @@ function scoreLighting(imageData, landmarks) {
 
   const framingKind = framingFailureKind(landmarks)
   if (framingKind != null) {
-    if (framingKind === 'position') {
+    if (framingKind === 'too_far' || framingKind === 'position') {
+      const copy = framingCopy(framingKind)
       return {
         confidence: 0,
         isExtreme: true,
         reason: 'framing',
-        issues: ['Face not fully in frame — center your face in the camera'],
-        recommendations: ['Keep both eyes visible and centered before capturing'],
+        framingKind,
+        issues: copy.issues,
+        recommendations: copy.recommendations,
         metrics: {},
-        message: 'Face not fully in frame — center your face in the camera',
+        message: copy.message,
       }
     }
     if (isWindowBacklightFrame(frameStats, { relaxed: true })) {
@@ -350,14 +381,16 @@ function scoreLighting(imageData, landmarks) {
         message: issues[0],
       }
     }
+    const copy = framingCopy('uncertain')
     return {
       confidence: 0,
       isExtreme: true,
       reason: 'framing',
-      issues: ['Face not fully in frame — center your face in the camera'],
-      recommendations: ['Keep both eyes visible and centered before capturing'],
+      framingKind: 'uncertain',
+      issues: copy.issues,
+      recommendations: copy.recommendations,
       metrics: {},
-      message: 'Face not fully in frame — center your face in the camera',
+      message: copy.message,
     }
   }
 
@@ -504,7 +537,11 @@ function toUi(stabilized, raw, reasonHistory) {
   else if (isFraming) status = 'framing_problem'
   else if (isBlocked) status = 'extreme_problem'
 
-  const copy = getLightingUiCopy({ status, stable: !checking })
+  const copy = getLightingUiCopy({
+    status,
+    stable: !checking,
+    framing_kind: isFraming ? (raw.framingKind || 'position') : undefined,
+  })
 
   return {
     status,
@@ -513,6 +550,7 @@ function toUi(stabilized, raw, reasonHistory) {
     stable: !checking,
     ema: Math.round(stabilized.ema * 100),
     reason: isFraming ? 'framing' : (isBlocked ? 'lighting' : 'ok'),
+    framing_kind: isFraming ? raw.framingKind : undefined,
     issues: raw.issues,
     metrics: raw.metrics,
     recommendations: raw.recommendations,

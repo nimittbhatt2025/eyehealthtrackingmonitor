@@ -181,9 +181,15 @@ export function getLightingUiCopy(lighting) {
     }
   }
   if (lighting.status === 'framing_problem') {
+    if (lighting.framing_kind === 'too_far') {
+      return {
+        label: 'Move closer',
+        message: 'Move closer so both eyes fill more of the frame — chin and forehead can be cropped out.',
+      }
+    }
     return {
-      label: 'Position not ideal',
-      message: 'Center your face in the camera with both eyes clearly visible before capturing.',
+      label: 'Eyes not ideal',
+      message: 'Keep both eyes fully in view and level before capturing. You do not need your whole face in frame.',
     }
   }
   if (lighting.status === 'extreme_problem') {

@@ -22,12 +22,21 @@ from app.ai_models.eye_analysis import get_face_landmarker
 from app.ai_models.eye_crop_alignment import build_aligned_crops, eye_asymmetry_metrics
 from app.ai_models.eyewear_detection import detect_eyewear
 from app.ai_models.capture_quality import assess_anatomical_lighting, build_capture_quality_summary
+from app.ai_models.ocular_ml_preprocess import (
+    LEFT_EYE_REGION,
+    MAX_SCLERA_SATURATION,
+    MIN_SCLERA_BRIGHTNESS,
+    RIGHT_EYE_REGION,
+    calibrate_webcam_ml_score,
+    external_eye_crop_meta,
+    is_webcam_face_capture,
+    looks_like_eye_crop,
+    ml_eye_patches_from_landmarks,
+    prepare_ocular_patch,
+)
+from app.ai_models.sclera_redness_model import ml_redness_finding, predict_both_eyes
 
-# Wider eye regions for sclera + lid context (MediaPipe indices)
-LEFT_EYE_REGION = [33, 133, 160, 159, 158, 157, 173, 144, 145, 153]
-RIGHT_EYE_REGION = [362, 263, 387, 386, 385, 384, 398, 373, 374, 380]
-
-MIN_SCLERA_BRIGHTNESS = 80
+# Wider heuristic crops reuse the same landmark indices as ML (see ocular_ml_preprocess).
 MAX_SCLERA_SATURATION = 85
 MIN_SCLERA_MASK_COVERAGE = 0.02
 
@@ -83,7 +92,14 @@ def _crop_eye_regions(frame: np.ndarray) -> Dict[str, Any]:
     results = detector.detect(mp_image)
 
     if not results.face_landmarks:
-        return {'error': 'No face detected. Center your face in good lighting and try again.'}
+        if looks_like_eye_crop(frame):
+            return external_eye_crop_meta(frame)
+        return {
+            'error': (
+                'No face detected. Use a front-facing selfie with both eyes visible, '
+                'or upload a close-up photo of both eyes (forehead to nose bridge).'
+            ),
+        }
 
     landmarks = results.face_landmarks[0]
     h, w = frame.shape[:2]
@@ -99,7 +115,23 @@ def _crop_eye_regions(frame: np.ndarray) -> Dict[str, Any]:
     return {'crops': crops, 'face_detected': True, 'landmarks': landmarks}
 
 
-def _sclera_mask(bgr: np.ndarray) -> np.ndarray:
+def _exclude_canthus_and_brow(mask: np.ndarray, side: Optional[str]) -> np.ndarray:
+    """Drop inner-canthus skin and superior brow shadow from the sclera mask."""
+    if mask is None or mask.size == 0:
+        return mask
+    cleaned = mask.copy()
+    h, w = cleaned.shape[:2]
+    canthus_margin = max(2, int(w * 0.22))
+    brow_margin = max(1, int(h * 0.18))
+    if side == 'left':
+        cleaned[:, w - canthus_margin :] = 0
+    elif side == 'right':
+        cleaned[:, :canthus_margin] = 0
+    cleaned[:brow_margin, :] = 0
+    return cleaned
+
+
+def _sclera_mask(bgr: np.ndarray, side: Optional[str] = None) -> np.ndarray:
     """Conservative sclera mask — bright, low-saturation pixels without extreme highlights."""
     hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
     h, s, v = cv2.split(hsv)
@@ -111,10 +143,11 @@ def _sclera_mask(bgr: np.ndarray) -> np.ndarray:
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
     candidate = cv2.morphologyEx(candidate, cv2.MORPH_OPEN, kernel)
     candidate = cv2.morphologyEx(candidate, cv2.MORPH_CLOSE, kernel)
+    candidate = _exclude_canthus_and_brow(candidate, side)
     return candidate
 
 
-def measure_sclera_redness(eye_bgr: np.ndarray) -> Dict[str, Any]:
+def measure_sclera_redness(eye_bgr: np.ndarray, side: Optional[str] = None) -> Dict[str, Any]:
     """
     Sclera redness level 0–100 (higher = more red).
     Returns reliability metadata — do not treat failed segmentation as normal.
@@ -129,7 +162,7 @@ def measure_sclera_redness(eye_bgr: np.ndarray) -> Dict[str, Any]:
     if eye_bgr is None or eye_bgr.size == 0:
         return empty
 
-    mask = _sclera_mask(eye_bgr)
+    mask = _sclera_mask(eye_bgr, side=side)
     coverage = float(np.count_nonzero(mask)) / mask.size
     if coverage < MIN_SCLERA_MASK_COVERAGE:
         return {**empty, 'mask_coverage': round(coverage, 4)}
@@ -148,6 +181,7 @@ def measure_sclera_redness(eye_bgr: np.ndarray) -> Dict[str, Any]:
     return {
         'sclera_redness': round(redness, 1),
         'redness_rg': round(redness_rg, 2),
+        'redness_normalized': round(redness_normalized, 4),
         'red_pixel_fraction': round(red_pixel_fraction, 3),
         'mask_coverage': round(coverage, 4),
         'redness_reliable': True,
@@ -366,8 +400,8 @@ def assess_photo_lighting(frame: np.ndarray, face_landmarks: Any = None) -> Dict
     }
 
 
-def analyze_eye_patch(eye_bgr: np.ndarray) -> Dict[str, Any]:
-    redness_data = measure_sclera_redness(eye_bgr)
+def analyze_eye_patch(eye_bgr: np.ndarray, side: Optional[str] = None) -> Dict[str, Any]:
+    redness_data = measure_sclera_redness(eye_bgr, side=side)
     surface = analyze_tear_film_surface(eye_bgr)
     redness = redness_data.get('sclera_redness')
     appearance = _eye_appearance_score(
@@ -389,22 +423,98 @@ def analyze_eye_patch(eye_bgr: np.ndarray) -> Dict[str, Any]:
     }
 
 
-def analyze_dry_eye_frame(frame: np.ndarray) -> Dict[str, Any]:
-    """Full dry-eye screening analysis on a single BGR frame."""
-    if frame is None or frame.size == 0:
-        return {'error': 'Invalid image'}
+FINDING_REDNESS_AVG_MIN = 52
+FINDING_REDNESS_BOTH_EYES_MIN = 45
+FINDING_REDNESS_SINGLE_EYE_MIN = 62
 
-    crop_result = _crop_eye_regions(frame)
-    if crop_result.get('error'):
-        return crop_result
 
-    lighting = assess_anatomical_lighting(frame, crop_result.get('landmarks'))
-    eyewear = detect_eyewear(frame, crop_result.get('landmarks'))
-    capture_quality = build_capture_quality_summary(lighting, eyewear)
+def _should_report_redness_finding(
+    left: Dict[str, Any],
+    right: Dict[str, Any],
+    avg_redness: Optional[float],
+) -> bool:
+    """
+    Webcam eye crops often include lid/skin shadows — require stronger agreement
+    before surfacing a redness finding on a single photo.
+    """
+    if avg_redness is None:
+        return False
+    left_r = left.get('sclera_redness') if left.get('redness_reliable') else None
+    right_r = right.get('sclera_redness') if right.get('redness_reliable') else None
+    if left_r is None and right_r is None:
+        return False
+    if max(left_r or 0, right_r or 0) >= FINDING_REDNESS_SINGLE_EYE_MIN:
+        return True
+    if avg_redness >= FINDING_REDNESS_AVG_MIN:
+        if left_r is not None and right_r is not None:
+            return min(left_r, right_r) >= FINDING_REDNESS_BOTH_EYES_MIN
+        return avg_redness >= FINDING_REDNESS_AVG_MIN + 4
+    return False
 
-    crops = crop_result['crops']
-    left = analyze_eye_patch(crops['left'])
-    right = analyze_eye_patch(crops['right'])
+
+def _analyze_cropped_eyes(
+    frame: np.ndarray,
+    crops: Dict[str, Any],
+    *,
+    landmarks: Any = None,
+    external_eye_only: bool = False,
+) -> Dict[str, Any]:
+    """Run appearance analysis on pre-cropped left/right eye patches."""
+    if external_eye_only or landmarks is None:
+        lighting = {
+            'status': 'external_eye_crop',
+            'severity': None,
+            'issues': [],
+            'metrics': {},
+            'algorithm_version': None,
+            'message': 'External ocular crop — lighting gate not applied.',
+        }
+        eyewear = {'detected': False, 'confidence': 0.0}
+        capture_quality = {
+            'score': 75.0,
+            'grade': 'moderate',
+            'usable': True,
+            'lighting_status': 'external_eye_crop',
+            'algorithm_version': None,
+            'reasons': ['External dataset eye crop'],
+        }
+    else:
+        lighting = assess_anatomical_lighting(frame, landmarks)
+        eyewear = detect_eyewear(frame, landmarks)
+        capture_quality = build_capture_quality_summary(lighting, eyewear)
+
+    left = analyze_eye_patch(crops['left'], side='left')
+    right = analyze_eye_patch(crops['right'], side='right')
+    if landmarks is not None and not external_eye_only:
+        raw_shapes = {}
+        try:
+            ml_patches, raw_shapes = ml_eye_patches_from_landmarks(frame, landmarks)
+        except ValueError:
+            ml_patches = {
+                'left': prepare_ocular_patch(crops['left'], side='left'),
+                'right': prepare_ocular_patch(crops['right'], side='right'),
+            }
+            raw_shapes = {
+                'left': crops['left'].shape,
+                'right': crops['right'].shape,
+            }
+    else:
+        ml_patches = {
+            'left': prepare_ocular_patch(crops['left'], side='left'),
+            'right': prepare_ocular_patch(crops['right'], side='right'),
+        }
+        raw_shapes = {
+            'left': crops['left'].shape,
+            'right': crops['right'].shape,
+        }
+    ml_redness = predict_both_eyes(ml_patches['left'], ml_patches['right'], prepared=True)
+    ml_redness = calibrate_webcam_ml_score(
+        ml_redness,
+        apply=is_webcam_face_capture(frame, raw_shapes, external_eye_only=external_eye_only),
+    )
+    if ml_redness.get('available'):
+        left['ml_redness'] = ml_redness.get('left')
+        right['ml_redness'] = ml_redness.get('right')
     aligned_crops = build_aligned_crops(crops['left'], crops['right'])
     asymmetry = eye_asymmetry_metrics(left, right)
 
@@ -424,21 +534,21 @@ def analyze_dry_eye_frame(frame: np.ndarray) -> Dict[str, Any]:
     avg_irreg = (left['experimental_texture_proxy'] + right['experimental_texture_proxy']) / 2
     avg_tear = (left['experimental_tear_proxy'] + right['experimental_tear_proxy']) / 2
 
-    if avg_redness is not None and avg_redness > 35:
+    if ml_redness.get('available'):
+        ml_finding = ml_redness_finding(ml_redness)
+        if ml_finding:
+            findings.append(ml_finding)
+        elif ml_redness.get('discretized_grade', 0) == 0:
+            findings.append('No large visible differences detected in this photo')
+    elif _should_report_redness_finding(left, right, avg_redness):
         findings.append('Visible redness in the white of the eye')
-    if avg_irreg > 45:
-        findings.append('Uneven reflection patterns on the eye surface')
-    if avg_tear < 55:
-        findings.append('Reflection consistency appears lower than typical')
-    if asymmetry['health_score_asymmetry'] > 20:
+    if asymmetry['health_score_asymmetry'] > 25:
         findings.append('Noticeable difference between left and right eye appearance')
-    if asymmetry['irregularity_asymmetry'] > 15:
-        findings.append('Surface texture differs between left and right eye')
 
     if not findings:
         findings.append('No large visible differences detected in this photo')
 
-    return {
+    result: Dict[str, Any] = {
         'score': overall,
         'appearance_score': overall,
         'risk_level': risk,
@@ -451,8 +561,14 @@ def analyze_dry_eye_frame(frame: np.ndarray) -> Dict[str, Any]:
         'capture_quality': capture_quality,
         'aligned_crops': aligned_crops,
         'eye_asymmetry': asymmetry,
+        'ml_redness': ml_redness,
         'metrics': {
             'avg_sclera_redness': round(avg_redness, 1) if avg_redness is not None else None,
+            'ml_sclera_score': ml_redness.get('score'),
+            'ml_sclera_grade': ml_redness.get('discretized_grade'),
+            'ml_sclera_grade_label': ml_redness.get('grade_label'),
+            'ml_sclera_available': ml_redness.get('available', False),
+            'ml_model_version': ml_redness.get('model_version'),
             'avg_tear_film_quality': round(avg_tear, 1),
             'avg_surface_irregularity': round(avg_irreg, 1),
             'avg_experimental_tear_proxy': round(avg_tear, 1),
@@ -467,6 +583,26 @@ def analyze_dry_eye_frame(frame: np.ndarray) -> Dict[str, Any]:
             'Appearance tracking only — not a medical diagnosis. Lighting, makeup, and camera quality affect results.'
         ),
     }
+    if external_eye_only:
+        result['external_eye_only'] = True
+    return result
+
+
+def analyze_dry_eye_frame(frame: np.ndarray) -> Dict[str, Any]:
+    """Full dry-eye screening analysis on a single BGR frame."""
+    if frame is None or frame.size == 0:
+        return {'error': 'Invalid image'}
+
+    crop_result = _crop_eye_regions(frame)
+    if crop_result.get('error'):
+        return crop_result
+
+    return _analyze_cropped_eyes(
+        frame,
+        crop_result['crops'],
+        landmarks=crop_result.get('landmarks'),
+        external_eye_only=crop_result.get('external_eye_only', False),
+    )
 
 
 def analyze_dry_eye_from_base64(image_data: str) -> Dict[str, Any]:

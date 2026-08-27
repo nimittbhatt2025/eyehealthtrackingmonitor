@@ -105,7 +105,7 @@ def capture_eye_photo():
                 'lighting': lighting,
                 'message': lighting.get(
                     'message',
-                    'Face not fully in frame — center your face in the camera.',
+                    'Keep both eyes fully in view — move closer if the banner says so.',
                 ),
             }), 422
 

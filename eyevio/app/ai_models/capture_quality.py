@@ -1,7 +1,9 @@
 """
 Capture-quality gate for eye photos (ISO/IEC 29794-5 inspired heuristics).
 
-Version 2.10 (post Milestone 5 calibration):
+Version 2.11 (eye-first framing):
+  - Framing gates on both eyes visible + minimum eye span (move closer), not full face in frame.
+  - Chin/forehead may be cropped when eyes are large enough in frame.
   - Removed standalone max-ROI under_ratio (pupils/eyelashes caused webcam FPs)
   - Shadow checks gated by ROI brightness context
   - Even washout + targeted backlight checks (v2.3)
@@ -26,7 +28,39 @@ LEFT_EYE = [33, 133, 160, 159, 158, 157, 173, 144, 145, 153]
 RIGHT_EYE = [362, 263, 387, 386, 385, 384, 398, 373, 374, 380]
 FOREHEAD = [10, 151, 9, 8, 107]
 
-ALGORITHM_VERSION = 2.10
+ALGORITHM_VERSION = 2.11
+
+# Eye-first framing — inter-ocular span as fraction of frame width (normalized 0–1).
+MIN_EYE_SPAN = 0.20
+EYE_EDGE_MARGIN = 0.04
+EYE_CENTER_Y_MIN = 0.10
+EYE_CENTER_Y_MAX = 0.75
+
+FRAMING_MESSAGES = {
+    'too_far': {
+        'issues': ['Eyes too small in frame — move closer to the camera'],
+        'recommendations': [
+            'Fill the frame with both eyes — chin and forehead can be out of view',
+            'Hold the camera at arm’s length or closer until both eyes are large and sharp',
+        ],
+        'message': 'Move closer so both eyes fill more of the frame for accurate analysis.',
+    },
+    'position': {
+        'issues': ['Both eyes not fully in view'],
+        'recommendations': [
+            'Keep both eyes inside the frame and level',
+            'Look straight at the camera with even front lighting on both eyes',
+        ],
+        'message': 'Keep both eyes fully in view before capturing.',
+    },
+    'uncertain': {
+        'issues': ['Could not detect both eyes clearly'],
+        'recommendations': [
+            'Remove glasses, face the camera, and move closer until both eyes are visible',
+        ],
+        'message': 'Could not detect both eyes — move closer and look at the camera.',
+    },
+}
 
 # Version 1 constants (frozen in M4/M5 datasets — do not change retroactively).
 V1_EXTREME_EYE_MEAN_LOW = 40
@@ -145,9 +179,10 @@ def _roi_stats(frame: np.ndarray, landmarks: Any, indices: List[int], pad: float
 
 def _framing_failure_kind(landmarks: Any) -> Optional[str]:
     """
-    None = framing OK.
-    'position' = tilt / off-center / cut off — always framing_problem (never lighting).
-    'uncertain' = missing landmarks or partial span — may be backlight silhouette.
+    None = framing OK (eye-first).
+    'too_far' = both eyes detected but too small — user should move closer.
+    'position' = eyes cut off, off-level, or off-center vertically.
+    'uncertain' = missing landmarks — may be backlight silhouette.
     """
     if landmarks is None:
         return 'uncertain'
@@ -155,25 +190,36 @@ def _framing_failure_kind(landmarks: Any) -> Optional[str]:
         eye_idx = LEFT_EYE + RIGHT_EYE
         ys = [landmarks[i].y for i in eye_idx]
         xs = [landmarks[i].x for i in eye_idx]
-        chin_y = float(landmarks[152].y)
-        forehead_y = float(landmarks[10].y)
     except (IndexError, AttributeError, TypeError):
         return 'uncertain'
     if not ys or not xs:
         return 'uncertain'
+
     mean_y = float(sum(ys) / len(ys))
     x_min, x_max = float(min(xs)), float(max(xs))
-    if mean_y < 0.15 or mean_y > 0.68:
+    eye_span = x_max - x_min
+
+    if eye_span < MIN_EYE_SPAN:
+        return 'too_far'
+    if mean_y < EYE_CENTER_Y_MIN or mean_y > EYE_CENTER_Y_MAX:
         return 'position'
-    if x_min < 0.06 or x_max > 0.94:
+    if x_min < EYE_EDGE_MARGIN or x_max > (1.0 - EYE_EDGE_MARGIN):
         return 'position'
-    if (x_max - x_min) < 0.10:
-        return 'position'
-    if chin_y > 0.98 or forehead_y < 0.02:
-        return 'position'
-    if (chin_y - forehead_y) < 0.18:
-        return 'uncertain'
     return None
+
+
+def _framing_payload(kind: str) -> Dict[str, Any]:
+    copy = FRAMING_MESSAGES.get(kind, FRAMING_MESSAGES['uncertain'])
+    return {
+        'status': 'framing_problem',
+        'acceptable': False,
+        'extreme': False,
+        'framing': True,
+        'framing_kind': kind,
+        'issues': list(copy['issues']),
+        'recommendations': list(copy['recommendations']),
+        'message': copy['message'],
+    }
 
 
 def _face_framing_ok(landmarks: Any) -> bool:
@@ -551,16 +597,11 @@ def assess_anatomical_lighting(
 
     framing_kind = _framing_failure_kind(landmarks)
     if framing_kind is not None:
-        if framing_kind == 'position':
+        if framing_kind == 'position' or framing_kind == 'too_far':
+            payload = _framing_payload(framing_kind)
             return {
-                'status': 'framing_problem',
-                'acceptable': False,
-                'extreme': False,
-                'framing': True,
+                **payload,
                 'algorithm_version': version,
-                'issues': ['Face not fully in frame — center your face in the camera'],
-                'recommendations': ['Keep both eyes visible and centered before capturing'],
-                'message': 'Face not fully in frame — center your face in the camera.',
                 'metrics': {},
             }
         # Silhouette / lost landmarks — window-backlight overrides framing (not side glare).
@@ -586,14 +627,8 @@ def assess_anatomical_lighting(
                 },
             }
         return {
-            'status': 'framing_problem',
-            'acceptable': False,
-            'extreme': False,
-            'framing': True,
+            **_framing_payload('uncertain'),
             'algorithm_version': version,
-            'issues': ['Face not fully in frame — center your face in the camera'],
-            'recommendations': ['Keep both eyes visible and centered before capturing'],
-            'message': 'Face not fully in frame — center your face in the camera.',
             'metrics': {},
         }
 
@@ -628,7 +663,7 @@ def run_capture_quality_gate(frame: np.ndarray, landmarks: Any = None) -> Dict[s
     eyewear = detect_eyewear(frame, landmarks, strict=False)
 
     if lighting.get('status') == 'framing_problem':
-        failures.append(lighting.get('message', 'Face not fully in frame — center your face in the camera.'))
+        failures.append(lighting.get('message', 'Keep both eyes fully in view — move closer if needed.'))
     elif lighting.get('status') == 'extreme_problem':
         failures.append(lighting.get('message', 'Extreme lighting — improve conditions before capture'))
 
