@@ -22,7 +22,7 @@ import Register from './pages/auth/Register'
 import Onboarding from './pages/Onboarding'
 import Dashboard from './pages/Dashboard'
 import VisionTests from './pages/VisionTests'
-import VisionTestRunner from './pages/VisionTestRunner'
+import VisionTestRouteRedirect from './components/VisionTestRouteRedirect'
 import ContrastSensitivityTest from './pages/ContrastSensitivityTest'
 import GlaucomaTest from './pages/GlaucomaTest'
 import CataractTest from './pages/CataractTest'
@@ -154,7 +154,7 @@ function App() {
                   <Route path="/vision-tests/accommodative_lag" element={<AccommodativeLagTest />} />
                   <Route path="/vision-tests/peripheral_awareness" element={<PeripheralAwarenessTest />} />
                   <Route path="/vision-tests/ocular_ergonomics" element={<OcularErgonomicsMonitor />} />
-                  <Route path="/vision-tests/:testType" element={<VisionTestRunner />} />
+                  <Route path="/vision-tests/:testType" element={<VisionTestRouteRedirect />} />
                 </Route>
                 <Route path="/test-details/:testId" element={<TestDetails />} />
                 <Route path="/trends" element={<Trends />} />

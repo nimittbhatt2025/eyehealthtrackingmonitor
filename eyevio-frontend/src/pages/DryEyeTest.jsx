@@ -8,7 +8,7 @@ import {
   calculateOsdiLite,
   combineDryEyeScores,
 } from '../utils/dryEyeQuestionnaire'
-import assessVideoLighting from '../utils/photoLightingCheck'
+import StableLightingPreview from '../utils/stableLightingPreview'
 import PhotoLightingBanner from '../components/PhotoLightingBanner'
 import SamdDisclaimer from '../components/SamdDisclaimer'
 
@@ -24,6 +24,7 @@ const DryEyeTest = () => {
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
   const lightingCanvasRef = useRef(null)
+  const lightingPreviewRef = useRef(null)
   const streamRef = useRef(null)
 
   const [testState, setTestState] = useState('instructions')
@@ -94,13 +95,32 @@ const DryEyeTest = () => {
       return undefined
     }
 
-    const sampleLighting = () => {
-      setLiveLighting(assessVideoLighting(videoRef.current, lightingCanvasRef.current))
+    if (!lightingPreviewRef.current) {
+      lightingPreviewRef.current = new StableLightingPreview()
+    }
+    lightingPreviewRef.current.reset()
+
+    let cancelled = false
+
+    const tick = async () => {
+      if (cancelled || !videoRef.current) return
+      try {
+        const lighting = await lightingPreviewRef.current.sample(
+          videoRef.current,
+          lightingCanvasRef.current
+        )
+        if (!cancelled) setLiveLighting(lighting)
+      } catch (err) {
+        console.warn('Dry eye lighting preview failed:', err)
+      }
     }
 
-    sampleLighting()
-    const intervalId = setInterval(sampleLighting, 500)
-    return () => clearInterval(intervalId)
+    tick()
+    const intervalId = setInterval(tick, 300)
+    return () => {
+      cancelled = true
+      clearInterval(intervalId)
+    }
   }, [testState, cameraReady])
 
   const capturePhoto = useCallback(() => {
@@ -129,9 +149,13 @@ const DryEyeTest = () => {
       const cvData = response.data
       const blended = combineDryEyeScores(cvData.score, symptoms.symptomHealthScore)
 
+      const cvRiskLabel = cvData.risk_level === 'similar' ? 'low'
+        : cvData.risk_level === 'some_variation' ? 'moderate' : 'elevated'
+
       const finalResults = {
         ...cvData,
         cv_score: cvData.score,
+        cv_risk_level: cvRiskLabel,
         symptom_score: symptoms.symptomHealthScore,
         osdi_score: symptoms.osdiScore,
         score: blended.combinedScore,
@@ -432,7 +456,14 @@ const DryEyeTest = () => {
               <div className="card text-center">
                 <h4 className="font-semibold text-gray-900 mb-2">Photo analysis</h4>
                 <div className="text-3xl font-bold text-accent-700">{results.cv_score}</div>
-                <p className="text-xs text-gray-500 mt-1">Redness & tear film surface</p>
+                <p className="text-xs text-gray-500 mt-1">
+                  Redness & tear film · {results.cv_risk_level || results.risk_level} risk (photo)
+                </p>
+                {results.left_eye?.ml_grade != null && (
+                  <p className="text-xs text-teal-700 mt-1">
+                    ML grade L:{results.left_eye.ml_grade} R:{results.right_eye?.ml_grade}
+                  </p>
+                )}
               </div>
             </div>
 

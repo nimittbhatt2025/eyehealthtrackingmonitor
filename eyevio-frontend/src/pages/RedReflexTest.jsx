@@ -3,6 +3,7 @@ import cameraManager from '../utils/cameraManager.js'
 import { useNavigate } from 'react-router-dom'
 import { visionTestAPI } from '../services/api'
 import SamdDisclaimer from '../components/SamdDisclaimer'
+import { scoreRedReflex } from '../utils/visionTestScoring'
 
 /**
  * Red Glow (Reflex) Analyzer - Digital Bruckner Test
@@ -24,7 +25,7 @@ const RedReflexTest = () => {
 
   const [testState, setTestState] = useState('instructions') // instructions, setup, calibrating, scanning, analyzing, results
   const [cameraReady, setCameraReady] = useState(false)
-  const [distanceStatus, setDistanceStatus] = useState('too-far') // too-close, perfect, too-far
+  const [distanceStatus, setDistanceStatus] = useState('checking') // too-close, perfect, too-far, checking
   const [scanProgress, setScanProgress] = useState(0)
   const [capturedFrames, setCapturedFrames] = useState([])
   const [analysisResults, setAnalysisResults] = useState(null)
@@ -104,36 +105,49 @@ const RedReflexTest = () => {
     }
   }, [])
 
-  // Simplified face width estimation
+  // Simplified face width estimation from center-band skin tones
   const estimateFaceWidth = (imageData) => {
-    // This is a simplified placeholder - in production, use proper face detection
-    // For now, return a value that makes the test work smoothly
-    // We'll default to "perfect" range for better UX
-    return 200 + Math.random() * 50 // Returns 200-250, always in "perfect" range
+    const data = imageData.data
+    const width = imageData.width
+    const height = imageData.height
+    let leftmost = width
+    let rightmost = 0
+    const centerY = Math.floor(height * 0.4)
+    const searchHeight = Math.floor(height * 0.3)
+    for (let y = centerY; y < centerY + searchHeight; y++) {
+      for (let x = 0; x < width; x++) {
+        const idx = (y * width + x) * 4
+        const r = data[idx]
+        const g = data[idx + 1]
+        const b = data[idx + 2]
+        if (r > 95 && g > 40 && b > 20 && r > g && r > b) {
+          if (x < leftmost) leftmost = x
+          if (x > rightmost) rightmost = x
+        }
+      }
+    }
+    return rightmost > leftmost ? rightmost - leftmost : 0
   }
 
-  // Start distance calibration
+  useEffect(() => {
+    if (!cameraReady || (testState !== 'setup' && testState !== 'calibrating')) return undefined
+    const id = setInterval(measureDistance, 250)
+    return () => clearInterval(id)
+  }, [cameraReady, testState, measureDistance])
+
+  // Start distance monitoring when camera is live
   const startCalibration = useCallback(() => {
     setTestState('calibrating')
-    
-    // Auto-set to perfect distance for better UX
-    // In production, you'd use face-api.js or MediaPipe for real distance detection
-    setTimeout(() => {
-      setDistanceStatus('perfect')
-    }, 500)
-    
-    // Monitor distance every 100ms (currently using simplified detection)
-    const intervalId = setInterval(() => {
-      measureDistance()
-    }, 100)
-
-    // Store interval ID for cleanup
-    return () => clearInterval(intervalId)
+    measureDistance()
   }, [measureDistance])
 
   // Capture video frames for analysis
   const startScan = useCallback(async () => {
-    // Allow scan even if distance isn't "perfect" - user knows best
+    if (distanceStatus !== 'perfect') {
+      setError('Move to the green “Perfect” distance band before scanning.')
+      return
+    }
+    setError(null)
     setTestState('scanning')
     setScanProgress(0)
     setCapturedFrames([])
@@ -233,17 +247,23 @@ const RedReflexTest = () => {
     setRightEyeData({ intensity: Math.round(avgRightIntensity), percentage: Math.round((avgRightIntensity / 255) * 100) })
     setWarnings(warnings)
 
+    const reflexIntensityScore = Math.round(intensityScore)
+    const symmetryScore = Math.round(symmetryPercent)
+    const combinedScore = scoreRedReflex(reflexIntensityScore, warnings)
+
     // Stop camera after analysis
     stopCamera()
     setTestState('results')
-    
+
     // Submit results to backend
     submitResults({
-      reflexIntensityScore: Math.round(intensityScore),
-      symmetryScore: Math.round(symmetryPercent),
+      reflexIntensityScore,
+      symmetryScore,
+      combinedScore,
       leftEyeIntensity: Math.round(avgLeftIntensity),
       rightEyeIntensity: Math.round(avgRightIntensity),
-      warnings: warnings
+      warnings,
+      analysis_note: 'Eye regions estimated at fixed screen positions; framing affects accuracy.',
     })
   }, [stopCamera])
 
@@ -342,15 +362,17 @@ const RedReflexTest = () => {
   // Submit results to backend
   const submitResults = async (results) => {
     try {
-      await visionTestAPI.submitTest({
+      await visionTestAPI.submit({
         test_type: 'red_reflex',
-        score: results.reflexIntensityScore,
+        score: results.combinedScore ?? results.reflexIntensityScore,
         test_details: {
           reflex_intensity_score: results.reflexIntensityScore,
           symmetry_score: results.symmetryScore,
+          combined_score: results.combinedScore,
           left_eye_intensity: results.leftEyeIntensity,
           right_eye_intensity: results.rightEyeIntensity,
           warnings: results.warnings,
+          analysis_note: results.analysis_note,
           timestamp: new Date().toISOString()
         }
       })
@@ -493,42 +515,46 @@ const RedReflexTest = () => {
     </div>
   )
 
-  // Render setup/calibration screen
-  const renderSetup = () => (
-    <div className="min-h-screen bg-black text-white p-4">
-      <div className="max-w-4xl mx-auto">
-        <div className="text-center mb-8">
-          <h2 className="text-3xl font-bold mb-2">Position Yourself</h2>
-          <p className="text-gray-400">Stand 60-90cm (2-3 feet) from the camera</p>
-        </div>
-
-        {/* Camera feed */}
-        <div className="relative mb-6 rounded-2xl overflow-hidden">
-          <video
-            ref={videoRef}
-            autoPlay
-            playsInline
-            muted
-            className="w-full max-w-2xl mx-auto"
-          />
-          <canvas ref={canvasRef} className="hidden" />
-          
-          {/* Overlay guide */}
+  // Persistent camera layer — same video element through setup → scanning
+  const renderCameraLayer = () => (
+    <div
+      className={
+        testState === 'scanning'
+          ? 'fixed top-0 left-0 w-[640px] h-[480px] opacity-0 pointer-events-none z-0'
+          : 'relative mb-6 rounded-2xl overflow-hidden bg-gray-900 min-h-[200px]'
+      }
+      aria-hidden={testState === 'scanning'}
+    >
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        muted
+        className="w-full h-full object-cover max-w-2xl mx-auto"
+      />
+      <canvas ref={canvasRef} className="hidden" />
+      {testState !== 'scanning' && (
+        <>
+          <p className="absolute top-2 left-2 z-10 text-xs text-white/70 bg-black/40 px-2 py-1 rounded">
+            Live preview
+          </p>
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <div className="relative">
-              {/* Focal point for pupil dilation */}
               <div className="w-4 h-4 bg-red-500 rounded-full animate-pulse" />
-              
-              {/* Face outline guide */}
               <svg className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2" width="300" height="400" viewBox="0 0 300 400">
-                <ellipse cx="150" cy="200" rx="140" ry="190" fill="none" stroke="white" strokeWidth="2" strokeDasharray="10,5" opacity="0.5"/>
-                <circle cx="100" cy="180" r="30" fill="none" stroke="red" strokeWidth="2" opacity="0.7"/>
-                <circle cx="200" cy="180" r="30" fill="none" stroke="red" strokeWidth="2" opacity="0.7"/>
+                <ellipse cx="150" cy="200" rx="140" ry="190" fill="none" stroke="white" strokeWidth="2" strokeDasharray="10,5" opacity="0.5" />
+                <circle cx="100" cy="180" r="30" fill="none" stroke="red" strokeWidth="2" opacity="0.7" />
+                <circle cx="200" cy="180" r="30" fill="none" stroke="red" strokeWidth="2" opacity="0.7" />
               </svg>
             </div>
           </div>
-        </div>
+        </>
+      )}
+    </div>
+  )
 
+  const renderSetupPanels = () => (
+    <>
         {/* Distance indicator */}
         <div className="mb-8">
           <div className="flex items-center justify-center gap-4 mb-4">
@@ -580,20 +606,35 @@ const RedReflexTest = () => {
           
           {!cameraReady ? (
             <button
-              onClick={startCalibration}
+              onClick={initializeCamera}
               className="px-8 py-3 bg-red-600 hover:bg-red-700 rounded-full font-semibold transition-colors"
             >
-              Start Calibration
+              Enable camera
             </button>
           ) : (
             <button
               onClick={startScan}
-              className="px-8 py-3 bg-green-600 hover:bg-green-700 rounded-full font-semibold transition-all transform hover:scale-105"
+              disabled={distanceStatus !== 'perfect'}
+              className="px-8 py-3 bg-green-600 hover:bg-green-700 rounded-full font-semibold transition-all transform hover:scale-105 disabled:opacity-50 disabled:transform-none"
             >
               Begin Scan
             </button>
           )}
         </div>
+    </>
+  )
+
+  const renderCameraSession = () => (
+    <div className={testState !== 'scanning' ? 'min-h-screen bg-black text-white p-4' : ''}>
+      {testState !== 'scanning' && (
+        <div className="max-w-4xl mx-auto text-center mb-8">
+          <h2 className="text-3xl font-bold mb-2">Position Yourself</h2>
+          <p className="text-gray-400">Stand 60-90cm (2-3 feet) from the camera</p>
+        </div>
+      )}
+      <div className={testState !== 'scanning' ? 'max-w-4xl mx-auto' : ''}>
+        {renderCameraLayer()}
+        {testState !== 'scanning' && renderSetupPanels()}
       </div>
     </div>
   )
@@ -893,14 +934,16 @@ const RedReflexTest = () => {
     )
   }
 
-  // Main render
-  if (testState === 'instructions') return renderInstructions()
-  if (testState === 'setup' || testState === 'calibrating') return renderSetup()
-  if (testState === 'scanning') return renderScanning()
-  if (testState === 'analyzing') return renderAnalyzing()
-  if (testState === 'results') return renderResults()
-
-  return null
+  // Main render — keep camera elements mounted through scanning
+  return (
+    <div className="relative">
+      {testState === 'instructions' && renderInstructions()}
+      {(testState === 'setup' || testState === 'calibrating' || testState === 'scanning') && renderCameraSession()}
+      {testState === 'scanning' && renderScanning()}
+      {testState === 'analyzing' && renderAnalyzing()}
+      {testState === 'results' && renderResults()}
+    </div>
+  )
 }
 
 export default RedReflexTest

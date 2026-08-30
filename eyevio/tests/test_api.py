@@ -79,7 +79,7 @@ def test_submit_vision_test(client):
     # Submit vision test
     response = client.post('/api/vision-test/', 
         json={
-            'test_type': 'acuity',
+            'test_type': 'visual_acuity',
             'score': 85.5,
             'response_time_ms': 1500,
             'errors': 2
@@ -89,3 +89,23 @@ def test_submit_vision_test(client):
     assert response.status_code == 201
     data = response.get_json()
     assert data['score'] == 85.5
+
+
+def test_detect_vision_decline_keys():
+    """Decline detection returns baseline/current score keys used by alerts."""
+    from app.utils.analytics import detect_vision_decline
+    from app.models import VisionTest
+    from datetime import datetime, timedelta
+
+    class FakeTest:
+        def __init__(self, score):
+            self.score = score
+            self.created_at = datetime.utcnow()
+
+    tests = [FakeTest(90), FakeTest(88), FakeTest(87), FakeTest(86), FakeTest(85),
+             FakeTest(70), FakeTest(68), FakeTest(65), FakeTest(62), FakeTest(60)]
+    result = detect_vision_decline(tests)
+    assert 'baseline_score' in result
+    assert 'current_score' in result
+    assert result['declined'] is True
+    assert result['baseline_score'] > result['current_score']

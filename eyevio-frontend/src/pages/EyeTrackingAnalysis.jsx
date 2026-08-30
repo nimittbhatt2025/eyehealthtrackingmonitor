@@ -8,6 +8,7 @@ import { useAuthStore } from '../store/authStore'
 import { authAPI, visionTestAPI, calibrationAPI } from '../services/api'
 import { VisionTestShell, TestPrepLayout, TestDetails, TestExitButton } from '../components/TestPrepLayout'
 import SamdDisclaimer from '../components/SamdDisclaimer'
+import { clampScore } from '../utils/visionTestScoring'
 
 /**
  * Enhanced Eye Tracking Analysis Component
@@ -197,7 +198,7 @@ export default function EyeTrackingAnalysis() {
     if (userProfile) {
       const testResult = {
         test_type: 'eye_tracking',
-        score: Math.max(0, 100 - sessionSummary.fatigueScore),
+        score: clampScore(100 - sessionSummary.fatigueScore),
         metadata: {
           fatigueScore: sessionSummary.fatigueScore,
           blinkRate: sessionSummary.blinkRate,
@@ -223,7 +224,7 @@ export default function EyeTrackingAnalysis() {
     try {
       const response = await visionTestAPI.submit({
         test_type: 'eye_tracking',
-        score: Math.max(0, 100 - sessionSummary.fatigueScore),
+        score: clampScore(100 - sessionSummary.fatigueScore),
         notes: `Eye Tracking Analysis - Blink Rate: ${sessionSummary.blinkRate}/min, Fatigue Score: ${sessionSummary.fatigueScore}`,
         test_details: {
           blinkRate: sessionSummary.blinkRate,

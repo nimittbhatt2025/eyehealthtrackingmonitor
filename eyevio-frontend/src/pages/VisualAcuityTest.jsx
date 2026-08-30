@@ -9,6 +9,11 @@ import EyeCoverageVerification from '../components/EyeCoverageVerification'
 import InlineDistanceCalibration from '../components/InlineDistanceCalibration'
 import { VisionTestShell } from '../components/TestPrepLayout'
 import SamdDisclaimer from '../components/SamdDisclaimer'
+import {
+  computeEyeLogMAR,
+  findThresholdLineIndex,
+  logMARToScore,
+} from '../utils/visionTestScoring'
 
 /**
  * Visual Acuity Test (Snellen/LogMAR)
@@ -147,11 +152,6 @@ const VisualAcuityTest = () => {
     setLineResults(prev => {
       const updated = { ...prev }
       updated[currentEye].letters.push(response)
-      
-      if (isCorrect) {
-        updated[currentEye].smallestLine = currentLine
-      }
-      
       return updated
     })
     
@@ -258,20 +258,28 @@ const VisualAcuityTest = () => {
   // Finish testing current eye
   const finishEyeTest = useCallback(() => {
     const eyeData = lineResults[currentEye]
-    
-    // Calculate final LogMAR score for this eye
-    // LogMAR = LogMAR of smallest line read + 0.02 * letters missed
-    const smallestLineData = SNELLEN_LINES[eyeData.smallestLine]
-    const lettersMissed = eyeData.letters.filter(r => !r.correct).length
-    const finalLogMAR = smallestLineData.logMAR + (0.02 * lettersMissed)
-    
+
+    const lettersByLine = {}
+    eyeData.letters.forEach((r) => {
+      if (!lettersByLine[r.line]) lettersByLine[r.line] = []
+      lettersByLine[r.line].push(r)
+    })
+
+    const thresholdIdx = findThresholdLineIndex(lettersByLine, SNELLEN_LINES.length)
+    const thresholdLineData = SNELLEN_LINES[thresholdIdx]
+    const thresholdLineResponses = lettersByLine[thresholdIdx] || []
+    const lettersMissed = thresholdLineResponses.filter((r) => !r.correct).length
+    const finalLogMAR = computeEyeLogMAR(thresholdLineData.logMAR, lettersMissed)
+
     setLineResults(prev => ({
       ...prev,
       [currentEye]: {
         ...prev[currentEye],
-        correctLines: eyeData.smallestLine + 1,
-        finalLogMAR: finalLogMAR,
-        snellen: smallestLineData.snellen
+        smallestLine: thresholdIdx,
+        correctLines: thresholdIdx + 1,
+        finalLogMAR,
+        snellen: thresholdLineData.snellen,
+        lettersMissedOnThresholdLine: lettersMissed,
       }
     }))
     
@@ -327,18 +335,22 @@ const VisualAcuityTest = () => {
       
       await visionTestAPI.submit({
         test_type: 'visual_acuity',
-        score: Math.round((2.0 - lineResults.left.finalLogMAR - lineResults.right.finalLogMAR) * 50), // 0-100 scale
+        score: logMARToScore(lineResults.left.finalLogMAR, lineResults.right.finalLogMAR),
         test_details: {
           left_eye: {
             snellen: lineResults.left.snellen,
             logMAR: lineResults.left.finalLogMAR,
             lines_read: lineResults.left.correctLines,
+            threshold_line_index: lineResults.left.smallestLine,
+            letters_missed_on_threshold: lineResults.left.lettersMissedOnThresholdLine ?? 0,
             responses: lineResults.left.letters
           },
           right_eye: {
             snellen: lineResults.right.snellen,
             logMAR: lineResults.right.finalLogMAR,
             lines_read: lineResults.right.correctLines,
+            threshold_line_index: lineResults.right.smallestLine,
+            letters_missed_on_threshold: lineResults.right.lettersMissedOnThresholdLine ?? 0,
             responses: lineResults.right.letters
           },
           calibration_confidence: confidence,

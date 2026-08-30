@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import cameraManager from '../utils/cameraManager.js'
 import { useNavigate } from 'react-router-dom'
+import { toast } from 'react-hot-toast'
 import { visionTestAPI } from '../services/api'
 import SamdDisclaimer from '../components/SamdDisclaimer'
 
@@ -32,6 +33,8 @@ const AccommodativeLagTest = () => {
   const [accommodativeLag, setAccommodativeLag] = useState(0)
   const [fatigueLevel, setFatigueLevel] = useState('low')
   const [breakRecommendation, setBreakRecommendation] = useState('')
+  const [responseCount, setResponseCount] = useState(0)
+  const [lastResponseLabel, setLastResponseLabel] = useState('')
   const userResponsesRef = useRef([])
 
   const clampScore = (value, fallback = 50) => {
@@ -43,8 +46,8 @@ const AccommodativeLagTest = () => {
   const BLUR_STEPS = 10
   const PUPIL_SAMPLE_RATE = 100 // ms
   // Keep the letter sharp for most of the test; only ease in a light blur near the end.
-  const BLUR_HOLD_RATIO = 0.58
-  const MAX_BLUR_PX = 3.5
+  const BLUR_HOLD_RATIO = 0.35
+  const MAX_BLUR_PX = 10
 
   const blurPxFromProgress = (progressPct) => {
     const p = Math.max(0, Math.min(100, Number(progressPct) || 0)) / 100
@@ -206,6 +209,10 @@ const AccommodativeLagTest = () => {
     }
     userResponsesRef.current = [...userResponsesRef.current, entry]
     setUserResponses(userResponsesRef.current)
+    setResponseCount(userResponsesRef.current.length)
+    const label = canSee ? 'Recorded: I can see it' : 'Recorded: Too blurry'
+    setLastResponseLabel(label)
+    toast.success(label, { duration: 1200, id: 'accommodative-response' })
   }, [currentBlurLevel, currentBlurPx, testProgress])
 
   // Re-attach camera stream when testing view mounts (setup video is unmounted)
@@ -237,7 +244,7 @@ const AccommodativeLagTest = () => {
 
       const canSeeLevels = responses.filter((r) => r.canSee).map((r) => Number(r.blurLevel) || 0)
       const cannotSeeLevels = responses
-        .filter((r) => !r.canSee && (Number(r.blurLevel) || 0) > 0)
+        .filter((r) => !r.canSee)
         .map((r) => Number(r.blurLevel) || 0)
       const bestCanSee = canSeeLevels.length ? Math.max(...canSeeLevels) : null
       const firstFail = cannotSeeLevels.length ? Math.min(...cannotSeeLevels) : null
@@ -289,6 +296,11 @@ const AccommodativeLagTest = () => {
         focusingCapacity: capacity,
         accommodativeLag: lag,
         fatigueLevel: fatigue,
+        accommodationScore,
+        pupilAdjust,
+        bestCanSee,
+        firstFailBlurLevel: firstFail,
+        blurSteps: BLUR_STEPS,
         pupilData: pupilMeasurements,
         userResponses: responses,
       })
@@ -297,15 +309,20 @@ const AccommodativeLagTest = () => {
 
   // Submit results to backend
   const submitResults = async (results) => {
-    const score = clampScore(results.focusingCapacity, 50)
+    const score = clampScore(results.focusingCapacity)
     try {
       await visionTestAPI.submit({
         test_type: 'accommodative_lag',
         score,
         test_details: {
           focusing_capacity: score,
-          accommodative_lag: clampScore(results.accommodativeLag, 50),
+          accommodative_lag: clampScore(results.accommodativeLag),
           fatigue_level: results.fatigueLevel,
+          accommodation_score: results.accommodationScore,
+          pupil_adjust: results.pupilAdjust,
+          best_can_see_blur_level: results.bestCanSee,
+          first_fail_blur_level: results.firstFailBlurLevel,
+          blur_steps_total: results.blurSteps,
           pupil_data_points: results.pupilData?.length ?? 0,
           user_responses: results.userResponses ?? [],
           timestamp: new Date().toISOString(),
@@ -448,17 +465,6 @@ const AccommodativeLagTest = () => {
         <h2 className="text-3xl font-bold mb-4">Position Your Face</h2>
         <p className="text-gray-400 mb-6">Make sure your eyes are clearly visible</p>
 
-        <div className="relative mb-6">
-          <video
-            ref={videoRef}
-            autoPlay
-            playsInline
-            muted
-            className="w-full max-w-2xl mx-auto rounded-2xl"
-          />
-          <canvas ref={canvasRef} className="hidden" />
-        </div>
-
         <div className="flex gap-4 justify-center">
           <button
             onClick={() => {
@@ -533,9 +539,11 @@ const AccommodativeLagTest = () => {
             </button>
           </div>
 
-          {/* Hidden camera for pupil tracking */}
-          <video ref={videoRef} className="hidden" autoPlay playsInline muted />
-          <canvas ref={canvasRef} className="hidden" />
+          {lastResponseLabel && (
+            <p className="text-center text-green-400 mt-4 text-sm">{lastResponseLabel} ({responseCount} responses)</p>
+          )}
+
+          {/* Hidden camera for pupil tracking — persistent layer at root */}
         </div>
       </div>
     )
@@ -688,10 +696,36 @@ const AccommodativeLagTest = () => {
     )
   }
 
+  const renderPersistentCamera = () => (
+    <div
+      className={
+        testState === 'testing'
+          ? 'fixed top-0 left-0 w-[640px] h-[480px] opacity-0 pointer-events-none z-0'
+          : 'relative mb-6 max-w-2xl mx-auto'
+      }
+      aria-hidden={testState === 'testing'}
+    >
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        muted
+        className={testState === 'testing' ? 'w-full h-full' : 'w-full rounded-2xl'}
+      />
+      <canvas ref={canvasRef} className="hidden" />
+    </div>
+  )
+
   // Main render
   if (testState === 'instructions') return renderInstructions()
-  if (testState === 'setup') return renderSetup()
-  if (testState === 'testing') return renderTesting()
+  if (testState === 'setup' || testState === 'testing') {
+    return (
+      <div className={testState === 'setup' ? '' : 'relative'}>
+        {renderPersistentCamera()}
+        {testState === 'setup' ? renderSetup() : renderTesting()}
+      </div>
+    )
+  }
   if (testState === 'analyzing') return renderAnalyzing()
   if (testState === 'results') return renderResults()
 

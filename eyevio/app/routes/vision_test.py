@@ -68,11 +68,15 @@ def submit_vision_test():
             
             if decline_info.get('declined'):
                 # Convert NumPy types to Python types for JSON serialization
+                baseline = float(decline_info.get('baseline_score', decline_info.get('avg_previous_score', 0)))
+                current = float(decline_info.get('current_score', decline_info.get('avg_recent_score', 0)))
                 clean_decline_info = {
                     'declined': bool(decline_info.get('declined', False)),
                     'decline_percent': float(decline_info.get('decline_percent', 0)),
-                    'avg_recent_score': float(decline_info.get('avg_recent_score', 0)),
-                    'avg_previous_score': float(decline_info.get('avg_previous_score', 0)),
+                    'baseline_score': baseline,
+                    'current_score': current,
+                    'avg_previous_score': baseline,
+                    'avg_recent_score': current,
                     'tests_analyzed': int(decline_info.get('tests_analyzed', 0))
                 }
                 

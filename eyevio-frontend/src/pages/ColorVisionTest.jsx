@@ -7,6 +7,7 @@ import InlineDistanceCalibration from '../components/InlineDistanceCalibration'
 import { TestPrepLayout, TestDetails, TestActiveBar, VisionTestShell } from '../components/TestPrepLayout'
 import SamdDisclaimer from '../components/SamdDisclaimer'
 import { SAMD_SHORT } from '../utils/samd'
+import { scoreColorVision } from '../utils/visionTestScoring'
 import { 
   generateDeficiencyColors, 
   poissonDiskSampling,
@@ -177,7 +178,7 @@ const ColorVisionTest = () => {
       }
       
       // Start timer for new plate - adaptive based on difficulty
-      // Fixed 5 second time limit for all plates
+      // Fixed 8 second time limit for all plates
       setTimeRemaining(FIXED_TIME_LIMIT)
       setResponseStartTime(Date.now())
     }
@@ -521,22 +522,24 @@ const ColorVisionTest = () => {
     }
   }
 
-  // Analyze results
+  // Analyze results (demo plates excluded from scoring; control false positives penalized)
   const analyzeResults = () => {
-    const totalPlates = responses.length
-    const correctCount = responses.filter(r => r.correct).length
-    const accuracy = (correctCount / totalPlates) * 100
-    
-    // Count error types
-    const protanErrors = responses.filter(r => r.errorType === 'protan').length
-    const deutanErrors = responses.filter(r => r.errorType === 'deutan').length
-    const otherErrors = responses.filter(r => r.errorType === 'other').length
-    
-    // Determine deficiency type
+    const diagnosticResponses = responses.filter((r) => r.category !== 'demo')
+    const totalPlates = diagnosticResponses.length
+    const correctCount = diagnosticResponses.filter((r) => r.correct).length
+    const accuracy = totalPlates > 0 ? (correctCount / totalPlates) * 100 : 100
+    const score = scoreColorVision(responses)
+
+    // Count error types on diagnostic plates only
+    const protanErrors = diagnosticResponses.filter((r) => r.errorType === 'protan').length
+    const deutanErrors = diagnosticResponses.filter((r) => r.errorType === 'deutan').length
+    const otherErrors = diagnosticResponses.filter((r) => r.errorType === 'other').length
+
+    // Ishihara-style thresholds: ≥2 same-type errors suggests mild deficiency
     let deficiencyType = 'normal'
     let severity = 'none'
-    
-    if (accuracy >= 90) {
+
+    if (score >= 90) {
       deficiencyType = 'normal'
       severity = 'none'
     } else if (protanErrors > deutanErrors && protanErrors >= 2) {
@@ -553,16 +556,18 @@ const ColorVisionTest = () => {
       deficiencyType = 'red-green'
       severity = 'moderate'
     }
-    
+
     return {
       totalPlates,
       correctCount,
       accuracy,
+      score,
       protanErrors,
       deutanErrors,
       otherErrors,
       deficiencyType,
-      severity
+      severity,
+      demo_plates_excluded: responses.filter((r) => r.category === 'demo').length,
     }
   }
 
@@ -574,11 +579,12 @@ const ColorVisionTest = () => {
       
       await visionTestAPI.submit({
         test_type: 'color_vision',
-        score: Math.round(analysis.accuracy),
+        score: analysis.score,
         test_details: {
           total_plates: analysis.totalPlates,
           correct_plates: analysis.correctCount,
           accuracy: analysis.accuracy,
+          demo_plates_excluded: analysis.demo_plates_excluded,
           deficiency_type: analysis.deficiencyType,
           severity: analysis.severity,
           protan_errors: analysis.protanErrors,
@@ -735,6 +741,49 @@ const ColorVisionTest = () => {
     if (plate.category === 'red' || plate.type === 'protan') palette = colorPalettes.protan
     else if (plate.category === 'green' || plate.type === 'deutan') palette = colorPalettes.deutan
     else if (!isDemo) palette = colorPalettes.redGreen
+    
+    const labDeltaE = (hexA, hexB) => {
+      const a = hexToLab(hexA)
+      const b = hexToLab(hexB)
+      return Math.sqrt((a.L - b.L) ** 2 + (a.a - b.a) ** 2 + (a.b - b.b) ** 2)
+    }
+
+    const pickValidatedBaseColors = () => {
+      const isControl = plate.answer === 'nothing'
+      const targetDeficiency =
+        plate.category === 'red' || plate.type === 'protan' ? 'protan'
+        : plate.category === 'green' || plate.type === 'deutan' ? 'deutan'
+        : 'protan'
+
+      for (let attempt = 0; attempt < 48; attempt++) {
+        const numColor = palette.number[attempt % palette.number.length]
+        const bgColor = palette.background[attempt % palette.background.length]
+        const protan = validatePlate(numColor, bgColor, 'protan')
+        const deutan = validatePlate(numColor, bgColor, 'deutan')
+        const greyContrast = Math.abs(getLuminance(numColor) - getLuminance(bgColor))
+        const normalDelta = labDeltaE(numColor, bgColor)
+
+        if (isDemo) {
+          return { number: palette.number, background: palette.background }
+        }
+        if (isControl) {
+          if (protan.deltaE < 15 && deutan.deltaE < 15 && greyContrast < 0.08) {
+            return { number: [numColor], background: [bgColor] }
+          }
+          continue
+        }
+        const target = validatePlate(numColor, bgColor, targetDeficiency)
+        const otherType = targetDeficiency === 'protan' ? 'deutan' : 'protan'
+        const other = validatePlate(numColor, bgColor, otherType)
+        if (target.shouldVanish && other.shouldVanish && normalDelta > 25 && greyContrast > 0.1) {
+          return { number: [numColor], background: [bgColor] }
+        }
+      }
+      return { number: palette.number, background: palette.background }
+    }
+
+    const validatedPalette = pickValidatedBaseColors()
+    palette = { ...palette, number: validatedPalette.number, background: validatedPalette.background }
     
     // Create canvas mask for number detection
     const maskCanvas = document.createElement('canvas')

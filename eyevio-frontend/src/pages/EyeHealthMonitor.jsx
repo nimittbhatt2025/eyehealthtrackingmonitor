@@ -772,8 +772,20 @@ export default function EyeHealthMonitor() {
                     <p>
                       <strong>Lighting &amp; framing:</strong>{' '}
                       {captureQualityLabel(lastResult.analysis.capture_quality.grade)}
+                      {lastResult.analysis.lighting?.status && (
+                        <> · {lastResult.analysis.lighting.status.replace(/_/g, ' ')}</>
+                      )}
                     </p>
                   )}
+                  <p className="text-xs text-gray-500">
+                    <strong>Analysis source:</strong>{' '}
+                    {lastResult.analysis?.ml_redness?.available
+                      ? 'ML redness model + heuristic surface metrics'
+                      : 'Heuristic surface metrics (ML model not available on this device)'}
+                    {lastResult.analysis?.confidence?.level && (
+                      <> · confidence: {lastResult.analysis.confidence.level}</>
+                    )}
+                  </p>
                   {lastResult.analysis?.ml_redness?.available && (
                     <div className="mt-2 p-3 rounded-lg bg-teal-50 border border-teal-100">
                       <p className="text-sm font-medium text-teal-900">Sclera redness (trained model)</p>
@@ -793,6 +805,20 @@ export default function EyeHealthMonitor() {
                           <> Scored from tight ocular crops (webcam-calibrated).</>
                         )}
                       </p>
+                    </div>
+                  )}
+                  {!lastResult.analysis?.ml_redness?.available && (
+                    <div className="mt-2 p-3 rounded-lg bg-gray-50 border border-gray-200">
+                      <p className="text-sm font-medium text-gray-800">Heuristic scoring only</p>
+                      <p className="text-xs text-gray-600 mt-1">
+                        Trained sclera model weights are not loaded — scores use color/texture heuristics.
+                        Compare your own timeline month-over-month rather than absolute thresholds.
+                      </p>
+                      {lastResult.analysis?.heuristic_redness != null && (
+                        <p className="text-xs text-gray-700 mt-1">
+                          Heuristic redness: <strong>{lastResult.analysis.heuristic_redness}</strong>/100
+                        </p>
+                      )}
                     </div>
                   )}
                   <p><strong>Condition:</strong> {conditionLabel(lastResult.photo.condition_type)}</p>

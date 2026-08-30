@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { visionTestAPI } from '../services/api'
 import SamdDisclaimer from '../components/SamdDisclaimer'
+import { scoreSideVision } from '../utils/visionTestScoring'
 
 /**
  * PERIPHERAL FIELD SCREEN — 4-Quadrant Paracentral Test
@@ -266,9 +267,10 @@ const GlaucomaTest = () => {
     const oa = totalT > 0 ? totalC / totalT : 0
     const maxD = Math.max(...Object.values(qd).map(d => d.deficit))
     const scotoma = Object.entries(qd).filter(([,d]) => d.deficit > 0.3)
+    const blendedScore = scoreSideVision(oa, maxD)
     try {
-      await visionTestAPI.submit({ test_type: 'glaucoma_neural', score: Math.round(oa * 100), response_time_ms: 0, errors: totalT - totalC,
-        test_details: { central_logCS_reference: cl, quadrant_data: qd, overall_accuracy: oa, max_deficit: maxD, relative_scotoma_quadrants: scotoma.map(([id]) => id), responses: responsesRef.current }
+      await visionTestAPI.submit({ test_type: 'glaucoma_neural', score: blendedScore, response_time_ms: 0, errors: totalT - totalC,
+        test_details: { central_logCS_reference: cl, quadrant_data: qd, overall_accuracy: oa, max_deficit: maxD, score_breakdown: { accuracy_component: Math.round(oa * 100), blended_score: blendedScore }, relative_scotoma_quadrants: scotoma.map(([id]) => id), responses: responsesRef.current }
       })
     } catch (e) { console.error('submit failed:', e) }
   }

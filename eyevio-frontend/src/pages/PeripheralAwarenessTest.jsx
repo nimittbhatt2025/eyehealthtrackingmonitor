@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { visionTestAPI } from '../services/api'
 import EyeTracker from '../utils/eyeTracker'
 import SamdDisclaimer from '../components/SamdDisclaimer'
+import { scorePeripheralAwareness } from '../utils/visionTestScoring'
 
 /**
  * Peripheral Awareness Trainer - Gamified Visual Field Test
@@ -42,7 +43,10 @@ const PeripheralAwarenessTest = () => {
   const [targets, setTargets] = useState([])
   const [missedTargets, setMissedTargets] = useState([])
   const [eyePosition, setEyePosition] = useState({ x: 0.5, y: 0.5 }) // 0-1 normalized
+  const [centerDisplay, setCenterDisplay] = useState({ x: 0.5, y: 0.5 })
   const [isLookingCenter, setIsLookingCenter] = useState(true)
+  const [calibrationProgress, setCalibrationProgress] = useState(0)
+  const calibrationSamplesRef = useRef([])
   
   // Results
   const [totalHits, setTotalHits] = useState(0)
@@ -93,13 +97,19 @@ const PeripheralAwarenessTest = () => {
   }, [])
 
   // Handle gaze position updates from eye tracker
+  const phaseRef = useRef('instructions')
+  useEffect(() => { phaseRef.current = testState }, [testState])
+
   const handleGazeUpdate = useCallback((gazeData) => {
     setEyePosition({ x: gazeData.x, y: gazeData.y })
-    
-    // Check if looking at center (relative to calibrated position)
-    const centerTolerance = 0.15 // Reasonable tolerance for accurate tracking
+
+    if (phaseRef.current === 'calibrating' && gazeData.detected) {
+      calibrationSamplesRef.current.push({ x: gazeData.x, y: gazeData.y })
+    }
+
+    const centerTolerance = 0.18
     const distFromCenter = Math.sqrt(
-      (gazeData.x - calibrationCenter.current.x) ** 2 + 
+      (gazeData.x - calibrationCenter.current.x) ** 2 +
       (gazeData.y - calibrationCenter.current.y) ** 2
     )
     setIsLookingCenter(distFromCenter < centerTolerance)
@@ -144,6 +154,12 @@ const PeripheralAwarenessTest = () => {
     }
 
     setTargets(prev => [...prev, target])
+
+    gameStateRef.current.totalSpawned += 1
+    if (!gameStateRef.current.spawnedByQuadrant[randomQuadrant]) {
+      gameStateRef.current.spawnedByQuadrant[randomQuadrant] = 0
+    }
+    gameStateRef.current.spawnedByQuadrant[randomQuadrant] += 1
 
     // Auto-remove after lifetime
     setTimeout(() => {
@@ -198,12 +214,39 @@ const PeripheralAwarenessTest = () => {
     })
   }, [isLookingCenter, level, totalHits])
 
-  // Start game
+  const startCalibration = useCallback(() => {
+    calibrationSamplesRef.current = []
+    setCalibrationProgress(0)
+    setTestState('calibrating')
+
+    const start = Date.now()
+    const duration = 2000
+    const tick = setInterval(() => {
+      const elapsed = Date.now() - start
+      setCalibrationProgress(Math.min(100, Math.round((elapsed / duration) * 100)))
+      if (elapsed >= duration) {
+        clearInterval(tick)
+        const samples = calibrationSamplesRef.current
+        if (samples.length > 0) {
+          const avg = {
+            x: samples.reduce((s, p) => s + p.x, 0) / samples.length,
+            y: samples.reduce((s, p) => s + p.y, 0) / samples.length,
+          }
+          calibrationCenter.current = avg
+          setCenterDisplay(avg)
+        } else {
+          calibrationCenter.current = { x: 0.5, y: 0.5 }
+          setCenterDisplay({ x: 0.5, y: 0.5 })
+        }
+        startGameRef.current?.()
+      }
+    }, 100)
+  }, [])
+
+  const startGameRef = useRef(null)
+
   const startGame = useCallback(() => {
     finishingRef.current = false
-    calibrationCenter.current = { ...eyePosition }
-    console.log('Calibrated center position:', calibrationCenter.current)
-
     setTestState('playing')
     setScore(0)
     setLevel(1)
@@ -217,6 +260,8 @@ const PeripheralAwarenessTest = () => {
     gameStateRef.current = {
       totalHits: 0,
       totalMisses: 0,
+      totalSpawned: 0,
+      spawnedByQuadrant: {},
       reactionTime: 0,
       missedTargets: []
     }
@@ -241,7 +286,9 @@ const PeripheralAwarenessTest = () => {
         endGameRef.current?.()
       }
     }, 1000)
-  }, [gameTime, spawnTarget, eyePosition])
+  }, [gameTime, spawnTarget])
+
+  startGameRef.current = startGame
 
   const endGameRef = useRef(() => {})
 
@@ -264,7 +311,7 @@ const PeripheralAwarenessTest = () => {
 
     const finish = () => {
       try {
-        const { totalHits, totalMisses, reactionTime, missedTargets } = gameStateRef.current
+        const { totalHits, totalMisses, reactionTime, missedTargets, spawnedByQuadrant, totalSpawned } = gameStateRef.current
 
         const missedByQuadrant = {}
         Object.keys(QUADRANTS).forEach(q => {
@@ -276,14 +323,18 @@ const PeripheralAwarenessTest = () => {
         })
 
         const deficits = []
-        const totalTargets = totalHits + totalMisses
+        const totalTargets = totalSpawned > 0 ? totalSpawned : totalHits + totalMisses
 
         Object.entries(missedByQuadrant).forEach(([quadrant, misses]) => {
-          const missRate = totalTargets > 0 ? (misses / totalTargets) * 100 : 0
+          const quadrantTotal = spawnedByQuadrant[quadrant] || 0
+          const denominator = quadrantTotal > 0 ? quadrantTotal : totalTargets
+          const missRate = denominator > 0 ? (misses / denominator) * 100 : 0
           if (missRate > 30) {
             deficits.push({
               quadrant: QUADRANTS[quadrant].label,
               missRate: Math.round(missRate),
+              spawned: quadrantTotal,
+              misses,
               severity: missRate > 50 ? 'severe' : 'moderate'
             })
           }
@@ -291,10 +342,7 @@ const PeripheralAwarenessTest = () => {
 
         const hitRate = totalTargets > 0 ? (totalHits / totalTargets) * 100 : 0
         const avgReactionTime = totalHits > 0 ? reactionTime / totalHits : 0
-        const reactionScore = Math.max(0, 100 - (avgReactionTime / 10))
-        const overallScore = totalTargets > 0
-          ? Math.round((hitRate * 0.7 + reactionScore * 0.3))
-          : 0
+        const overallScore = scorePeripheralAwareness(hitRate, avgReactionTime)
 
         setPeripheralDeficits(deficits)
         setFieldScore(overallScore)
@@ -407,9 +455,9 @@ const PeripheralAwarenessTest = () => {
                 </div>
               </div>
 
-              <div className="flex gap-4">
-                <div className="flex-shrink-0 w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
-                  <span className="text-red-600 font-bold text-xl">[WARNING]</span>
+              <div className="flex gap-4 items-start">
+                <div className="flex-shrink-0 w-12 h-12 bg-red-100 rounded-full flex items-center justify-center text-red-600 font-bold text-sm">
+                  !
                 </div>
                 <div>
                   <h4 className="font-bold text-gray-900 mb-1">Cheating = Penalty!</h4>
@@ -507,9 +555,7 @@ const PeripheralAwarenessTest = () => {
         <h2 className="text-3xl font-bold mb-4">Enable Eye Tracking</h2>
         <p className="text-gray-400 mb-6">Position your face so your eyes are clearly visible</p>
 
-        <div className="relative mb-6">
-          <div id="video-container"></div>
-        </div>
+        <div className="relative mb-6 min-h-[240px]" />
 
         <div className="flex gap-4 justify-center">
           <button
@@ -523,7 +569,7 @@ const PeripheralAwarenessTest = () => {
           </button>
           
           <button
-            onClick={startGame}
+            onClick={startCalibration}
             disabled={!cameraReady}
             className={`px-8 py-3 rounded-full font-semibold ${
               cameraReady
@@ -538,22 +584,40 @@ const PeripheralAwarenessTest = () => {
     </div>
   )
 
+  const renderCalibrating = () => (
+    <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center p-4">
+      <div className="max-w-md text-center">
+        <h2 className="text-2xl font-bold mb-2">Calibrating gaze</h2>
+        <p className="text-gray-400 mb-6">Keep your eyes on the center red dot</p>
+        <div className="w-full bg-gray-700 rounded-full h-3 mb-4">
+          <div className="bg-green-500 h-3 rounded-full transition-all" style={{ width: `${calibrationProgress}%` }} />
+        </div>
+        <p className="text-sm text-gray-500">{calibrationProgress}%</p>
+      </div>
+    </div>
+  )
+
   // Render game
   const renderPlaying = () => (
     <div className="min-h-screen bg-gray-900 text-white relative overflow-hidden">
       {/* HUD */}
-      <div className="absolute top-4 left-4 right-4 flex justify-between items-start z-10">
-        <div className="bg-black/50 backdrop-blur-sm rounded-xl p-4">
+      <div className="absolute top-4 left-4 right-4 flex justify-between items-center z-20 pointer-events-none">
+        <div className="bg-black/50 backdrop-blur-sm rounded-xl p-4 pointer-events-auto">
           <div className="text-3xl font-bold text-yellow-400">{score}</div>
           <div className="text-xs text-gray-400">SCORE</div>
         </div>
 
-        <div className="bg-black/50 backdrop-blur-sm rounded-xl p-4">
-          <div className="text-3xl font-bold text-blue-400">{remainingTime}s</div>
-          <div className="text-xs text-gray-400">TIME</div>
+        <div className={`px-4 py-2 rounded-full text-sm font-semibold pointer-events-auto ${
+          isLookingCenter ? 'bg-green-500/80 text-white' : 'bg-red-500/80 text-white'
+        }`}>
+          {isLookingCenter ? 'Eyes on center' : 'Look at center'}
         </div>
 
-        <div className="flex items-start gap-2">
+        <div className="flex items-center gap-2 pointer-events-auto">
+          <div className="bg-black/50 backdrop-blur-sm rounded-xl p-4">
+            <div className="text-3xl font-bold text-blue-400">{remainingTime}s</div>
+            <div className="text-xs text-gray-400">TIME</div>
+          </div>
           <div className="bg-black/50 backdrop-blur-sm rounded-xl p-4">
             <div className="text-3xl font-bold text-purple-400">L{level}</div>
             <div className="text-xs text-gray-400">LEVEL</div>
@@ -568,19 +632,15 @@ const PeripheralAwarenessTest = () => {
         </div>
       </div>
 
-      {/* Eye tracking status */}
-      <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-10">
-        <div className={`px-4 py-2 rounded-full text-sm font-semibold ${
-          isLookingCenter 
-            ? 'bg-green-500/80 text-white' 
-            : 'bg-red-500/80 text-white'
-        }`}>
-          {isLookingCenter ? 'Eyes on Center ✓' : 'Look at Center!'}
-        </div>
-      </div>
-
-      {/* Center fixation point */}
-      <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-10">
+      {/* Center fixation + safe zone at calibrated position */}
+      <div
+        className="absolute z-10 pointer-events-none"
+        style={{
+          left: `${centerDisplay.x * 100}%`,
+          top: `${centerDisplay.y * 100}%`,
+          transform: 'translate(-50%, -50%)',
+        }}
+      >
         {/* Outer warning zone */}
         <div className="absolute w-48 h-48 border-2 border-red-500/20 rounded-full -translate-x-1/2 -translate-y-1/2" />
         
@@ -812,14 +872,14 @@ const PeripheralAwarenessTest = () => {
         autoPlay 
         playsInline 
         muted 
-        className={testState === 'setup' ? 'w-full max-w-2xl mx-auto rounded-2xl' : 'fixed top-0 left-0 w-1 h-1 opacity-0 pointer-events-none'}
-        style={testState !== 'setup' ? { width: '1px', height: '1px' } : {}}
+        className={testState === 'setup' || testState === 'calibrating' ? 'w-full max-w-2xl mx-auto rounded-2xl' : 'fixed top-0 left-0 w-[640px] h-[480px] opacity-0 pointer-events-none'}
       />
       <canvas ref={canvasRef} className="hidden" />
       
       {/* Render appropriate state */}
       {testState === 'instructions' && renderInstructions()}
       {testState === 'setup' && renderSetup()}
+      {testState === 'calibrating' && renderCalibrating()}
       {testState === 'playing' && renderPlaying()}
       {testState === 'analyzing' && renderAnalyzing()}
       {testState === 'results' && renderResults()}

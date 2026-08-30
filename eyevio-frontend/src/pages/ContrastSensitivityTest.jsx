@@ -6,6 +6,7 @@ import { visionTestAPI } from '../services/api'
 import removeEmojis from '../utils/removeEmojis.js'
 import { TestPrepLayout, TestDetails, TestActiveBar, VisionTestShell } from '../components/TestPrepLayout'
 import SamdDisclaimer from '../components/SamdDisclaimer'
+import { logCSToScore } from '../utils/visionTestScoring'
 
 /**
  * WORLD-CLASS CONTRAST SENSITIVITY TEST
@@ -125,7 +126,7 @@ const ContrastSensitivityTest = () => {
   // Home screens crush near-white letters, so start readable and do not drop below ~8% contrast.
   const START_LEVEL = 8 // LogCS 0.53 ≈ 30% contrast
   const INITIAL_STEP = 0.15
-  const MAX_LOG_CS = 1.13 // ~7% contrast — faintest that stays a letter on typical laptops
+  const MAX_LOG_CS = 2.0 // Allow dither path; UI notes when display may not show sub-7%
   const [currentLevel, setCurrentLevel] = useState(START_LEVEL)
   const currentLevelRef = useRef(START_LEVEL)
   
@@ -745,9 +746,14 @@ const ContrastSensitivityTest = () => {
 
     console.log(`Reversals: ${newReversals}/3, Next level: ${newLevel} (LogCS ${newLevelData.logCS.toFixed(2)})`)
 
-    // Terminate at 3 reversals or 20 triplets
+    // Terminate at 3 reversals, floor stuck (2+ reversals at max), or 20 triplets
+    const atFloor = newLogCS >= MAX_LOG_CS - 0.01 && tripletPassed
     if (newReversals >= 3) {
       console.log(`[OK] Test complete — 3 reversals after ${trialNumber} triplets`)
+      stopAudioMonitoring()
+      finishEye()
+    } else if (atFloor && newReversals >= 2) {
+      console.log(`[OK] Test complete — stuck at display floor with ${newReversals} reversals`)
       stopAudioMonitoring()
       finishEye()
     } else if (trialNumber >= 20) {
@@ -843,8 +849,9 @@ const ContrastSensitivityTest = () => {
     const upperLevel = Math.ceil(avgLevel)
     const fraction = avgLevel - lowerLevel
     
-    const lowerData = LogCS_LEVELS[Math.min(31, Math.max(0, lowerLevel - 1))]
-    const upperData = LogCS_LEVELS[Math.min(31, Math.max(0, upperLevel - 1))]
+    const maxLevelIndex = LogCS_LEVELS.length - 1
+    const lowerData = LogCS_LEVELS[Math.min(maxLevelIndex, Math.max(0, lowerLevel - 1))]
+    const upperData = LogCS_LEVELS[Math.min(maxLevelIndex, Math.max(0, upperLevel - 1))]
     
     // Linear interpolation between two levels
     const logCS = lowerData.logCS + (upperData.logCS - lowerData.logCS) * fraction
@@ -871,6 +878,7 @@ const ContrastSensitivityTest = () => {
     stepSizeRef.current = INITIAL_STEP
     bayesianPhaseRef.current = 'discovery' // Reset to discovery phase
     reversalCountRef.current = 0
+    lastResultRef.current = null
     lastPassLogCSRef.current = null // Reset binary search boundaries
     lastFailLogCSRef.current = null // Reset binary search boundaries
     
@@ -891,11 +899,12 @@ const ContrastSensitivityTest = () => {
   // Submit test results to backend
   const submitTest = async (rightScore) => {
     try {
-      const avgScore = ((leftEyeScore + rightScore) / 2) * 100 / 2.0 // Normalize to 0-100
-      
+      const avgLogCS = (leftEyeScore + rightScore) / 2
+      const avgScore = logCSToScore(avgLogCS)
+
       await visionTestAPI.submit({
         test_type: 'contrast_sensitivity',
-        score: Math.round(avgScore),
+        score: avgScore,
         test_details: {
           left_eye_logcs: leftEyeScore,
           right_eye_logcs: rightScore,
@@ -912,7 +921,6 @@ const ContrastSensitivityTest = () => {
       console.log('[OK] Contrast Sensitivity Test submitted successfully')
       
       // Check for Superior Vision achievement (both eyes >= 2.3 LogCS = elite <0.5% contrast)
-      const avgLogCS = (leftEyeScore + rightScore) / 2
       if (avgLogCS >= 2.3) {
         setShowCertificate(true) // Trigger certificate modal
         console.log('🦅 SUPERIOR VISION DETECTED! Showing certificate...')
@@ -1224,7 +1232,11 @@ const ContrastSensitivityTest = () => {
           className="relative z-20 bg-transparent"
           title={`${currentEye === 'left' ? 'Left' : 'Right'} eye · ${contrastPercent}%`}
           subtitle={`Trial ${trialNumber} · Letter ${tripletAnswers.length + 1}/3`}
-          statusBar={<span className="text-xs font-medium">Rev {reversals}/3</span>}
+          statusBar={
+            <span className="text-xs font-medium">
+              Rev {reversals}/3 · LogCS {LogCS_LEVELS[currentLevel - 1]?.logCS?.toFixed(2)} ({currentContrast}%)
+            </span>
+          }
           stimulus={(
             <div
               className="test-stimulus-wrap min-h-[160px] border-0 shadow-none w-full h-full max-h-none"
@@ -1246,6 +1258,9 @@ const ContrastSensitivityTest = () => {
           )}
           controls={(
             <>
+              <p className="text-xs text-gray-500 text-center">
+                Passing makes the next letter fainter (staircase gets harder when you succeed).
+              </p>
               {voiceNotice && (
                 <p className="text-xs bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 text-amber-900">{voiceNotice}</p>
               )}

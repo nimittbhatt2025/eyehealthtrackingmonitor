@@ -3,6 +3,8 @@ import cameraManager from '../utils/cameraManager.js'
 import { useNavigate } from 'react-router-dom'
 import { visionTestAPI } from '../services/api'
 import SamdDisclaimer from '../components/SamdDisclaimer'
+import StableLightingPreview from '../utils/stableLightingPreview'
+import { getLightingUiCopy } from '../utils/photoLightingCheck'
 
 /**
  * Ocular Ergonomics AI - Ambient Monitor
@@ -22,6 +24,14 @@ const OcularErgonomicsMonitor = () => {
   const durationInterval = useRef(null)
   const alertTimeout = useRef(null)
   const lastAlertAt = useRef({})
+  const alertCountsRef = useRef({ info: 0, warning: 0, critical: 0 })
+  const lightingPreviewRef = useRef(null)
+  const rollingAmbientRef = useRef([])
+  const rollingDistanceRef = useRef([])
+
+  const [lightingStatus, setLightingStatus] = useState('checking')
+  const [lightingMessage, setLightingMessage] = useState('')
+  const [distanceBandLabel, setDistanceBandLabel] = useState('Checking distance…')
 
   const [monitoringState, setMonitoringState] = useState('instructions') // instructions, setup, monitoring, paused
   const [cameraReady, setCameraReady] = useState(false)
@@ -51,7 +61,33 @@ const OcularErgonomicsMonitor = () => {
   // Thresholds
   const OPTIMAL_DISTANCE_MIN = 50 // cm
   const OPTIMAL_DISTANCE_MAX = 70 // cm
-  const GLARE_THRESHOLD = 0.3 // ratio
+  const GLARE_THRESHOLD = 0.3 // ratio (legacy ambient ratio helper)
+
+  const DISTANCE_BAND_LABELS = {
+    good: 'Good distance',
+    leaning: 'A bit close',
+    'too-close': 'Too close',
+    'too-far': 'Too far',
+    unknown: 'Checking distance…',
+  }
+
+  const pushRolling = (arr, value, max = 5) => {
+    const next = [...arr, value].slice(-max)
+    return next
+  }
+
+  const rollingMean = (arr) => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null)
+
+  useEffect(() => {
+    lightingPreviewRef.current = new StableLightingPreview()
+  }, [])
+
+  const mapLightingToGlare = (status) => {
+    if (status === 'extreme_problem') return 'severe'
+    if (status === 'framing_problem') return 'poor'
+    if (status === 'normal') return 'optimal'
+    return 'acceptable'
+  }
   const TOO_CLOSE_THRESHOLD = 35 // cm
 
   const bindStreamToVideo = useCallback(() => {
@@ -253,6 +289,9 @@ const OcularErgonomicsMonitor = () => {
 
     setAlerts(prev => [alert, ...prev].slice(0, 50)) // Keep last 50
     setTotalAlerts(prev => prev + 1)
+    if (severity === 'critical') alertCountsRef.current.critical += 1
+    else if (severity === 'warning') alertCountsRef.current.warning += 1
+    else alertCountsRef.current.info += 1
     setCurrentAlert(alert)
 
     // Auto-dismiss after 10 seconds
@@ -265,58 +304,56 @@ const OcularErgonomicsMonitor = () => {
     setErgonomicsScore(prev => Math.max(0, prev - (severity === 'critical' ? 5 : severity === 'warning' ? 2 : 1)))
   }, [])
 
-  const takeSample = useCallback(() => {
+  const takeSample = useCallback(async () => {
     bindStreamToVideo()
+    if (!videoIsLive() || !canvasRef.current) return
+
     try {
-      const ambient = measureAmbientLight()
-      const screen = estimateScreenBrightness()
-      const distance = measureViewingDistance()
-      if (ambient == null) return
-
-      const glare = calculateGlare(ambient, screen)
-      setAmbientLight(Math.round(ambient))
-      setScreenBrightness(screen)
-      setGlareLevel(glare)
-      setLastSampleAt(Date.now())
-      setSampleCount((prev) => prev + 1)
-
-      if (distance != null) {
-        const posture = assessPosture(distance)
-        setViewingDistance(Math.round(distance))
-        setPostureStatus(posture)
-
-        if (posture === 'too-close') {
-          generateAlert(
-            'distance',
-            `You're about ${Math.round(distance)} cm from the screen. Sit back to 50–70 cm.`,
-            'critical'
-          )
-        } else if (posture === 'leaning') {
-          generateAlert(
-            'distance',
-            `A bit close (${Math.round(distance)} cm). Sit back to 50–70 cm if you can.`,
-            'warning'
-          )
+      const preview = lightingPreviewRef.current
+      if (preview) {
+        const ui = await preview.sample(videoRef.current, canvasRef.current)
+        if (ui) {
+          setLightingStatus(ui.status || 'checking')
+          setLightingMessage(ui.message || getLightingUiCopy(ui.status)?.message || '')
+          setGlareLevel(mapLightingToGlare(ui.status))
+          if (ui.status === 'extreme_problem') {
+            generateAlert('glare', ui.message || 'Lighting is too uneven for comfortable viewing.', 'critical')
+          } else if (ui.status === 'framing_problem') {
+            generateAlert('glare', ui.message || 'Face framing affects lighting read — center your face.', 'warning')
+          }
         }
       }
 
-      if (glare === 'severe') {
-        generateAlert(
-          'glare',
-          'Room looks much darker than the screen. Add a light or lower screen brightness.',
-          'critical'
-        )
-      } else if (glare === 'poor') {
-        generateAlert(
-          'glare',
-          'Screen is brighter than the room. Turn on lights or reduce brightness.',
-          'warning'
-        )
+      const ambient = measureAmbientLight()
+      if (ambient != null) {
+        rollingAmbientRef.current = pushRolling(rollingAmbientRef.current, ambient)
+        const avgAmbient = rollingMean(rollingAmbientRef.current)
+        setAmbientLight(Math.round(avgAmbient))
+        setLastSampleAt(Date.now())
+        setSampleCount((prev) => prev + 1)
+      }
+
+      const distance = measureViewingDistance()
+      if (distance != null) {
+        rollingDistanceRef.current = pushRolling(rollingDistanceRef.current, distance)
+        const avgDistance = rollingMean(rollingDistanceRef.current)
+        const posture = assessPosture(avgDistance)
+        setViewingDistance(Math.round(avgDistance))
+        setPostureStatus(posture)
+        setDistanceBandLabel(DISTANCE_BAND_LABELS[posture] || DISTANCE_BAND_LABELS.unknown)
+
+        if (posture === 'too-close') {
+          generateAlert('distance', 'You are too close to the screen. Sit back to a comfortable arm’s length.', 'critical')
+        } else if (posture === 'leaning') {
+          generateAlert('distance', 'You are a little close. Sit back if you can.', 'warning')
+        } else if (posture === 'too-far') {
+          generateAlert('distance', 'You may be sitting too far from the screen.', 'warning')
+        }
       }
     } catch (err) {
       console.warn('Ergonomics sample skipped:', err)
     }
-  }, [bindStreamToVideo, measureAmbientLight, estimateScreenBrightness, calculateGlare, measureViewingDistance, assessPosture, generateAlert])
+  }, [bindStreamToVideo, measureAmbientLight, measureViewingDistance, assessPosture, generateAlert])
 
   const beginTimers = useCallback(() => {
     clearTimers()
@@ -329,7 +366,10 @@ const OcularErgonomicsMonitor = () => {
 
   // Start monitoring
   const startMonitoring = useCallback(() => {
-    lastAlertAt.current = {}
+    rollingAmbientRef.current = []
+    rollingDistanceRef.current = []
+    alertCountsRef.current = { info: 0, warning: 0, critical: 0 }
+    if (lightingPreviewRef.current) lightingPreviewRef.current.reset()
     setMonitoringState('monitoring')
     setSessionStart(Date.now())
     setErgonomicsScore(100)
@@ -399,19 +439,23 @@ const OcularErgonomicsMonitor = () => {
     // Submit to backend
     submitSession({
       duration: monitoringDuration,
-      avgAmbientLight: ambientLight,
-      avgScreenBrightness: screenBrightness,
+      avgAmbientLight: rollingMean(rollingAmbientRef.current) ?? ambientLight,
+      lighting_status: lightingStatus,
+      lighting_message: lightingMessage,
       glareLevel,
-      avgDistance: viewingDistance,
+      distance_band: postureStatus,
+      distance_band_label: distanceBandLabel,
+      avgDistance: rollingMean(rollingDistanceRef.current) ?? viewingDistance,
       postureStatus,
       totalAlerts,
+      alertCounts: { ...alertCountsRef.current },
       ergonomicsScore,
       recommendations: recs
     })
 
     stopCamera()
     setMonitoringState('results')
-  }, [monitoringDuration, totalAlerts, ambientLight, screenBrightness, glareLevel, viewingDistance, postureStatus, ergonomicsScore, stopCamera, clearTimers])
+  }, [monitoringDuration, totalAlerts, ambientLight, glareLevel, viewingDistance, postureStatus, distanceBandLabel, lightingStatus, lightingMessage, ergonomicsScore, stopCamera, clearTimers])
 
   // Submit session to backend
   const submitSession = async (session) => {
@@ -422,11 +466,15 @@ const OcularErgonomicsMonitor = () => {
         test_details: {
           duration_seconds: session.duration,
           avg_ambient_light: session.avgAmbientLight,
-          avg_screen_brightness: session.avgScreenBrightness,
+          lighting_status: session.lighting_status,
+          lighting_message: session.lighting_message,
           glare_level: session.glareLevel,
-          avg_viewing_distance: session.avgDistance,
+          distance_band: session.distance_band,
+          distance_band_label: session.distance_band_label,
+          avg_viewing_distance_cm: session.avgDistance,
           posture_status: session.postureStatus,
           total_alerts: session.totalAlerts,
+          alert_counts: session.alertCounts,
           recommendations: session.recommendations,
           timestamp: new Date().toISOString()
         }
@@ -820,19 +868,9 @@ const OcularErgonomicsMonitor = () => {
                     </div>
                   </div>
                   
-                  <div>
-                    <div className="flex justify-between mb-1">
-                      <span className="text-sm text-gray-400">Screen Brightness</span>
-                      <span className="font-mono">{screenBrightness}/255</span>
-                    </div>
-                    <div className="w-full bg-gray-700 rounded-full h-2">
-                      <div
-                        className="bg-yellow-500 h-2 rounded-full"
-                        style={{ width: `${(screenBrightness / 255) * 100}%` }}
-                      />
-                    </div>
-                  </div>
-
+                  {lightingMessage && (
+                    <p className="text-sm text-gray-400 mt-2">{lightingMessage}</p>
+                  )}
                   <div className="mt-4 pt-4 border-t border-gray-700">
                     <div className="flex items-center justify-between">
                       <span className="font-semibold">Glare Level:</span>
@@ -853,17 +891,20 @@ const OcularErgonomicsMonitor = () => {
                   <div>
                     <div className="flex justify-between mb-2">
                       <span className="text-sm text-gray-400">Viewing Distance</span>
-                      <span className="font-mono font-bold text-2xl">{viewingDistance ? `${viewingDistance}cm` : '—'}</span>
+                      <span className="font-mono font-bold text-2xl">{distanceBandLabel}</span>
                     </div>
-                    <div className="flex gap-2 text-xs">
-                      <div className="flex-1 bg-red-900/30 border border-red-600 rounded p-2 text-center">
-                        &lt;35cm<br/>TOO CLOSE
+                    <p className="text-xs text-gray-500">
+                      Comfortable arm’s length is about 50–70 cm. We show a band, not an exact number.
+                    </p>
+                    <div className="flex gap-2 text-xs mt-2">
+                      <div className={`flex-1 rounded p-2 text-center border ${postureStatus === 'too-close' ? 'bg-red-900/30 border-red-600' : 'bg-gray-700 border-gray-600'}`}>
+                        Too close
                       </div>
-                      <div className="flex-1 bg-green-900/30 border border-green-600 rounded p-2 text-center">
-                        50-70cm<br/>OPTIMAL
+                      <div className={`flex-1 rounded p-2 text-center border ${postureStatus === 'good' ? 'bg-green-900/30 border-green-600' : 'bg-gray-700 border-gray-600'}`}>
+                        Good distance
                       </div>
-                      <div className="flex-1 bg-yellow-900/30 border border-yellow-600 rounded p-2 text-center">
-                        &gt;70cm<br/>TOO FAR
+                      <div className={`flex-1 rounded p-2 text-center border ${postureStatus === 'too-far' ? 'bg-yellow-900/30 border-yellow-600' : 'bg-gray-700 border-gray-600'}`}>
+                        Too far
                       </div>
                     </div>
                   </div>
@@ -965,8 +1006,8 @@ const OcularErgonomicsMonitor = () => {
                 <div className="text-sm text-purple-800">Total Alerts</div>
               </div>
               <div className="bg-cyan-50 rounded-xl p-6 text-center">
-                <div className="text-3xl font-bold text-cyan-600 mb-2">{viewingDistance}cm</div>
-                <div className="text-sm text-cyan-800">Avg Distance</div>
+                <div className="text-lg font-bold text-cyan-600 mb-2">{distanceBandLabel}</div>
+                <div className="text-sm text-cyan-800">Distance band</div>
               </div>
             </div>
 

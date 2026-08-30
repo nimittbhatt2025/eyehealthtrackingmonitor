@@ -14,7 +14,7 @@ import {
 } from 'lucide-react'
 import cameraManager from '../utils/cameraManager'
 import { eyePhotoAPI } from '../services/api'
-import assessVideoLighting from '../utils/photoLightingCheck'
+import StableLightingPreview from '../utils/stableLightingPreview'
 import PhotoLightingBanner from '../components/PhotoLightingBanner'
 import SamdDisclaimer from '../components/SamdDisclaimer'
 
@@ -26,6 +26,16 @@ const GRADE_COLORS = {
   mild: 'bg-amber-50 text-amber-900 border-amber-200',
   moderate: 'bg-orange-50 text-orange-900 border-orange-200',
   dense: 'bg-red-50 text-red-800 border-red-200',
+}
+
+function opacityMonthStatus(month, monthIndex, timeline) {
+  if (monthIndex === 0) return 'Baseline month'
+  const prev = timeline[monthIndex - 1]
+  const curOpacity = month.avg_opacity_score ?? (100 - (month.avg_health_score ?? 0))
+  const prevOpacity = prev.avg_opacity_score ?? (100 - (prev.avg_health_score ?? 0))
+  const delta = curOpacity - prevOpacity
+  if (Math.abs(delta) < 6) return 'Stable vs prior month'
+  return delta > 0 ? 'Cloudier vs prior month' : 'Clearer vs prior month'
 }
 
 function GradeBadge({ grade, label }) {
@@ -62,6 +72,7 @@ export default function CataractOpacityMonitor() {
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
   const lightingCanvasRef = useRef(null)
+  const lightingPreviewRef = useRef(null)
   const streamRef = useRef(null)
 
   const [doctorMonths, setDoctorMonths] = useState(() => {
@@ -153,14 +164,32 @@ export default function CataractOpacityMonitor() {
       return undefined
     }
 
-    const sampleLighting = () => {
-      const lighting = assessVideoLighting(videoRef.current, lightingCanvasRef.current)
-      setLiveLighting(lighting)
+    if (!lightingPreviewRef.current) {
+      lightingPreviewRef.current = new StableLightingPreview()
+    }
+    lightingPreviewRef.current.reset()
+
+    let cancelled = false
+
+    const tick = async () => {
+      if (cancelled || !videoRef.current) return
+      try {
+        const lighting = await lightingPreviewRef.current.sample(
+          videoRef.current,
+          lightingCanvasRef.current
+        )
+        if (!cancelled) setLiveLighting(lighting)
+      } catch (err) {
+        console.warn('Cataract monitor lighting preview failed:', err)
+      }
     }
 
-    sampleLighting()
-    const intervalId = setInterval(sampleLighting, 500)
-    return () => clearInterval(intervalId)
+    tick()
+    const intervalId = setInterval(tick, 300)
+    return () => {
+      cancelled = true
+      clearInterval(intervalId)
+    }
   }, [view, cameraReady])
 
   const submitCapture = async (dataUrl, acknowledgePoorLighting = false) => {
@@ -341,23 +370,39 @@ export default function CataractOpacityMonitor() {
                 <History className="w-4 h-4" />
                 Opacity grade timeline
               </h2>
-              <div className="space-y-3">
-                {timeline.map((month) => {
+              <div className="space-y-4">
+                {timeline.map((month, monthIndex) => {
                   const opacity = month.avg_opacity_score
                   const barWidth = opacity != null ? Math.min(100, opacity) : Math.min(100, 100 - (month.avg_health_score || 0))
+                  const latest = month.latest_photo
+                  const grade = latest?.opacity_grade || latest?.analysis_details?.opacity_grade
+                  const statusLabel = opacityMonthStatus(month, monthIndex, timeline)
                   return (
-                    <div key={month.month} className="flex items-center gap-3">
-                      <span className="text-xs font-medium text-gray-500 w-16 shrink-0">{month.label}</span>
-                      <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-amber-500 rounded-full"
-                          style={{ width: `${barWidth}%` }}
-                          title="Higher bar = more opacity"
-                        />
+                    <div key={month.month} className="rounded-xl border border-gray-200 p-3 bg-gray-50/50">
+                      <div className="flex items-center gap-3 mb-2">
+                        <span className="text-xs font-medium text-gray-500 w-16 shrink-0">{month.label}</span>
+                        <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-amber-500 rounded-full"
+                            style={{ width: `${barWidth}%` }}
+                            title="Higher bar = more opacity"
+                          />
+                        </div>
+                        <span className="text-sm font-semibold text-gray-800 w-28 text-right">
+                          {opacity != null ? `${opacity} opac.` : `${month.avg_health_score} clear`}
+                        </span>
                       </div>
-                      <span className="text-sm font-semibold text-gray-800 w-24 text-right">
-                        {opacity != null ? `${opacity} opac.` : `${month.avg_health_score} clear`}
-                      </span>
+                      <div className="flex flex-wrap items-center gap-2 text-xs">
+                        {grade && <GradeBadge grade={grade} label={grade} />}
+                        <span className="text-gray-600">{statusLabel}</span>
+                        {latest?.image_thumbnail && (
+                          <img
+                            src={latest.image_thumbnail}
+                            alt=""
+                            className="w-10 h-10 rounded object-cover border border-gray-200"
+                          />
+                        )}
+                      </div>
                     </div>
                   )
                 })}

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { visionTestAPI } from '../services/api'
 import SamdDisclaimer from '../components/SamdDisclaimer'
+import { scoreGlareTolerance } from '../utils/visionTestScoring'
 
 /**
  * Cataract "Glare & Scatter" Test
@@ -151,8 +152,8 @@ const CataractTest = () => {
             'vertical': 'vertical',
             'diagonal right': 'diagonal-right',
             'diagonal left': 'diagonal-left',
-            'right': 'diagonal-right',
-            'left': 'diagonal-left'
+            'diag right': 'diagonal-right',
+            'diag left': 'diagonal-left',
           }
           
           // Check for direction keywords
@@ -377,12 +378,12 @@ const CataractTest = () => {
     // Overall score weighted heavily on glare performance
     const overallAccuracy = finalResponses.filter(r => r.correct).length / finalResponses.length
     const glareWeight = glareAccuracy * 0.7 + noGlareAccuracy * 0.3
-    
-    const finalScore = Math.round(glareWeight * 100)
+
+    const finalScore = scoreGlareTolerance(noGlareAccuracy, glareAccuracy, glareSensitivity)
     setScore(finalScore)
 
-    // Cataract risk assessment based on glare sensitivity
-    const cataractRisk = glareSensitivity > 0.4 ? 'high' : 
+    // Glare impact assessment (comfort framing — not diagnostic)
+    const glareImpact = glareSensitivity > 0.4 ? 'high' :
                          glareSensitivity > 0.25 ? 'moderate' : 'low'
 
     // Average response time in glare conditions
@@ -405,7 +406,8 @@ const CataractTest = () => {
           no_glare_accuracy: noGlareAccuracy,
           glare_accuracy: glareAccuracy,
           glare_sensitivity: glareSensitivity,
-          cataract_risk: cataractRisk,
+          glare_impact: glareImpact,
+          glare_weighted_accuracy: glareWeight,
           frequency_performance: freqPerformance,
           avg_glare_response_time: avgGlareResponseTime,
           responses: finalResponses,
@@ -629,22 +631,66 @@ const CataractTest = () => {
               </div>
             </div>
 
-            {/* Direction buttons — primary input */}
+            {/* Direction compass — visual arrows + mini stripe previews */}
             <div className="text-center">
-              <p className="text-sm font-semibold text-gray-700 mb-4">
+              <p className="text-sm font-semibold text-gray-700 mb-2">
                 Which way do the stripes run?
               </p>
-              <div className="grid grid-cols-2 gap-3 max-w-lg mx-auto mb-6">
-                {directionButtons.map(({ direction, label }) => (
-                  <button
-                    key={direction}
-                    type="button"
-                    onClick={() => handleResponse(direction)}
-                    className="px-4 py-4 bg-accent-600 hover:bg-accent-700 text-white rounded-xl font-semibold text-sm transition-colors"
-                  >
-                    {label}
-                  </button>
-                ))}
+              <p className="text-xs text-gray-500 mb-4">
+                Diagonal right = stripes leaning like ↗ · Diagonal left = like ↖
+              </p>
+              <div className="relative max-w-md mx-auto mb-6 aspect-square">
+                <button
+                  type="button"
+                  onClick={() => handleResponse('vertical')}
+                  className="absolute top-0 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 px-3 py-2 bg-accent-600 hover:bg-accent-700 text-white rounded-xl text-xs font-semibold min-w-[100px]"
+                >
+                  <span
+                    className="w-10 h-10 rounded border border-white/40"
+                    style={{ background: 'repeating-linear-gradient(90deg, #fff 0 2px, transparent 2px 6px)' }}
+                    aria-hidden
+                  />
+                  ↑ Vertical
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleResponse('horizontal')}
+                  className="absolute left-0 top-1/2 -translate-y-1/2 flex flex-col items-center gap-1 px-3 py-2 bg-accent-600 hover:bg-accent-700 text-white rounded-xl text-xs font-semibold"
+                >
+                  <span
+                    className="w-10 h-10 rounded border border-white/40"
+                    style={{ background: 'repeating-linear-gradient(0deg, #fff 0 2px, transparent 2px 6px)' }}
+                    aria-hidden
+                  />
+                  ← Horizontal
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleResponse('diagonal-right')}
+                  className="absolute right-0 top-1/4 flex flex-col items-center gap-1 px-3 py-2 bg-accent-600 hover:bg-accent-700 text-white rounded-xl text-xs font-semibold"
+                >
+                  <span
+                    className="w-10 h-10 rounded border border-white/40"
+                    style={{ background: 'repeating-linear-gradient(45deg, #fff 0 2px, transparent 2px 6px)' }}
+                    aria-hidden
+                  />
+                  ↗ Diag right
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleResponse('diagonal-left')}
+                  className="absolute right-0 bottom-1/4 flex flex-col items-center gap-1 px-3 py-2 bg-accent-600 hover:bg-accent-700 text-white rounded-xl text-xs font-semibold"
+                >
+                  <span
+                    className="w-10 h-10 rounded border border-white/40"
+                    style={{ background: 'repeating-linear-gradient(135deg, #fff 0 2px, transparent 2px 6px)' }}
+                    aria-hidden
+                  />
+                  ↖ Diag left
+                </button>
+                <div className="absolute inset-[28%] rounded-2xl border-2 border-dashed border-gray-300 flex items-center justify-center text-xs text-gray-400 pointer-events-none">
+                  Stimulus above
+                </div>
               </div>
 
               {currentStimulus.withGlare && (

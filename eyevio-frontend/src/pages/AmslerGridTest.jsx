@@ -6,6 +6,7 @@ import { VisionTestShell } from '../components/TestPrepLayout'
 import EyeCoverageVerification from '../components/EyeCoverageVerification'
 import { visionTestAPI } from '../services/api'
 import SamdDisclaimer from '../components/SamdDisclaimer'
+import { scoreAmslerGrid } from '../utils/visionTestScoring'
 
 /**
  * Clinical-Grade Amsler Grid Test
@@ -33,6 +34,12 @@ const AmslerGridTest = () => {
   const [distanceValid, setDistanceValid] = useState(false)
   const [brightnessConfirmed, setBrightnessConfirmed] = useState(false)
   const [currentEye, setCurrentEye] = useState('left')
+  const [gridPhase, setGridPhase] = useState('standard') // standard | micro | fixation
+  const [fixationCountdown, setFixationCountdown] = useState(0)
+  const [phaseResults, setPhaseResults] = useState({
+    left: { standard: null, micro: null, fixation: null },
+    right: { standard: null, micro: null, fixation: null },
+  })
   
   // Test data
   const [distortions, setDistortions] = useState({
@@ -73,7 +80,7 @@ const AmslerGridTest = () => {
     ctx.lineWidth = 2
     ctx.imageSmoothingEnabled = false // Disable anti-aliasing
     
-    const gridLines = 10 // 10×10 grid (clinical standard)
+    const gridLines = gridPhase === 'micro' ? 14 : 10 // micro-grid stresses central field
     const cellSize = width / gridLines
 
     // Draw vertical lines
@@ -103,7 +110,7 @@ const AmslerGridTest = () => {
     ctx.beginPath()
     ctx.arc(centerX, centerY, dotRadius, 0, 2 * Math.PI)
     ctx.fill()
-  }, [canvasSize])
+  }, [canvasSize, gridPhase])
   
   // Draw user annotations
   const drawAnnotations = useCallback(() => {
@@ -185,9 +192,59 @@ const AmslerGridTest = () => {
     if (testState === 'testing' || testState === 'marking') {
       drawGrid()
     }
-  }, [testState, drawGrid])
+  }, [testState, drawGrid, gridPhase])
   
-  // Update annotations when marks change
+  useEffect(() => {
+    if (testState !== 'testing' || gridPhase !== 'fixation') return undefined
+    setFixationCountdown(5)
+    const interval = setInterval(() => {
+      setFixationCountdown((c) => {
+        if (c <= 1) {
+          clearInterval(interval)
+          return 0
+        }
+        return c - 1
+      })
+    }, 1000)
+    return () => clearInterval(interval)
+  }, [testState, gridPhase, currentEye])
+
+  const advanceAfterPhaseAnswer = (hasIssues) => {
+    setPhaseResults((prev) => ({
+      ...prev,
+      [currentEye]: {
+        ...prev[currentEye],
+        [gridPhase]: {
+          hasIssues,
+          marksCount: distortions[currentEye].marks.length,
+        },
+      },
+    }))
+
+    if (gridPhase === 'standard') {
+      setGridPhase('micro')
+      setDistortions((prev) => ({
+        ...prev,
+        [currentEye]: { hasIssues: null, marks: [], notes: '' },
+      }))
+      return
+    }
+    if (gridPhase === 'micro') {
+      setGridPhase('fixation')
+      setDistortions((prev) => ({
+        ...prev,
+        [currentEye]: { hasIssues: null, marks: [], notes: '' },
+      }))
+      return
+    }
+    if (currentEye === 'left') {
+      setCurrentEye('right')
+      setGridPhase('standard')
+      setTestState('switch-eyes')
+    } else {
+      submitTest()
+    }
+  }
   useEffect(() => {
     if (testState === 'marking') {
       drawAnnotations()
@@ -278,19 +335,26 @@ const AmslerGridTest = () => {
   
   const submitTest = async () => {
     try {
-      // Calculate score based on whether issues were detected
       const leftHasIssues = distortions.left.hasIssues === true
       const rightHasIssues = distortions.right.hasIssues === true
-      const anyIssues = leftHasIssues || rightHasIssues
-      
+      const leftMarkCount = distortions.left.marks.length
+      const rightMarkCount = distortions.right.marks.length
+      const score = scoreAmslerGrid(leftHasIssues, rightHasIssues, leftMarkCount, rightMarkCount)
+
       const payload = {
         test_type: 'amsler_grid',
-        score: anyIssues ? 50 : 100,
+        score,
         test_details: {
           left_eye_issues: leftHasIssues,
           right_eye_issues: rightHasIssues,
-          left_marks_count: distortions.left.marks.length,
-          right_marks_count: distortions.right.marks.length,
+          left_marks_count: leftMarkCount,
+          right_marks_count: rightMarkCount,
+          scoring_breakdown: {
+            left_score: leftHasIssues ? 50 : (leftMarkCount > 0 ? Math.max(60, 100 - Math.min(40, leftMarkCount * 2)) : 100),
+            right_score: rightHasIssues ? 50 : (rightMarkCount > 0 ? Math.max(60, 100 - Math.min(40, rightMarkCount * 2)) : 100),
+          },
+          phase_results: phaseResults,
+          grid_phases_per_eye: ['standard', 'micro', 'fixation'],
           test_distance: '355mm',
           completed: true,
           timestamp: new Date().toISOString()
@@ -618,13 +682,25 @@ const AmslerGridTest = () => {
     </div>
   )
 
-  const renderTesting = () => (
+  const renderTesting = () => {
+    const phaseLabel =
+      gridPhase === 'micro' ? 'Phase 2: finer central grid' :
+      gridPhase === 'fixation' ? 'Phase 3: sustained fixation' :
+      'Phase 1: standard grid'
+    const answersLocked = gridPhase === 'fixation' && fixationCountdown > 0
+
+    return (
     <VisionTestShell
       title={`${currentEye === 'left' ? 'Left' : 'Right'} eye`}
-      subtitle="Fixate on the red center dot — 355mm (14″)"
+      subtitle={`${phaseLabel} · Fixate on the red center dot — 355mm (14″)`}
       stimulus={renderGridCanvas(false)}
       controls={(
         <>
+          {gridPhase === 'fixation' && fixationCountdown > 0 && (
+            <p className="text-sm font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3 text-center">
+              Keep fixating on the red dot… {fixationCountdown}s
+            </p>
+          )}
           <div className="text-sm text-gray-700 space-y-2">
             <p className="font-semibold text-gray-900">While fixating on the red dot:</p>
             <ul className="space-y-1 list-disc list-inside">
@@ -639,24 +715,15 @@ const AmslerGridTest = () => {
           <div className="vision-test-controls-actions">
             <button
               type="button"
-              onClick={() => {
-                setDistortions(prev => ({
-                  ...prev,
-                  [currentEye]: { ...prev[currentEye], hasIssues: false }
-                }))
-                if (currentEye === 'left') {
-                  setCurrentEye('right')
-                  setTestState('switch-eyes')
-                } else {
-                  submitTest()
-                }
-              }}
-              className="w-full bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-xl font-bold min-h-[44px]"
+              disabled={answersLocked}
+              onClick={() => advanceAfterPhaseAnswer(false)}
+              className="w-full bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-xl font-bold min-h-[44px] disabled:opacity-50"
             >
               Grid looks normal
             </button>
             <button
               type="button"
+              disabled={answersLocked}
               onClick={() => {
                 setDistortions(prev => ({
                   ...prev,
@@ -664,7 +731,7 @@ const AmslerGridTest = () => {
                 }))
                 setTestState('marking')
               }}
-              className="w-full bg-amber-500 hover:bg-amber-600 text-white px-6 py-3 rounded-xl font-bold min-h-[44px]"
+              className="w-full bg-amber-500 hover:bg-amber-600 text-white px-6 py-3 rounded-xl font-bold min-h-[44px] disabled:opacity-50"
             >
               I see distortions
             </button>
@@ -672,7 +739,8 @@ const AmslerGridTest = () => {
         </>
       )}
     />
-  )
+    )
+  }
 
   const renderMarking = () => (
     <VisionTestShell
@@ -726,12 +794,8 @@ const AmslerGridTest = () => {
             <button
               type="button"
               onClick={() => {
-                if (currentEye === 'left') {
-                  setCurrentEye('right')
-                  setTestState('switch-eyes')
-                } else {
-                  submitTest()
-                }
+                setTestState('testing')
+                advanceAfterPhaseAnswer(true)
               }}
               className="w-full btn-primary min-h-[44px]"
             >
@@ -759,7 +823,10 @@ const AmslerGridTest = () => {
           </p>
         </div>
         <button
-          onClick={() => setTestState('eye-coverage-setup')}
+          onClick={() => {
+            setGridPhase('standard')
+            setTestState('eye-coverage-setup')
+          }}
           className="w-full btn-primary min-h-[44px]"
         >
           Continue to {currentEye === 'right' ? 'Right' : 'Left'} Eye Test 

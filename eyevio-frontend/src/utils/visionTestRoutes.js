@@ -19,6 +19,8 @@ const TEST_ROUTES = {
   peripheral_awareness: '/vision-tests/peripheral_awareness',
   ocular_ergonomics: '/vision-tests/ocular_ergonomics',
   eye_tracking: '/eye-tracking-analysis',
+  tracking: '/eye-tracking-analysis',
+  acuity: '/vision-tests/visual_acuity',
   accommodative_lag_webcam: '/vision-tests/accommodative_lag',
 }
 
