@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from app.ai_models.eye_crop_alignment import compare_aligned_crops
 from app.models import EyePhoto
+from app.utils.datetime_utils import serialize_utc_datetime, utc_now
 
 MONTHLY_CHECK_INTERVAL_DAYS = 30
 
@@ -513,7 +514,7 @@ def compare_photos(
         },
         'baseline_photo_id': baseline.id,
         'baseline_type': baseline_type,
-        'baseline_captured_at': baseline.captured_at.isoformat() if baseline.captured_at else None,
+        'baseline_captured_at': serialize_utc_datetime(baseline.captured_at),
         'current_photo_id': current.id,
         'days_between': days_between,
         'condition_type': condition,
@@ -730,18 +731,42 @@ def compare_to_historical(user_id: int, current: EyePhoto) -> Dict[str, Any]:
     return comparison
 
 
+def _client_local_date(photo: EyePhoto) -> Optional[str]:
+    details = photo.analysis_details if isinstance(photo.analysis_details, dict) else {}
+    local = details.get('client_local_date')
+    if isinstance(local, str) and len(local) >= 10:
+        return local[:10]
+    return None
+
+
+def _month_bucket_for_photo(photo: EyePhoto) -> Optional[str]:
+    local = _client_local_date(photo)
+    if local:
+        return local[:7]
+    if photo.captured_at:
+        return photo.captured_at.strftime('%Y-%m')
+    return None
+
+
+def _month_label_from_key(key: str) -> str:
+    try:
+        return datetime.strptime(f'{key}-01', '%Y-%m-%d').strftime('%b %Y')
+    except ValueError:
+        return key
+
+
 def build_monthly_timeline(photos: List[EyePhoto]) -> List[Dict[str, Any]]:
     """Group photos by calendar month for charting."""
     buckets: Dict[str, Dict[str, Any]] = {}
 
     for photo in photos:
-        if not photo.captured_at:
+        key = _month_bucket_for_photo(photo)
+        if not key:
             continue
-        key = photo.captured_at.strftime('%Y-%m')
         if key not in buckets:
             buckets[key] = {
                 'month': key,
-                'label': photo.captured_at.strftime('%b %Y'),
+                'label': _month_label_from_key(key),
                 'photos': [],
                 'photo_models': [],
                 'avg_health_score': 0,
@@ -793,7 +818,7 @@ def build_monthly_timeline(photos: List[EyePhoto]) -> List[Dict[str, Any]]:
 
 def monitoring_status(last_photo: Optional[EyePhoto], doctor_visit_months: int = 6) -> Dict[str, Any]:
     """Return whether a monthly check is due and doctor visit context."""
-    now = datetime.utcnow()
+    now = utc_now()
 
     if not last_photo or not last_photo.captured_at:
         return {
@@ -815,7 +840,7 @@ def monitoring_status(last_photo: Optional[EyePhoto], doctor_visit_months: int =
         'days_since_last': days_since,
         'days_until_due': days_until_due,
         'last_photo_id': last_photo.id,
-        'last_captured_at': last_photo.captured_at.isoformat(),
+        'last_captured_at': serialize_utc_datetime(last_photo.captured_at),
         'last_health_score': last_photo.health_score,
         'monthly_interval_days': MONTHLY_CHECK_INTERVAL_DAYS,
         'doctor_visit_interval_months': doctor_visit_months,

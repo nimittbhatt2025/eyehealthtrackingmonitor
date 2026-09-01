@@ -20,6 +20,7 @@ import EyewearReminderBanner from '../components/EyewearReminderBanner'
 import GlassesContactsCheck from '../components/GlassesContactsCheck'
 import SamdDisclaimer from '../components/SamdDisclaimer'
 import { getLightingUiCopy } from '../utils/photoLightingCheck'
+import { formatLocalDate, formatLocalDateTime, getClientLocalDateString } from '../utils/formatDateTime'
 
 const TIMELINE_METRICS = [
   ['overall', 'Tracking', { baselineOnly: true }],
@@ -260,6 +261,7 @@ export default function EyeHealthMonitor() {
       condition_type: conditionType,
       doctor_visit_interval_months: doctorMonths,
       acknowledge_poor_lighting: acknowledgePoorLighting,
+      client_local_date: getClientLocalDateString(),
     })
     return response.data
   }
@@ -559,7 +561,7 @@ export default function EyeHealthMonitor() {
                   <div key={photo.id} className="rounded-lg border border-gray-200 overflow-hidden bg-gray-50 group relative">
                     <img
                       src={photo.image_thumbnail}
-                      alt={`Eye photo ${new Date(photo.captured_at).toLocaleDateString()}`}
+                      alt={`Eye photo ${formatLocalDate(photo.captured_at)}`}
                       className="w-full aspect-[4/3] object-cover"
                     />
                     <div className="p-2 text-xs">
@@ -567,7 +569,7 @@ export default function EyeHealthMonitor() {
                         {allPhotos.length === 1 ? 'Baseline' : `${photo.health_score}/100`}
                       </div>
                       <div className="text-gray-500">
-                        {new Date(photo.captured_at).toLocaleDateString()}
+                        {formatLocalDate(photo.captured_at)}
                       </div>
                       <div className="text-gray-400 mt-0.5">{conditionLabel(photo.condition_type)}</div>
                       <button
@@ -575,7 +577,7 @@ export default function EyeHealthMonitor() {
                         onClick={() => handleDeletePhoto(photo.id)}
                         disabled={deletingId === photo.id}
                         className="mt-2 inline-flex items-center gap-1 text-red-600 hover:text-red-700 font-medium min-h-[36px] disabled:opacity-50"
-                        aria-label={`Delete photo from ${new Date(photo.captured_at).toLocaleDateString()}`}
+                        aria-label={`Delete photo from ${formatLocalDate(photo.captured_at)}`}
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                         {deletingId === photo.id ? 'Deleting…' : 'Delete'}
@@ -822,7 +824,7 @@ export default function EyeHealthMonitor() {
                     </div>
                   )}
                   <p><strong>Condition:</strong> {conditionLabel(lastResult.photo.condition_type)}</p>
-                  <p><strong>Saved:</strong> {new Date(lastResult.photo.captured_at).toLocaleString()}</p>
+                  <p><strong>Saved:</strong> {formatLocalDateTime(lastResult.photo.captured_at)}</p>
                   <p className="text-xs text-gray-500 pt-2">
                     This photo is stored in your account. Open &quot;Back to monitor&quot; to see your full gallery.
                   </p>
@@ -854,7 +856,7 @@ export default function EyeHealthMonitor() {
                   />
                   {lastResult.comparison.baseline_captured_at && (
                     <p className="text-xs text-gray-500 mt-1">
-                      {new Date(lastResult.comparison.baseline_captured_at).toLocaleDateString()}
+                      {formatLocalDate(lastResult.comparison.baseline_captured_at)}
                     </p>
                   )}
                 </div>

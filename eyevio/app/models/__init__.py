@@ -1,5 +1,8 @@
-from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
+
+from flask_sqlalchemy import SQLAlchemy
+
+from app.utils.datetime_utils import serialize_utc_datetime
 
 db = SQLAlchemy()
 
@@ -393,8 +396,8 @@ class EyePhoto(db.Model):
             'right_eye_score': self.right_eye_score,
             'analysis_details': self.analysis_details,
             'vision_test_id': self.vision_test_id,
-            'captured_at': self.captured_at.isoformat() if self.captured_at else None,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'captured_at': serialize_utc_datetime(self.captured_at),
+            'created_at': serialize_utc_datetime(self.created_at),
         }
         if include_thumbnail:
             data['image_thumbnail'] = self.image_thumbnail

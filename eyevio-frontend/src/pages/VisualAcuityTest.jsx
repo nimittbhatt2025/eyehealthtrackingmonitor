@@ -49,10 +49,16 @@ const VisualAcuityTest = () => {
   const [voiceSetupPassed, setVoiceSetupPassed] = useState(false)
   const [voiceSetupHeard, setVoiceSetupHeard] = useState('')
   const [voiceMicFailed, setVoiceMicFailed] = useState(false)
+  const [lastHeardRaw, setLastHeardRaw] = useState('')
   const voiceFatalErrorRef = useRef(false)
   const handleLetterSelectRef = useRef(null)
   const advanceToNextLineRef = useRef(null)
   const finishEyeTestRef = useRef(null)
+  const recognitionRef = useRef(null)
+  const voiceSessionActiveRef = useRef(false)
+  const showFeedbackRef = useRef(false)
+  const voiceSetupCompleteRef = useRef(false)
+  const setupRecognitionRef = useRef(null)
   
   // Eye coverage detection state
   const [eyeDetector, setEyeDetector] = useState(null)
@@ -89,6 +95,184 @@ const VisualAcuityTest = () => {
   const [currentLetters, setCurrentLetters] = useState([])
   const [selectedAnswer, setSelectedAnswer] = useState(null)
   const [showFeedback, setShowFeedback] = useState(false)
+
+  useEffect(() => {
+    showFeedbackRef.current = showFeedback
+  }, [showFeedback])
+
+  const collectTranscripts = (event) => {
+    const transcripts = []
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      const result = event.results[i]
+      if (!result.isFinal) continue
+      for (let alt = 0; alt < result.length; alt++) {
+        const text = result[alt].transcript?.trim()
+        if (text) transcripts.push(text)
+      }
+    }
+    return transcripts
+  }
+
+  const parseSpokenLetter = useCallback((transcripts) => {
+    return voiceRecognition.parseOptotypeLetter(transcripts, OPTOTYPES)
+  }, [])
+
+  const stopSetupRecognition = useCallback(() => {
+    try {
+      setupRecognitionRef.current?.stop()
+    } catch {
+      // ignore
+    }
+    setupRecognitionRef.current = null
+    setIsListening(false)
+  }, [])
+
+  const stopVoiceSession = useCallback(() => {
+    voiceSessionActiveRef.current = false
+    try {
+      recognitionRef.current?.stop()
+    } catch {
+      // ignore
+    }
+    setIsListening(false)
+  }, [])
+
+  const safeStartRecognition = useCallback(() => {
+    if (!recognitionRef.current || voiceFatalErrorRef.current || showFeedbackRef.current) return
+    try {
+      recognitionRef.current.start()
+      setIsListening(true)
+    } catch {
+      // already started
+    }
+  }, [])
+
+  const handleVoiceError = useCallback((error, { duringSetup = false } = {}) => {
+    if (duringSetup && voiceSetupCompleteRef.current) return
+    if (error === 'aborted' || error === 'no-speech') return
+    // Edge/Chrome often emit transient "network" after a successful stop — not a mic block.
+    if (error === 'network') {
+      if (duringSetup || voiceSetupCompleteRef.current) return
+      setVoiceNotice('Voice service unreachable — check internet, or use the on-screen buttons.')
+      return
+    }
+
+    setIsListening(false)
+    if (['not-allowed', 'service-not-allowed'].includes(error)) {
+      voiceFatalErrorRef.current = true
+      voiceSessionActiveRef.current = false
+      setVoiceNotice('Microphone blocked — allow mic access in Edge site settings, or use the letter buttons.')
+      if (duringSetup) setVoiceMicFailed(true)
+    } else if (error === 'audio-capture') {
+      setVoiceNotice('Microphone busy — close Zoom/Teams, then tap the button to try again.')
+    }
+  }, [])
+
+  const attachRecognitionHandlers = useCallback((recognition) => {
+    recognition.onstart = () => setIsListening(true)
+    recognition.onresult = (event) => {
+      const transcripts = collectTranscripts(event)
+      if (!transcripts.length) return
+
+      setLastHeardRaw(transcripts[0])
+      const parsed = parseSpokenLetter(transcripts)
+      if (parsed) {
+        setVoiceNotice(`Heard: ${parsed}`)
+        handleLetterSelectRef.current?.(parsed)
+      } else {
+        setVoiceNotice(`Heard "${transcripts[0]}" — say one letter: ${OPTOTYPES.join(', ')}`)
+      }
+    }
+    recognition.onerror = (event) => {
+      if (event.error !== 'no-speech' && event.error !== 'aborted') {
+        handleVoiceError(event.error)
+      }
+    }
+    recognition.onend = () => {
+      setIsListening(false)
+      if (voiceSessionActiveRef.current && !voiceFatalErrorRef.current && !showFeedbackRef.current) {
+        window.setTimeout(() => safeStartRecognition(), 150)
+      }
+    }
+  }, [handleVoiceError, parseSpokenLetter, safeStartRecognition])
+
+  const startVoiceSession = useCallback(async () => {
+    if (!voiceEnabled || !voiceSupported || showFeedbackRef.current) return
+
+    await voiceRecognition.primeMicrophone(true)
+
+    if (!recognitionRef.current) {
+      recognitionRef.current = voiceRecognition.createRecognitionInstance()
+      if (!recognitionRef.current) {
+        setVoiceNotice('Voice not supported in this browser — use the letter buttons.')
+        return
+      }
+      attachRecognitionHandlers(recognitionRef.current)
+    }
+
+    voiceFatalErrorRef.current = false
+    voiceSessionActiveRef.current = true
+    setVoiceNotice('Say the letter you see on screen.')
+    safeStartRecognition()
+  }, [attachRecognitionHandlers, safeStartRecognition, voiceEnabled, voiceSupported])
+
+  const startSetupListening = useCallback(async () => {
+    if (!voiceSupported) return
+
+    stopSetupRecognition()
+    setVoiceNotice('Starting microphone…')
+    setLastHeardRaw('')
+
+    await voiceRecognition.primeMicrophone(true)
+
+    const recognition = voiceRecognition.createRecognitionInstance()
+    if (!recognition) {
+      setVoiceNotice('Voice not supported in this browser.')
+      setVoiceMicFailed(true)
+      return
+    }
+
+    recognition.continuous = false
+    recognition.interimResults = false
+    recognition.lang = 'en-US'
+    recognition.maxAlternatives = 5
+    setupRecognitionRef.current = recognition
+
+    recognition.onstart = () => {
+      setIsListening(true)
+      setVoiceNotice('Listening — say one letter now (E, F, L, O, P, T, or Z)')
+    }
+
+    recognition.onresult = (event) => {
+      const transcripts = collectTranscripts(event)
+      if (!transcripts.length) return
+
+      setLastHeardRaw(transcripts[0])
+      const parsed = parseSpokenLetter(transcripts)
+      if (parsed) {
+        voiceSetupCompleteRef.current = true
+        setVoiceSetupHeard(parsed)
+        setVoiceSetupPassed(true)
+        setVoiceMicFailed(false)
+        voiceFatalErrorRef.current = false
+        setVoiceNotice('')
+      } else {
+        setVoiceNotice(`Heard "${transcripts[0]}" — try a single letter like E or P`)
+      }
+    }
+
+    recognition.onerror = (event) => {
+      handleVoiceError(event.error, { duringSetup: true })
+    }
+
+    recognition.onend = () => setIsListening(false)
+
+    try {
+      recognition.start()
+    } catch {
+      setVoiceNotice('Could not start microphone — tap the button to try again.')
+    }
+  }, [handleVoiceError, parseSpokenLetter, stopSetupRecognition, voiceSupported])
 
   // Generate random letters for current line
   const generateLetters = useCallback((numLetters) => {
@@ -128,11 +312,13 @@ const VisualAcuityTest = () => {
     setSelectedAnswer(letter)
     setShowFeedback(true)
     
-    // Stop voice recognition temporarily
-    if (voiceEnabled && isListening) {
-      voiceRecognition.stop()
-      setIsListening(false)
+    voiceSessionActiveRef.current = false
+    try {
+      recognitionRef.current?.stop()
+    } catch {
+      // ignore
     }
+    setIsListening(false)
     
     // Record response
     const response = {
@@ -167,53 +353,37 @@ const VisualAcuityTest = () => {
         advanceToNextLineRef.current?.(isCorrect)
       }
     }, 800)
-  }, [showFeedback, currentLetters, currentLetter, currentEye, currentLine, voiceEnabled, isListening])
+  }, [showFeedback, currentLetters, currentLetter, currentEye, currentLine])
 
   handleLetterSelectRef.current = handleLetterSelect
 
-  // Start voice recognition
-  const startVoiceRecognition = useCallback(() => {
-    if (!voiceEnabled || !voiceSupported || voiceFatalErrorRef.current) return
-    if (showFeedback) return
-
-    setVoiceNotice('')
-    setIsListening(true)
-
-    const started = voiceRecognition.start(
-      (result) => {
-        const parsed = voiceRecognition.parseResponse(result)
-        if (parsed && OPTOTYPES.includes(parsed)) {
-          setVoiceNotice(`Heard: ${parsed}`)
-          handleLetterSelectRef.current?.(parsed)
-        } else {
-          setVoiceNotice(`Say a letter (${OPTOTYPES.join(', ')})`)
-        }
-      },
-      (error) => {
-        setIsListening(false)
-        if (['network', 'not-allowed', 'service-not-allowed', 'audio-capture'].includes(error)) {
-          voiceFatalErrorRef.current = true
-          setVoiceNotice('Microphone unavailable — use the buttons on screen or move closer.')
-        }
-      }
-    )
-
-    if (!started) {
-      setIsListening(false)
-    }
-  }, [voiceEnabled, voiceSupported, showFeedback])
-
-  // Start eye test and voice recognition
+  // Keep voice listening during the test; pause only while feedback is shown
   useEffect(() => {
-    if (testState === 'testing' && voiceEnabled && !showFeedback && !voiceFatalErrorRef.current) {
-      startVoiceRecognition()
+    if (testState !== 'testing' || !voiceEnabled) {
+      stopVoiceSession()
+      return undefined
     }
+
+    if (showFeedback) {
+      voiceSessionActiveRef.current = false
+      try {
+        recognitionRef.current?.stop()
+      } catch {
+        // ignore
+      }
+      setIsListening(false)
+      return undefined
+    }
+
+    // Fresh recognition after camera-based eye coverage step
+    recognitionRef.current = null
+    voiceFatalErrorRef.current = false
+    startVoiceSession()
 
     return () => {
-      voiceRecognition.stop()
-      setIsListening(false)
+      stopVoiceSession()
     }
-  }, [testState, currentLetter, currentEye, voiceEnabled, showFeedback, startVoiceRecognition])
+  }, [testState, voiceEnabled, showFeedback, startVoiceSession, stopVoiceSession])
 
   // Advance to next line or finish eye
   const advanceToNextLine = useCallback((lastLetterCorrect) => {
@@ -295,38 +465,22 @@ const VisualAcuityTest = () => {
 
   finishEyeTestRef.current = finishEyeTest
 
-  // Voice microphone check before far-distance testing
+  // Voice microphone check — push-to-talk (more reliable than always-on in React/Edge)
   useEffect(() => {
     if (testState !== 'voice-setup' || !voiceSupported) return undefined
 
+    voiceSetupCompleteRef.current = false
     setVoiceSetupHeard('')
-    const started = voiceRecognition.start(
-      (transcript) => {
-        const parsed = voiceRecognition.parseResponse(transcript)
-        if (parsed && OPTOTYPES.includes(parsed)) {
-          setVoiceSetupHeard(parsed)
-          setVoiceSetupPassed(true)
-          setVoiceNotice(`Microphone working — heard "${parsed}"`)
-          voiceRecognition.stop()
-        } else {
-          setVoiceNotice('Try saying a letter clearly, for example "E"')
-        }
-      },
-      (error) => {
-        if (['network', 'not-allowed', 'service-not-allowed', 'audio-capture'].includes(error)) {
-          setVoiceNotice('Could not access microphone. Allow mic permission in your browser, or continue without voice.')
-          voiceFatalErrorRef.current = true
-          setVoiceMicFailed(true)
-        }
-      }
-    )
+    setVoiceSetupPassed(false)
+    setVoiceMicFailed(false)
+    voiceFatalErrorRef.current = false
+    setLastHeardRaw('')
+    setVoiceNotice('Tap the button below, then say one letter out loud.')
 
-    if (!started) {
-      setVoiceNotice('Could not start microphone — check browser permissions.')
+    return () => {
+      stopSetupRecognition()
     }
-
-    return () => voiceRecognition.stop()
-  }, [testState, voiceSupported])
+  }, [testState, voiceSupported, stopSetupRecognition])
 
   // Submit results to backend
   const submitResults = async () => {
@@ -553,7 +707,7 @@ const VisualAcuityTest = () => {
         </div>
         <h2 className="text-2xl font-bold text-gray-900">Enable your microphone</h2>
         <p className="text-gray-600 text-sm">
-          You will stand about 1 meter from the screen. Say a letter out loud to confirm your microphone works.
+          You will stand about 1 meter from the screen. Tap the button, then say one letter out loud.
         </p>
 
         <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 text-left text-sm text-indigo-900">
@@ -561,8 +715,28 @@ const VisualAcuityTest = () => {
           <p className="text-lg font-mono font-bold">E · F · L · O · P · T · Z</p>
         </div>
 
-        {voiceNotice && (
+        <button
+          type="button"
+          onClick={startSetupListening}
+          disabled={isListening || voiceSetupPassed}
+          className="w-full min-h-[48px] btn-primary disabled:opacity-50"
+        >
+          {voiceSetupPassed ? 'Microphone verified' : isListening ? 'Listening… say a letter' : 'Tap — say a letter'}
+        </button>
+
+        {lastHeardRaw && !voiceSetupPassed && (
+          <p className="text-xs text-gray-500">Last heard: &quot;{lastHeardRaw}&quot;</p>
+        )}
+
+        {voiceNotice && !voiceSetupPassed && (
           <p className="text-sm bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-amber-900">{voiceNotice}</p>
+        )}
+
+        {isListening && !voiceSetupPassed && (
+          <p className="text-sm text-indigo-700 flex items-center justify-center gap-2">
+            <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+            Microphone is listening…
+          </p>
         )}
 
         {voiceSetupPassed && voiceSetupHeard && (
@@ -580,6 +754,10 @@ const VisualAcuityTest = () => {
             disabled={!voiceSetupPassed && !voiceMicFailed}
             onClick={() => {
               if (voiceMicFailed) setVoiceEnabled(false)
+              if (voiceSetupPassed) {
+                voiceFatalErrorRef.current = false
+              }
+              stopSetupRecognition()
               setTestState('glasses-check')
             }}
             className="flex-1 btn-primary min-h-[44px] disabled:opacity-50"
@@ -653,8 +831,27 @@ const VisualAcuityTest = () => {
                     <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
                     Listening — say the letter you see
                   </span>
-                ) : voiceNotice || 'Voice paused'}
+                ) : voiceNotice || 'Voice paused — tap Mic to listen'}
               </div>
+            )}
+
+            {voiceEnabled && lastHeardRaw && (
+              <p className="text-xs text-gray-500">Last heard: &quot;{lastHeardRaw}&quot;</p>
+            )}
+
+            {voiceEnabled && (
+              <button
+                type="button"
+                onClick={() => {
+                  voiceFatalErrorRef.current = false
+                  recognitionRef.current = null
+                  startVoiceSession()
+                }}
+                disabled={isListening || showFeedback}
+                className="inline-flex items-center justify-center gap-2 min-h-[44px] px-4 rounded-xl border border-indigo-200 text-sm font-medium text-indigo-700 bg-white hover:bg-indigo-50 disabled:opacity-50"
+              >
+                {isListening ? 'Listening…' : 'Mic — listen again'}
+              </button>
             )}
 
             <p className="text-sm text-gray-600">

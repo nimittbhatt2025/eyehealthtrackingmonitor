@@ -13,6 +13,7 @@ from app.ai_models.dry_eye_analysis import (
 )
 from app.models import EyePhoto, db
 from app.services.alert_delivery import create_and_deliver_alert
+from app.utils.datetime_utils import utc_now
 from app.utils.eye_photo_comparison import (
     build_monthly_timeline,
     compare_photos,
@@ -86,6 +87,10 @@ def capture_eye_photo():
         if analysis.get('error'):
             return jsonify(analysis), 400
 
+        client_local_date = data.get('client_local_date')
+        if isinstance(client_local_date, str) and len(client_local_date) >= 10:
+            analysis = {**analysis, 'client_local_date': client_local_date[:10]}
+
         lighting = analysis.get('lighting') or {}
         eyewear = analysis.get('eyewear') or {}
         acknowledge_poor_lighting = bool(data.get('acknowledge_poor_lighting'))
@@ -134,7 +139,7 @@ def capture_eye_photo():
             left_eye_score=float(left.get('health_score', 0)),
             right_eye_score=float(right.get('health_score', 0)),
             analysis_details=analysis,
-            captured_at=datetime.utcnow(),
+            captured_at=utc_now(),
         )
 
         db.session.add(photo)
@@ -274,7 +279,7 @@ def get_timeline():
         condition_type = request.args.get('condition_type', 'general')
         months = request.args.get('months', type=int, default=6)
 
-        since = datetime.utcnow() - timedelta(days=months * 31)
+        since = utc_now() - timedelta(days=months * 31)
         photos = (
             EyePhoto.query.filter(
                 EyePhoto.user_id == user_id,
@@ -368,7 +373,7 @@ def get_or_delete_eye_photo(photo_id):
             db.session.commit()
             return jsonify({'message': 'Photo deleted', 'id': photo_id}), 200
 
-        baseline = find_baseline_photo(user_id, photo.condition_type, photo.captured_at or datetime.utcnow())
+        baseline = find_baseline_photo(user_id, photo.condition_type, photo.captured_at or utc_now())
         comparison = compare_to_historical(user_id, photo) if baseline and baseline.id != photo.id else None
 
         return jsonify({
