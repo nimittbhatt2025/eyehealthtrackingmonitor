@@ -4,6 +4,11 @@ import { useNavigate } from 'react-router-dom'
 import { visionTestAPI } from '../services/api'
 import SamdDisclaimer from '../components/SamdDisclaimer'
 import { scoreRedReflex } from '../utils/visionTestScoring'
+import {
+  PupilRegionTracker,
+  fallbackPupilRegions,
+  sampleRegionPixels,
+} from '../utils/pupilRegionDetector'
 
 /**
  * Red Glow (Reflex) Analyzer - Digital Bruckner Test
@@ -22,10 +27,14 @@ const RedReflexTest = () => {
   const canvasRef = useRef(null)
   const streamRef = useRef(null)
   const analysisWorkerRef = useRef(null)
+  const pupilTrackerRef = useRef(null)
+  const distanceStatusRef = useRef('checking')
 
   const [testState, setTestState] = useState('instructions') // instructions, setup, calibrating, scanning, analyzing, results
   const [cameraReady, setCameraReady] = useState(false)
   const [distanceStatus, setDistanceStatus] = useState('checking') // too-close, perfect, too-far, checking
+  const [eyesLocated, setEyesLocated] = useState(false)
+  const [trackingQuality, setTrackingQuality] = useState(null)
   const [scanProgress, setScanProgress] = useState(0)
   const [capturedFrames, setCapturedFrames] = useState([])
   const [analysisResults, setAnalysisResults] = useState(null)
@@ -53,6 +62,12 @@ const RedReflexTest = () => {
       const stream = await cameraManager.acquire(constraints)
       streamRef.current = stream
 
+      if (!pupilTrackerRef.current) {
+        pupilTrackerRef.current = new PupilRegionTracker()
+        // Warm the model up front; failures fall back to fixed-position sampling.
+        pupilTrackerRef.current.init()
+      }
+
       if (videoRef.current) {
         videoRef.current.srcObject = stream
         videoRef.current.onloadedmetadata = () => {
@@ -72,36 +87,62 @@ const RedReflexTest = () => {
       try { cameraManager.release() } catch (e) { try { streamRef.current.getTracks().forEach(track => track.stop()) } catch (err) {} }
       streamRef.current = null
     }
+    if (pupilTrackerRef.current) {
+      pupilTrackerRef.current.stop()
+      pupilTrackerRef.current = null
+    }
     setCameraReady(false)
   }, [])
 
-  // Measure distance between eyes using facial landmarks
-  const measureDistance = useCallback(() => {
+  // Inter-pupil distance as a fraction of frame width. With a typical webcam FOV this
+  // lands near 0.09 at 60cm and 0.06 at 90cm; the band is kept wide for usable framing.
+  const IPD_RATIO_TOO_CLOSE = 0.13
+  const IPD_RATIO_TOO_FAR = 0.045
+
+  const applyDistanceStatus = (status) => {
+    distanceStatusRef.current = status
+    setDistanceStatus(status)
+  }
+
+  // Measure viewing distance from iris landmarks, falling back to skin-tone face width
+  const measureDistance = useCallback(async () => {
     if (!videoRef.current || !canvasRef.current) return
 
     const video = videoRef.current
+    if (!video.videoWidth) return
+
+    const regions = await pupilTrackerRef.current?.track(video)
+
+    if (regions) {
+      setEyesLocated(true)
+      const ipdRatio = regions.eyeSpanPx / video.videoWidth
+      if (ipdRatio > IPD_RATIO_TOO_CLOSE) {
+        applyDistanceStatus('too-close')
+      } else if (ipdRatio < IPD_RATIO_TOO_FAR) {
+        applyDistanceStatus('too-far')
+      } else {
+        applyDistanceStatus('perfect')
+      }
+      return
+    }
+
+    setEyesLocated(false)
+
     const canvas = canvasRef.current
     const ctx = canvas.getContext('2d')
-
     canvas.width = video.videoWidth
     canvas.height = video.videoHeight
     ctx.drawImage(video, 0, 0)
 
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
-    
-    // Simple distance estimation based on face width
-    // In a real implementation, you'd use face-api.js or MediaPipe
     const faceWidth = estimateFaceWidth(imageData)
-    
-    // Make distance checking more lenient for better UX
-    // At 60cm distance, face width should be ~200-250 pixels
-    // At 90cm distance, face width should be ~150-180 pixels
+
     if (faceWidth > 350) {
-      setDistanceStatus('too-close')
+      applyDistanceStatus('too-close')
     } else if (faceWidth < 100) {
-      setDistanceStatus('too-far')
+      applyDistanceStatus('too-far')
     } else {
-      setDistanceStatus('perfect')
+      applyDistanceStatus('perfect')
     }
   }, [])
 
@@ -129,10 +170,29 @@ const RedReflexTest = () => {
     return rightmost > leftmost ? rightmost - leftmost : 0
   }
 
+  // Landmark tracking is async, so self-schedule instead of a fixed interval to avoid overlap
   useEffect(() => {
     if (!cameraReady || (testState !== 'setup' && testState !== 'calibrating')) return undefined
-    const id = setInterval(measureDistance, 250)
-    return () => clearInterval(id)
+
+    let cancelled = false
+    let timeoutId = null
+
+    const loop = async () => {
+      if (cancelled) return
+      try {
+        await measureDistance()
+      } catch (err) {
+        console.warn('Distance check failed:', err)
+      }
+      if (!cancelled) timeoutId = setTimeout(loop, 250)
+    }
+
+    loop()
+
+    return () => {
+      cancelled = true
+      if (timeoutId) clearTimeout(timeoutId)
+    }
   }, [cameraReady, testState, measureDistance])
 
   // Start distance monitoring when camera is live
@@ -140,176 +200,6 @@ const RedReflexTest = () => {
     setTestState('calibrating')
     measureDistance()
   }, [measureDistance])
-
-  // Capture video frames for analysis
-  const startScan = useCallback(async () => {
-    if (distanceStatus !== 'perfect') {
-      setError('Move to the green “Perfect” distance band before scanning.')
-      return
-    }
-    setError(null)
-    setTestState('scanning')
-    setScanProgress(0)
-    setCapturedFrames([])
-
-    const frames = []
-    const totalFrames = 90 // 3 seconds at 30 fps
-    const captureInterval = 33 // ~30fps
-
-    let frameCount = 0
-
-    const captureFrame = () => {
-      if (frameCount >= totalFrames) {
-        clearInterval(intervalId)
-        setTestState('analyzing')
-        analyzeFrames(frames)
-        return
-      }
-
-      if (!videoRef.current || !canvasRef.current) return
-
-      const video = videoRef.current
-      const canvas = canvasRef.current
-      const ctx = canvas.getContext('2d')
-
-      canvas.width = video.videoWidth
-      canvas.height = video.videoHeight
-      ctx.drawImage(video, 0, 0)
-
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
-      frames.push(imageData)
-      
-      frameCount++
-      setScanProgress((frameCount / totalFrames) * 100)
-    }
-
-    const intervalId = setInterval(captureFrame, captureInterval)
-  }, [])
-
-  // Analyze captured frames for red reflex
-  const analyzeFrames = useCallback((frames) => {
-    if (frames.length === 0) {
-      setError('No frames captured. Please try again.')
-      setTestState('setup')
-      return
-    }
-
-    // Analyze each frame to extract red reflex data
-    const leftEyeIntensities = []
-    const rightEyeIntensities = []
-    const warnings = []
-
-    frames.forEach((imageData) => {
-      const analysis = analyzeRedReflex(imageData)
-      
-      if (analysis.leftEye) {
-        leftEyeIntensities.push(analysis.leftEye.redIntensity)
-      }
-      if (analysis.rightEye) {
-        rightEyeIntensities.push(analysis.rightEye.redIntensity)
-      }
-      
-      // Check for warnings
-      if (analysis.leftEye && analysis.leftEye.isWhite) {
-        warnings.push({ eye: 'left', type: 'leukocoria', severity: 'critical' })
-      }
-      if (analysis.rightEye && analysis.rightEye.isWhite) {
-        warnings.push({ eye: 'right', type: 'leukocoria', severity: 'critical' })
-      }
-      if (analysis.leftEye && analysis.leftEye.hasOpacity) {
-        warnings.push({ eye: 'left', type: 'opacity', severity: 'warning' })
-      }
-      if (analysis.rightEye && analysis.rightEye.hasOpacity) {
-        warnings.push({ eye: 'right', type: 'opacity', severity: 'warning' })
-      }
-    })
-
-    // Calculate average intensities
-    const avgLeftIntensity = leftEyeIntensities.reduce((a, b) => a + b, 0) / leftEyeIntensities.length
-    const avgRightIntensity = rightEyeIntensities.reduce((a, b) => a + b, 0) / rightEyeIntensities.length
-
-    // Calculate symmetry score (0-100, 100 = perfect symmetry)
-    const intensityDiff = Math.abs(avgLeftIntensity - avgRightIntensity)
-    const symmetryPercent = Math.max(0, 100 - (intensityDiff / 2.55))
-
-    // Calculate reflex intensity score (0-100)
-    const avgIntensity = (avgLeftIntensity + avgRightIntensity) / 2
-    const intensityScore = (avgIntensity / 255) * 100
-
-    // Flag refractive imbalance if difference > 15%
-    if (intensityDiff > 38) { // 15% of 255
-      warnings.push({ type: 'asymmetry', severity: 'warning' })
-    }
-
-    setReflexIntensityScore(Math.round(intensityScore))
-    setSymmetryScore(Math.round(symmetryPercent))
-    setLeftEyeData({ intensity: Math.round(avgLeftIntensity), percentage: Math.round((avgLeftIntensity / 255) * 100) })
-    setRightEyeData({ intensity: Math.round(avgRightIntensity), percentage: Math.round((avgRightIntensity / 255) * 100) })
-    setWarnings(warnings)
-
-    const reflexIntensityScore = Math.round(intensityScore)
-    const symmetryScore = Math.round(symmetryPercent)
-    const combinedScore = scoreRedReflex(reflexIntensityScore, warnings)
-
-    // Stop camera after analysis
-    stopCamera()
-    setTestState('results')
-
-    // Submit results to backend
-    submitResults({
-      reflexIntensityScore,
-      symmetryScore,
-      combinedScore,
-      leftEyeIntensity: Math.round(avgLeftIntensity),
-      rightEyeIntensity: Math.round(avgRightIntensity),
-      warnings,
-      analysis_note: 'Eye regions estimated at fixed screen positions; framing affects accuracy.',
-    })
-  }, [stopCamera])
-
-  // Analyze individual frame for red reflex
-  const analyzeRedReflex = (imageData) => {
-    const data = imageData.data
-    const width = imageData.width
-    const height = imageData.height
-
-    // This is a simplified analysis - in production, use proper face/eye detection
-    // For now, analyze two regions where eyes typically are
-    const leftEyeRegion = extractEyeRegion(data, width, height, 'left')
-    const rightEyeRegion = extractEyeRegion(data, width, height, 'right')
-
-    return {
-      leftEye: analyzeEyeRegion(leftEyeRegion),
-      rightEye: analyzeEyeRegion(rightEyeRegion)
-    }
-  }
-
-  // Extract eye region from frame
-  const extractEyeRegion = (data, width, height, side) => {
-    // Simplified eye location estimation
-    // Left eye: approximately 35% from left, 40% from top
-    // Right eye: approximately 65% from left, 40% from top
-    const centerX = side === 'left' ? Math.floor(width * 0.35) : Math.floor(width * 0.65)
-    const centerY = Math.floor(height * 0.4)
-    const radius = 30 // pixels
-
-    const pixels = []
-    for (let y = centerY - radius; y < centerY + radius; y++) {
-      for (let x = centerX - radius; x < centerX + radius; x++) {
-        const distance = Math.sqrt((x - centerX) ** 2 + (y - centerY) ** 2)
-        if (distance <= radius) {
-          const idx = (y * width + x) * 4
-          pixels.push({
-            r: data[idx],
-            g: data[idx + 1],
-            b: data[idx + 2]
-          })
-        }
-      }
-    }
-
-    return pixels
-  }
 
   // Analyze eye region for red reflex characteristics
   const analyzeEyeRegion = (pixels) => {
@@ -359,6 +249,195 @@ const RedReflexTest = () => {
     }
   }
 
+  // Analyze a single captured frame using its paired pupil regions.
+  // Eyes are keyed anatomically, so "leftEye" is the user's own left eye.
+  const analyzeRedReflex = (imageData, regions) => {
+    return {
+      leftEye: analyzeEyeRegion(sampleRegionPixels(imageData, regions.anatomicalLeft)),
+      rightEye: analyzeEyeRegion(sampleRegionPixels(imageData, regions.anatomicalRight)),
+    }
+  }
+
+  // Analyze captured frames for red reflex
+  const analyzeFrames = useCallback((frames) => {
+    if (frames.length === 0) {
+      setError('No frames captured. Please try again.')
+      setTestState('setup')
+      return
+    }
+
+    // Prefer frames where the pupils were actually located. Fixed-position sampling
+    // is only used when landmarks were unavailable for most of the scan.
+    const landmarkFrames = frames.filter(
+      (frame) => frame.regions?.source !== 'fallback-fixed-position'
+    )
+    const landmarkRatio = landmarkFrames.length / frames.length
+    const usedLandmarks = landmarkFrames.length >= Math.ceil(frames.length * 0.2)
+    const scoredFrames = usedLandmarks ? landmarkFrames : frames
+
+    const confidence = !usedLandmarks ? 'low' : landmarkRatio >= 0.7 ? 'high' : 'moderate'
+
+    // Analyze each frame to extract red reflex data
+    const leftEyeIntensities = []
+    const rightEyeIntensities = []
+    // Count per-frame flags so a single bad frame can't produce a warning
+    const flagCounts = {}
+    const countFlag = (key) => {
+      flagCounts[key] = (flagCounts[key] || 0) + 1
+    }
+
+    scoredFrames.forEach(({ imageData, regions }) => {
+      const analysis = analyzeRedReflex(imageData, regions)
+
+      if (analysis.leftEye) {
+        leftEyeIntensities.push(analysis.leftEye.redIntensity)
+        if (analysis.leftEye.isWhite) countFlag('left:leukocoria')
+        if (analysis.leftEye.hasOpacity) countFlag('left:opacity')
+      }
+      if (analysis.rightEye) {
+        rightEyeIntensities.push(analysis.rightEye.redIntensity)
+        if (analysis.rightEye.isWhite) countFlag('right:leukocoria')
+        if (analysis.rightEye.hasOpacity) countFlag('right:opacity')
+      }
+    })
+
+    if (leftEyeIntensities.length === 0 || rightEyeIntensities.length === 0) {
+      setError('Could not read the glow in both eyes. Re-frame your face and try again.')
+      setTestState('setup')
+      return
+    }
+
+    const warnings = []
+    const MIN_FLAG_RATIO = 0.3
+    Object.entries(flagCounts).forEach(([key, count]) => {
+      if (count / scoredFrames.length < MIN_FLAG_RATIO) return
+      const [eye, type] = key.split(':')
+      warnings.push({
+        eye,
+        type,
+        severity: type === 'leukocoria' ? 'critical' : 'warning',
+      })
+    })
+
+    // Calculate average intensities
+    const avgLeftIntensity = leftEyeIntensities.reduce((a, b) => a + b, 0) / leftEyeIntensities.length
+    const avgRightIntensity = rightEyeIntensities.reduce((a, b) => a + b, 0) / rightEyeIntensities.length
+
+    // Calculate symmetry score (0-100, 100 = perfect symmetry)
+    const intensityDiff = Math.abs(avgLeftIntensity - avgRightIntensity)
+    const symmetryPercent = Math.max(0, 100 - (intensityDiff / 2.55))
+
+    // Calculate reflex intensity score (0-100)
+    const avgIntensity = (avgLeftIntensity + avgRightIntensity) / 2
+    const intensityScore = (avgIntensity / 255) * 100
+
+    // Flag refractive imbalance if difference > 15%
+    if (intensityDiff > 38) { // 15% of 255
+      warnings.push({ type: 'asymmetry', severity: 'warning' })
+    }
+
+    setReflexIntensityScore(Math.round(intensityScore))
+    setSymmetryScore(Math.round(symmetryPercent))
+    setLeftEyeData({ intensity: Math.round(avgLeftIntensity), percentage: Math.round((avgLeftIntensity / 255) * 100) })
+    setRightEyeData({ intensity: Math.round(avgRightIntensity), percentage: Math.round((avgRightIntensity / 255) * 100) })
+    setWarnings(warnings)
+    setTrackingQuality({
+      confidence,
+      landmarkRatio: Math.round(landmarkRatio * 100),
+      framesScored: scoredFrames.length,
+    })
+
+    const reflexIntensityScore = Math.round(intensityScore)
+    const symmetryScore = Math.round(symmetryPercent)
+    const combinedScore = scoreRedReflex(reflexIntensityScore, warnings)
+
+    // Stop camera after analysis
+    stopCamera()
+    setTestState('results')
+
+    // Submit results to backend
+    submitResults({
+      reflexIntensityScore,
+      symmetryScore,
+      combinedScore,
+      leftEyeIntensity: Math.round(avgLeftIntensity),
+      rightEyeIntensity: Math.round(avgRightIntensity),
+      warnings,
+      detectionConfidence: confidence,
+      landmarkFramePercent: Math.round(landmarkRatio * 100),
+      framesScored: scoredFrames.length,
+      analysis_note: usedLandmarks
+        ? 'Eye regions located with MediaPipe iris landmarks.'
+        : 'No face detected; eye regions estimated at fixed screen positions. Framing affects accuracy.',
+    })
+  }, [stopCamera])
+
+  // Capture video frames for analysis
+  const startScan = useCallback(async () => {
+    if (distanceStatusRef.current !== 'perfect') {
+      setError('Move to the green “Perfect” distance band before scanning.')
+      return
+    }
+    setError(null)
+    setTestState('scanning')
+    setScanProgress(0)
+    setCapturedFrames([])
+
+    const frames = []
+    const totalFrames = 90 // 3 seconds at 30 fps
+    const captureInterval = 33 // ~30fps
+
+    let frameCount = 0
+
+    // Landmark tracking runs on its own loop; each captured frame pairs with the
+    // most recent pupil positions so eye ROIs follow head movement during the scan.
+    let trackingCancelled = false
+    const trackLoop = async () => {
+      while (!trackingCancelled) {
+        if (!videoRef.current) break
+        try {
+          await pupilTrackerRef.current?.track(videoRef.current)
+        } catch (err) {
+          console.warn('Pupil tracking failed mid-scan:', err)
+          break
+        }
+      }
+    }
+    trackLoop()
+
+    const captureFrame = () => {
+      if (frameCount >= totalFrames) {
+        clearInterval(intervalId)
+        trackingCancelled = true
+        setTestState('analyzing')
+        analyzeFrames(frames)
+        return
+      }
+
+      if (!videoRef.current || !canvasRef.current) return
+
+      const video = videoRef.current
+      const canvas = canvasRef.current
+      const ctx = canvas.getContext('2d')
+
+      canvas.width = video.videoWidth
+      canvas.height = video.videoHeight
+      ctx.drawImage(video, 0, 0)
+
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+      const regions =
+        pupilTrackerRef.current?.getRegions(canvas.width, canvas.height) ||
+        fallbackPupilRegions(canvas.width, canvas.height)
+
+      frames.push({ imageData, regions })
+
+      frameCount++
+      setScanProgress((frameCount / totalFrames) * 100)
+    }
+
+    const intervalId = setInterval(captureFrame, captureInterval)
+  }, [analyzeFrames])
+
   // Submit results to backend
   const submitResults = async (results) => {
     try {
@@ -372,6 +451,9 @@ const RedReflexTest = () => {
           left_eye_intensity: results.leftEyeIntensity,
           right_eye_intensity: results.rightEyeIntensity,
           warnings: results.warnings,
+          detection_confidence: results.detectionConfidence,
+          landmark_frame_percent: results.landmarkFramePercent,
+          frames_scored: results.framesScored,
           analysis_note: results.analysis_note,
           timestamp: new Date().toISOString()
         }
@@ -584,6 +666,14 @@ const RedReflexTest = () => {
               Move closer...
             </p>
           )}
+
+          {cameraReady && (
+            <p className={`text-center text-sm mt-3 ${eyesLocated ? 'text-green-400' : 'text-gray-400'}`}>
+              {eyesLocated
+                ? 'Both pupils located — the scan will follow your eyes.'
+                : 'Looking for your eyes… make sure your whole face is in frame.'}
+            </p>
+          )}
         </div>
 
         {error && (
@@ -788,6 +878,32 @@ const RedReflexTest = () => {
               </div>
             )}
 
+            {/* Eye-location confidence — low confidence means the pupils were never found */}
+            {trackingQuality && (
+              <div
+                className={`border-l-4 p-4 mb-8 rounded-r-xl ${
+                  trackingQuality.confidence === 'low'
+                    ? 'bg-yellow-50 border-yellow-500'
+                    : 'bg-gray-50 border-gray-300'
+                }`}
+              >
+                {trackingQuality.confidence === 'low' ? (
+                  <p className="text-yellow-900 text-sm">
+                    <strong>Low confidence:</strong> we couldn't find your pupils during this scan, so
+                    the glow was measured at fixed screen positions. Retake the test with your whole
+                    face in frame for a reliable reading.
+                  </p>
+                ) : (
+                  <p className="text-gray-700 text-sm">
+                    Pupils were tracked in {trackingQuality.landmarkRatio}% of frames
+                    {trackingQuality.confidence === 'moderate'
+                      ? ' — holding steadier will improve accuracy.'
+                      : ' — good tracking.'}
+                  </p>
+                )}
+              </div>
+            )}
+
             {/* Main scores */}
             <div className="grid md:grid-cols-2 gap-6 mb-8">
               {/* Reflex Intensity Score */}
@@ -826,7 +942,7 @@ const RedReflexTest = () => {
               <div className="grid md:grid-cols-2 gap-6">
                 {/* Left eye */}
                 <div className="bg-white rounded-xl p-4 border border-gray-200">
-                  <h4 className="font-bold text-gray-700 mb-3">Left Eye</h4>
+                  <h4 className="font-bold text-gray-700 mb-3">Your Left Eye</h4>
                   <div className="space-y-2">
                     <div className="flex justify-between items-center">
                       <span className="text-sm text-gray-600">Glow brightness:</span>
@@ -843,7 +959,7 @@ const RedReflexTest = () => {
 
                 {/* Right eye */}
                 <div className="bg-white rounded-xl p-4 border border-gray-200">
-                  <h4 className="font-bold text-gray-700 mb-3">Right Eye</h4>
+                  <h4 className="font-bold text-gray-700 mb-3">Your Right Eye</h4>
                   <div className="space-y-2">
                     <div className="flex justify-between items-center">
                       <span className="text-sm text-gray-600">Glow brightness:</span>
@@ -916,7 +1032,13 @@ const RedReflexTest = () => {
                 Print Report
               </button>
               <button
-                onClick={() => setTestState('instructions')}
+                onClick={() => {
+                  setTrackingQuality(null)
+                  setEyesLocated(false)
+                  setWarnings([])
+                  setError(null)
+                  setTestState('instructions')
+                }}
                 className="flex-1 px-6 py-3 bg-gray-600 hover:bg-gray-700 text-white rounded-xl font-semibold transition-colors"
               >
                 Take Another Test

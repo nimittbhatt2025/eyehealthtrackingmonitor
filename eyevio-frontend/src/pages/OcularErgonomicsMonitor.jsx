@@ -5,6 +5,8 @@ import { visionTestAPI } from '../services/api'
 import SamdDisclaimer from '../components/SamdDisclaimer'
 import StableLightingPreview from '../utils/stableLightingPreview'
 import { getLightingUiCopy } from '../utils/photoLightingCheck'
+import { PupilRegionTracker } from '../utils/pupilRegionDetector'
+import { estimateDistanceCmFromPixelIpd } from '../utils/distanceCalibration'
 
 /**
  * Ocular Ergonomics AI - Ambient Monitor
@@ -26,12 +28,16 @@ const OcularErgonomicsMonitor = () => {
   const lastAlertAt = useRef({})
   const alertCountsRef = useRef({ info: 0, warning: 0, critical: 0 })
   const lightingPreviewRef = useRef(null)
+  const pupilTrackerRef = useRef(null)
   const rollingAmbientRef = useRef([])
   const rollingDistanceRef = useRef([])
+  const distanceMissesRef = useRef(0)
 
   const [lightingStatus, setLightingStatus] = useState('checking')
   const [lightingMessage, setLightingMessage] = useState('')
   const [distanceBandLabel, setDistanceBandLabel] = useState('Checking distance…')
+  const [eyesLocated, setEyesLocated] = useState(false)
+  const [distanceConfidence, setDistanceConfidence] = useState(null)
 
   const [monitoringState, setMonitoringState] = useState('instructions') // instructions, setup, monitoring, paused
   const [cameraReady, setCameraReady] = useState(false)
@@ -46,7 +52,7 @@ const OcularErgonomicsMonitor = () => {
   const [screenBrightness, setScreenBrightness] = useState(0) // 0-255
   const [glareLevel, setGlareLevel] = useState('optimal') // optimal, acceptable, poor, severe
   const [viewingDistance, setViewingDistance] = useState(0) // cm
-  const [postureStatus, setPostureStatus] = useState('good') // good, leaning, too-close
+  const [postureStatus, setPostureStatus] = useState('good') // good, leaning, too-close, too-far, unknown
   
   // Alert history
   const [alerts, setAlerts] = useState([])
@@ -80,6 +86,8 @@ const OcularErgonomicsMonitor = () => {
 
   useEffect(() => {
     lightingPreviewRef.current = new StableLightingPreview()
+    pupilTrackerRef.current = new PupilRegionTracker()
+    pupilTrackerRef.current.init()
   }, [])
 
   const mapLightingToGlare = (status) => {
@@ -116,6 +124,10 @@ const OcularErgonomicsMonitor = () => {
       })
 
       streamRef.current = stream
+      if (!pupilTrackerRef.current) {
+        pupilTrackerRef.current = new PupilRegionTracker()
+        pupilTrackerRef.current.init()
+      }
       bindStreamToVideo()
     } catch (err) {
       console.error('Camera access denied:', err)
@@ -144,7 +156,12 @@ const OcularErgonomicsMonitor = () => {
       try { cameraManager.release() } catch (e) { try { streamRef.current.getTracks().forEach(track => track.stop()) } catch (err) {} }
       streamRef.current = null
     }
+    if (pupilTrackerRef.current) {
+      pupilTrackerRef.current.stop()
+      pupilTrackerRef.current = null
+    }
     setCameraReady(false)
+    setEyesLocated(false)
   }, [clearTimers])
 
   const videoIsLive = () => {
@@ -209,38 +226,12 @@ const OcularErgonomicsMonitor = () => {
     return 'severe' // Excessive glare
   }, [])
 
-  // Measure viewing distance using face size
-  const measureViewingDistance = useCallback(() => {
-    if (!videoIsLive() || !canvasRef.current) return null
-
-    const video = videoRef.current
-    const canvas = canvasRef.current
-    const ctx = canvas.getContext('2d')
-
-    canvas.width = video.videoWidth
-    canvas.height = video.videoHeight
-    ctx.drawImage(video, 0, 0)
-
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
-    const faceWidth = estimateFaceWidth(imageData)
-    if (!faceWidth || faceWidth < 20) return null
-
-    // Average face width is ~14cm
-    // Using simple pinhole camera model: distance = (realWidth * focalLength) / pixelWidth
-    // Calibration factor for typical webcam
-    const CALIBRATION_FACTOR = 3000
-    const distance = CALIBRATION_FACTOR / (faceWidth + 1)
-
-    return Math.max(20, Math.min(150, distance)) // Clamp to reasonable range
-  }, [])
-
-  // Estimate face width in pixels
+  // Skin-tone face-width fallback when MediaPipe cannot lock pupils
   const estimateFaceWidth = (imageData) => {
     const data = imageData.data
     const width = imageData.width
     const height = imageData.height
 
-    // Detect skin tones in center region
     let leftmost = width
     let rightmost = 0
     
@@ -254,7 +245,6 @@ const OcularErgonomicsMonitor = () => {
         const g = data[idx + 1]
         const b = data[idx + 2]
         
-        // Simple skin tone detection
         if (r > 95 && g > 40 && b > 20 && r > g && r > b) {
           if (x < leftmost) leftmost = x
           if (x > rightmost) rightmost = x
@@ -262,11 +252,49 @@ const OcularErgonomicsMonitor = () => {
       }
     }
 
-    return rightmost - leftmost
+    return rightmost > leftmost ? rightmost - leftmost : 0
   }
+
+  // Measure viewing distance: landmark IPD first, skin-tone face width as fallback
+  const measureViewingDistance = useCallback(async () => {
+    if (!videoIsLive() || !canvasRef.current) return null
+
+    const video = videoRef.current
+    const canvas = canvasRef.current
+
+    // Prefer MediaPipe iris span — far more stable than skin-tone face width
+    try {
+      const regions = await pupilTrackerRef.current?.track(video)
+      if (regions?.eyeSpanPx > 0) {
+        const cm = estimateDistanceCmFromPixelIpd(regions.eyeSpanPx, video.videoWidth)
+        if (cm != null) {
+          return { distanceCm: cm, source: 'iris-landmarks', eyesLocated: true }
+        }
+      }
+    } catch (err) {
+      console.warn('IPD distance tracking failed:', err)
+    }
+
+    // Fallback: estimate from face width in the current frame
+    const ctx = canvas.getContext('2d')
+    canvas.width = video.videoWidth
+    canvas.height = video.videoHeight
+    ctx.drawImage(video, 0, 0)
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+    const faceWidth = estimateFaceWidth(imageData)
+    if (!faceWidth || faceWidth < 20) {
+      return { distanceCm: null, source: 'none', eyesLocated: false }
+    }
+
+    // Average face width ~14cm; CALIBRATION_FACTOR tuned for typical webcams
+    const CALIBRATION_FACTOR = 3000
+    const distance = Math.max(20, Math.min(150, CALIBRATION_FACTOR / (faceWidth + 1)))
+    return { distanceCm: distance, source: 'fallback-face-width', eyesLocated: false }
+  }, [])
 
   // Assess posture
   const assessPosture = useCallback((distance) => {
+    if (distance == null || !Number.isFinite(distance)) return 'unknown'
     if (distance < TOO_CLOSE_THRESHOLD) return 'too-close'
     if (distance < OPTIMAL_DISTANCE_MIN) return 'leaning'
     if (distance > OPTIMAL_DISTANCE_MAX) return 'too-far'
@@ -333,21 +361,33 @@ const OcularErgonomicsMonitor = () => {
         setSampleCount((prev) => prev + 1)
       }
 
-      const distance = measureViewingDistance()
-      if (distance != null) {
-        rollingDistanceRef.current = pushRolling(rollingDistanceRef.current, distance)
-        const avgDistance = rollingMean(rollingDistanceRef.current)
-        const posture = assessPosture(avgDistance)
-        setViewingDistance(Math.round(avgDistance))
-        setPostureStatus(posture)
-        setDistanceBandLabel(DISTANCE_BAND_LABELS[posture] || DISTANCE_BAND_LABELS.unknown)
+      const distanceResult = await measureViewingDistance()
+      if (distanceResult) {
+        setEyesLocated(Boolean(distanceResult.eyesLocated))
+        setDistanceConfidence(distanceResult.source)
 
-        if (posture === 'too-close') {
-          generateAlert('distance', 'You are too close to the screen. Sit back to a comfortable arm’s length.', 'critical')
-        } else if (posture === 'leaning') {
-          generateAlert('distance', 'You are a little close. Sit back if you can.', 'warning')
-        } else if (posture === 'too-far') {
-          generateAlert('distance', 'You may be sitting too far from the screen.', 'warning')
+        if (distanceResult.distanceCm != null) {
+          distanceMissesRef.current = 0
+          rollingDistanceRef.current = pushRolling(rollingDistanceRef.current, distanceResult.distanceCm)
+          const avgDistance = rollingMean(rollingDistanceRef.current)
+          const posture = assessPosture(avgDistance)
+          setViewingDistance(Math.round(avgDistance))
+          setPostureStatus(posture)
+          setDistanceBandLabel(DISTANCE_BAND_LABELS[posture] || DISTANCE_BAND_LABELS.unknown)
+
+          if (posture === 'too-close') {
+            generateAlert('distance', 'You are too close to the screen. Sit back to a comfortable arm’s length.', 'critical')
+          } else if (posture === 'leaning') {
+            generateAlert('distance', 'You are a little close. Sit back if you can.', 'warning')
+          } else if (posture === 'too-far') {
+            generateAlert('distance', 'You may be sitting too far from the screen.', 'warning')
+          }
+        } else {
+          distanceMissesRef.current += 1
+          if (distanceMissesRef.current >= 2) {
+            setPostureStatus('unknown')
+            setDistanceBandLabel(DISTANCE_BAND_LABELS.unknown)
+          }
         }
       }
     } catch (err) {
@@ -368,8 +408,17 @@ const OcularErgonomicsMonitor = () => {
   const startMonitoring = useCallback(() => {
     rollingAmbientRef.current = []
     rollingDistanceRef.current = []
+    distanceMissesRef.current = 0
     alertCountsRef.current = { info: 0, warning: 0, critical: 0 }
     if (lightingPreviewRef.current) lightingPreviewRef.current.reset()
+    if (!pupilTrackerRef.current) {
+      pupilTrackerRef.current = new PupilRegionTracker()
+      pupilTrackerRef.current.init()
+    } else {
+      pupilTrackerRef.current.reset()
+    }
+    setEyesLocated(false)
+    setDistanceConfidence(null)
     setMonitoringState('monitoring')
     setSessionStart(Date.now())
     setErgonomicsScore(100)
@@ -378,6 +427,8 @@ const OcularErgonomicsMonitor = () => {
     setMonitoringDuration(0)
     setSampleCount(0)
     setLastSampleAt(null)
+    setPostureStatus('unknown')
+    setDistanceBandLabel(DISTANCE_BAND_LABELS.unknown)
     bindStreamToVideo()
     window.setTimeout(() => beginTimers(), 50)
   }, [bindStreamToVideo, beginTimers])
@@ -447,15 +498,22 @@ const OcularErgonomicsMonitor = () => {
       distance_band_label: distanceBandLabel,
       avgDistance: rollingMean(rollingDistanceRef.current) ?? viewingDistance,
       postureStatus,
+      distance_source: distanceConfidence,
       totalAlerts,
       alertCounts: { ...alertCountsRef.current },
       ergonomicsScore,
-      recommendations: recs
+      recommendations: recs,
+      analysis_note:
+        distanceConfidence === 'iris-landmarks'
+          ? 'Viewing distance estimated from MediaPipe iris IPD (uses saved calibration when available).'
+          : distanceConfidence === 'fallback-face-width'
+            ? 'Pupils not locked; viewing distance estimated from face-width fallback.'
+            : 'Distance could not be measured reliably this session.',
     })
 
     stopCamera()
     setMonitoringState('results')
-  }, [monitoringDuration, totalAlerts, ambientLight, glareLevel, viewingDistance, postureStatus, distanceBandLabel, lightingStatus, lightingMessage, ergonomicsScore, stopCamera, clearTimers])
+  }, [monitoringDuration, totalAlerts, ambientLight, glareLevel, viewingDistance, postureStatus, distanceBandLabel, distanceConfidence, lightingStatus, lightingMessage, ergonomicsScore, stopCamera, clearTimers])
 
   // Submit session to backend
   const submitSession = async (session) => {
@@ -473,6 +531,8 @@ const OcularErgonomicsMonitor = () => {
           distance_band_label: session.distance_band_label,
           avg_viewing_distance_cm: session.avgDistance,
           posture_status: session.postureStatus,
+          distance_source: session.distance_source,
+          analysis_note: session.analysis_note,
           total_alerts: session.totalAlerts,
           alert_counts: session.alertCounts,
           recommendations: session.recommendations,
@@ -681,6 +741,7 @@ const OcularErgonomicsMonitor = () => {
     const getPostureColor = (posture) => {
       if (posture === 'good') return 'bg-green-500'
       if (posture === 'leaning' || posture === 'too-far') return 'bg-yellow-500'
+      if (posture === 'unknown') return 'bg-gray-500'
       return 'bg-red-500'
     }
 
@@ -896,6 +957,13 @@ const OcularErgonomicsMonitor = () => {
                     <p className="text-xs text-gray-500">
                       Comfortable arm’s length is about 50–70 cm. We show a band, not an exact number.
                     </p>
+                    <p className={`text-xs mt-2 ${eyesLocated ? 'text-green-400' : 'text-gray-500'}`}>
+                      {eyesLocated
+                        ? 'Pupils locked — distance from eye spacing (IPD).'
+                        : distanceConfidence === 'fallback-face-width'
+                          ? 'Pupils not locked — using face-width estimate (lower confidence).'
+                          : 'Looking for your eyes…'}
+                    </p>
                     <div className="flex gap-2 text-xs mt-2">
                       <div className={`flex-1 rounded p-2 text-center border ${postureStatus === 'too-close' ? 'bg-red-900/30 border-red-600' : 'bg-gray-700 border-gray-600'}`}>
                         Too close
@@ -1010,6 +1078,24 @@ const OcularErgonomicsMonitor = () => {
                 <div className="text-sm text-cyan-800">Distance band</div>
               </div>
             </div>
+
+            {distanceConfidence && (
+              <div
+                className={`border-l-4 p-4 mb-8 rounded-r-xl ${
+                  distanceConfidence === 'iris-landmarks'
+                    ? 'bg-gray-50 border-gray-300'
+                    : 'bg-yellow-50 border-yellow-500'
+                }`}
+              >
+                <p className={`text-sm ${distanceConfidence === 'iris-landmarks' ? 'text-gray-700' : 'text-yellow-900'}`}>
+                  {distanceConfidence === 'iris-landmarks'
+                    ? 'Distance was tracked from your pupil spacing (MediaPipe iris landmarks).'
+                    : distanceConfidence === 'fallback-face-width'
+                      ? 'Pupils were not locked for much of this session, so distance used a lower-confidence face-width estimate.'
+                      : 'Distance could not be measured reliably this session.'}
+                </p>
+              </div>
+            )}
 
             {/* Recommendations */}
             <div className="space-y-4 mb-8">

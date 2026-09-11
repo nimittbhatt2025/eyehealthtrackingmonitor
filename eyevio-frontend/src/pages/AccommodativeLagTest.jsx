@@ -4,6 +4,11 @@ import { useNavigate } from 'react-router-dom'
 import { toast } from 'react-hot-toast'
 import { visionTestAPI } from '../services/api'
 import SamdDisclaimer from '../components/SamdDisclaimer'
+import {
+  PupilRegionTracker,
+  fallbackPupilRegions,
+  estimatePupilSizeFromRegions,
+} from '../utils/pupilRegionDetector'
 
 /**
  * Accommodative Lag Tracker - Near-Work Stress Test
@@ -19,9 +24,13 @@ const AccommodativeLagTest = () => {
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
   const streamRef = useRef(null)
+  const pupilTrackerRef = useRef(null)
+  const trackingStopRef = useRef(null)
 
   const [testState, setTestState] = useState('instructions') // instructions, setup, testing, analyzing, results
   const [cameraReady, setCameraReady] = useState(false)
+  const [eyesLocated, setEyesLocated] = useState(false)
+  const [trackingQuality, setTrackingQuality] = useState(null)
   const [currentBlurLevel, setCurrentBlurLevel] = useState(0) // 0-10
   const [currentBlurPx, setCurrentBlurPx] = useState(0)
   const [pupilData, setPupilData] = useState([])
@@ -73,6 +82,12 @@ const AccommodativeLagTest = () => {
       })
 
       streamRef.current = stream
+
+      if (!pupilTrackerRef.current) {
+        pupilTrackerRef.current = new PupilRegionTracker()
+        pupilTrackerRef.current.init()
+      }
+
       if (videoRef.current) {
         videoRef.current.srcObject = stream
         videoRef.current.onloadedmetadata = () => {
@@ -87,14 +102,23 @@ const AccommodativeLagTest = () => {
 
   // Stop camera
   const stopCamera = useCallback(() => {
+    if (trackingStopRef.current) {
+      trackingStopRef.current()
+      trackingStopRef.current = null
+    }
     if (streamRef.current) {
       try { cameraManager.release() } catch (e) { try { streamRef.current.getTracks().forEach(track => track.stop()) } catch (err) {} }
       streamRef.current = null
     }
+    if (pupilTrackerRef.current) {
+      pupilTrackerRef.current.stop()
+      pupilTrackerRef.current = null
+    }
     setCameraReady(false)
+    setEyesLocated(false)
   }, [])
 
-  // Measure pupil size (simplified - in production use proper eye tracking)
+  // Grab a frame and estimate pupil size from iris landmarks (or fixed fallback)
   const measurePupilSize = useCallback(() => {
     if (!videoRef.current || !canvasRef.current) return null
 
@@ -108,120 +132,48 @@ const AccommodativeLagTest = () => {
     canvas.height = video.videoHeight
     ctx.drawImage(video, 0, 0)
 
-    // Extract eye region and measure darkness (pupil size proxy)
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
-    const eyeRegion = extractEyeRegion(imageData)
-    
-    // Calculate average darkness in eye region (darker = larger pupil)
-    let totalDarkness = 0
-    eyeRegion.forEach(pixel => {
-      const brightness = (pixel.r + pixel.g + pixel.b) / 3
-      totalDarkness += (255 - brightness)
-    })
-    
-    const avgDarkness = eyeRegion.length > 0 ? totalDarkness / eyeRegion.length : 0
-    return avgDarkness
+    const regions =
+      pupilTrackerRef.current?.getRegions(canvas.width, canvas.height) ||
+      fallbackPupilRegions(canvas.width, canvas.height)
+
+    const estimate = estimatePupilSizeFromRegions(imageData, regions)
+    if (!estimate) return null
+
+    return {
+      size: estimate.size,
+      source: estimate.source,
+      left: estimate.left,
+      right: estimate.right,
+    }
   }, [])
 
-  // Extract eye region from frame
-  const extractEyeRegion = (imageData) => {
-    const data = imageData.data
-    const width = imageData.width
-    const height = imageData.height
-
-    // Simplified eye detection - center region where eyes typically are
-    const eyeCenterX = Math.floor(width * 0.5)
-    const eyeCenterY = Math.floor(height * 0.4)
-    const radius = 40
-
-    const pixels = []
-    for (let y = eyeCenterY - radius; y < eyeCenterY + radius; y++) {
-      for (let x = eyeCenterX - radius; x < eyeCenterX + radius; x++) {
-        const distance = Math.sqrt((x - eyeCenterX) ** 2 + (y - eyeCenterY) ** 2)
-        if (distance <= radius) {
-          const idx = (y * width + x) * 4
-          pixels.push({
-            r: data[idx],
-            g: data[idx + 1],
-            b: data[idx + 2]
-          })
-        }
-      }
-    }
-
-    return pixels
-  }
-
-  // Start test
-  const startTest = useCallback(() => {
-    setTestState('testing')
-    setCurrentBlurLevel(0)
-    setCurrentBlurPx(0)
-    setPupilData([])
-    userResponsesRef.current = []
-    setUserResponses([])
-    setTestProgress(0)
-
-    let startTime = Date.now()
-    let blurLevel = 0
-    let pupilMeasurements = []
-
-    // Measure pupil every 100ms
-    const pupilInterval = setInterval(() => {
-      const pupilSize = measurePupilSize()
-      if (pupilSize !== null) {
-        pupilMeasurements.push({
-          time: Date.now() - startTime,
-          size: pupilSize,
-          blurLevel: blurLevel
-        })
-        setPupilData(prev => [...prev, { time: Date.now() - startTime, size: pupilSize, blurLevel }])
-      }
-    }, PUPIL_SAMPLE_RATE)
-
-    // Update progress and ease blur in only after the hold period
-    const progressInterval = setInterval(() => {
-      const elapsed = Date.now() - startTime
-      const progress = Math.min((elapsed / (TEST_DURATION * 1000)) * 100, 100)
-      const blurPx = blurPxFromProgress(progress)
-      blurLevel = blurLevelFromPx(blurPx)
-      setTestProgress(progress)
-      setCurrentBlurPx(blurPx)
-      setCurrentBlurLevel(blurLevel)
-
-      if (progress >= 100) {
-        clearInterval(pupilInterval)
-        clearInterval(progressInterval)
-        analyzeResults(pupilMeasurements)
-      }
-    }, 100)
-
-  }, [measurePupilSize])
-
-  // User reports if they can see the target
-  const handleCanSee = useCallback((canSee) => {
-    const entry = {
-      blurLevel: currentBlurLevel,
-      blurPx: currentBlurPx,
-      progress: testProgress,
-      canSee,
-      timestamp: Date.now(),
-    }
-    userResponsesRef.current = [...userResponsesRef.current, entry]
-    setUserResponses(userResponsesRef.current)
-    setResponseCount(userResponsesRef.current.length)
-    const label = canSee ? 'Recorded: I can see it' : 'Recorded: Too blurry'
-    setLastResponseLabel(label)
-    toast.success(label, { duration: 1200, id: 'accommodative-response' })
-  }, [currentBlurLevel, currentBlurPx, testProgress])
-
-  // Re-attach camera stream when testing view mounts (setup video is unmounted)
+  // Keep landmarks fresh during setup so Begin Test can show pupil lock status
   useEffect(() => {
-    if (testState === 'testing' && streamRef.current && videoRef.current) {
-      videoRef.current.srcObject = streamRef.current
-      videoRef.current.play().catch(() => {})
+    if (!cameraReady || testState !== 'setup') return undefined
+
+    let cancelled = false
+    let timeoutId = null
+
+    const loop = async () => {
+      if (cancelled) return
+      try {
+        const regions = await pupilTrackerRef.current?.track(videoRef.current)
+        if (!cancelled) setEyesLocated(Boolean(regions))
+      } catch (err) {
+        console.warn('Pupil tracking failed during setup:', err)
+        if (!cancelled) setEyesLocated(false)
+      }
+      if (!cancelled) timeoutId = setTimeout(loop, 250)
     }
-  }, [testState, cameraReady])
+
+    loop()
+
+    return () => {
+      cancelled = true
+      if (timeoutId) clearTimeout(timeoutId)
+    }
+  }, [cameraReady, testState])
 
   // Analyze test results
   const analyzeResults = useCallback((pupilMeasurements) => {
@@ -230,14 +182,24 @@ const AccommodativeLagTest = () => {
     setTimeout(() => {
       const responses = userResponsesRef.current
 
-      const initialSamples = pupilMeasurements.slice(0, 10)
-      const finalSamples = pupilMeasurements.slice(-10)
+      const landmarkSamples = pupilMeasurements.filter(
+        (m) => m.source && m.source !== 'fallback-fixed-position'
+      )
+      const landmarkRatio =
+        pupilMeasurements.length > 0 ? landmarkSamples.length / pupilMeasurements.length : 0
+      const usedLandmarks = landmarkRatio >= 0.2
+      const scoredSamples = usedLandmarks ? landmarkSamples : pupilMeasurements
+      const confidence = !usedLandmarks ? 'low' : landmarkRatio >= 0.7 ? 'high' : 'moderate'
+
+      const initialSamples = scoredSamples.slice(0, 10)
+      const finalSamples = scoredSamples.slice(-10)
       const avg = (samples) =>
         samples.length ? samples.reduce((sum, m) => sum + m.size, 0) / samples.length : 0
 
       const initialPupilSize = avg(initialSamples)
       const finalPupilSize = avg(finalSamples)
 
+      // Positive = pupils got smaller (miosis / focusing effort)
       const pupilConstriction = initialPupilSize > 0
         ? ((initialPupilSize - finalPupilSize) / initialPupilSize) * 100
         : 0
@@ -260,10 +222,18 @@ const AccommodativeLagTest = () => {
         accommodationScore = Math.round(40 + (firstFail / BLUR_STEPS) * 60)
       }
 
-      // Webcam darkness is not real pupil tracking — allow a tiny tweak, never 40% of the score
-      const pupilAdjust = Number.isFinite(pupilConstriction)
-        ? Math.max(-6, Math.min(6, pupilConstriction * 0.12))
-        : 0
+      // Real iris sampling can nudge the score more; fixed-position darkness stays tiny.
+      let pupilAdjust = 0
+      if (Number.isFinite(pupilConstriction) && scoredSamples.length >= 8) {
+        if (confidence === 'high') {
+          pupilAdjust = Math.max(-12, Math.min(12, pupilConstriction * 0.25))
+        } else if (confidence === 'moderate') {
+          pupilAdjust = Math.max(-8, Math.min(8, pupilConstriction * 0.18))
+        } else {
+          pupilAdjust = Math.max(-6, Math.min(6, pupilConstriction * 0.12))
+        }
+      }
+
       const capacity = clampScore(accommodationScore + pupilAdjust, 80)
       const lag = clampScore(100 - capacity, 20)
 
@@ -288,6 +258,12 @@ const AccommodativeLagTest = () => {
       setAccommodativeLag(lag)
       setFatigueLevel(fatigue)
       setBreakRecommendation(recommendation)
+      setTrackingQuality({
+        confidence,
+        landmarkRatio: Math.round(landmarkRatio * 100),
+        samplesScored: scoredSamples.length,
+        pupilConstriction: Math.round(pupilConstriction * 10) / 10,
+      })
 
       stopCamera()
       setTestState('results')
@@ -298,14 +274,116 @@ const AccommodativeLagTest = () => {
         fatigueLevel: fatigue,
         accommodationScore,
         pupilAdjust,
+        pupilConstriction,
+        detectionConfidence: confidence,
+        landmarkFramePercent: Math.round(landmarkRatio * 100),
         bestCanSee,
         firstFailBlurLevel: firstFail,
         blurSteps: BLUR_STEPS,
         pupilData: pupilMeasurements,
         userResponses: responses,
+        analysis_note: usedLandmarks
+          ? 'Pupil size estimated from dark fraction inside MediaPipe iris regions.'
+          : 'No face detected; pupil size estimated from fixed screen positions. Framing affects accuracy.',
       })
     }, 2000)
   }, [stopCamera])
+
+  // Start test
+  const startTest = useCallback(() => {
+    setTestState('testing')
+    setCurrentBlurLevel(0)
+    setCurrentBlurPx(0)
+    setPupilData([])
+    setTrackingQuality(null)
+    userResponsesRef.current = []
+    setUserResponses([])
+    setTestProgress(0)
+    setResponseCount(0)
+    setLastResponseLabel('')
+
+    let startTime = Date.now()
+    let blurLevel = 0
+    let pupilMeasurements = []
+
+    // Landmark tracking runs continuously; each sample reads the latest regions.
+    let trackingCancelled = false
+    const trackLoop = async () => {
+      while (!trackingCancelled) {
+        if (!videoRef.current) break
+        try {
+          await pupilTrackerRef.current?.track(videoRef.current)
+        } catch (err) {
+          console.warn('Pupil tracking failed mid-test:', err)
+          break
+        }
+      }
+    }
+    trackLoop()
+    trackingStopRef.current = () => {
+      trackingCancelled = true
+    }
+
+    // Measure pupil every 100ms
+    const pupilInterval = setInterval(() => {
+      const sample = measurePupilSize()
+      if (sample !== null) {
+        const entry = {
+          time: Date.now() - startTime,
+          size: sample.size,
+          blurLevel,
+          source: sample.source,
+        }
+        pupilMeasurements.push(entry)
+        setPupilData((prev) => [...prev, entry])
+      }
+    }, PUPIL_SAMPLE_RATE)
+
+    // Update progress and ease blur in only after the hold period
+    const progressInterval = setInterval(() => {
+      const elapsed = Date.now() - startTime
+      const progress = Math.min((elapsed / (TEST_DURATION * 1000)) * 100, 100)
+      const blurPx = blurPxFromProgress(progress)
+      blurLevel = blurLevelFromPx(blurPx)
+      setTestProgress(progress)
+      setCurrentBlurPx(blurPx)
+      setCurrentBlurLevel(blurLevel)
+
+      if (progress >= 100) {
+        clearInterval(pupilInterval)
+        clearInterval(progressInterval)
+        trackingCancelled = true
+        trackingStopRef.current = null
+        analyzeResults(pupilMeasurements)
+      }
+    }, 100)
+
+  }, [measurePupilSize, analyzeResults])
+
+  // User reports if they can see the target
+  const handleCanSee = useCallback((canSee) => {
+    const entry = {
+      blurLevel: currentBlurLevel,
+      blurPx: currentBlurPx,
+      progress: testProgress,
+      canSee,
+      timestamp: Date.now(),
+    }
+    userResponsesRef.current = [...userResponsesRef.current, entry]
+    setUserResponses(userResponsesRef.current)
+    setResponseCount(userResponsesRef.current.length)
+    const label = canSee ? 'Recorded: I can see it' : 'Recorded: Too blurry'
+    setLastResponseLabel(label)
+    toast.success(label, { duration: 1200, id: 'accommodative-response' })
+  }, [currentBlurLevel, currentBlurPx, testProgress])
+
+  // Re-attach camera stream when testing view mounts (setup video stays mounted via persistent layer)
+  useEffect(() => {
+    if (testState === 'testing' && streamRef.current && videoRef.current) {
+      videoRef.current.srcObject = streamRef.current
+      videoRef.current.play().catch(() => {})
+    }
+  }, [testState, cameraReady])
 
   // Submit results to backend
   const submitResults = async (results) => {
@@ -320,11 +398,15 @@ const AccommodativeLagTest = () => {
           fatigue_level: results.fatigueLevel,
           accommodation_score: results.accommodationScore,
           pupil_adjust: results.pupilAdjust,
+          pupil_constriction: results.pupilConstriction,
+          detection_confidence: results.detectionConfidence,
+          landmark_frame_percent: results.landmarkFramePercent,
           best_can_see_blur_level: results.bestCanSee,
           first_fail_blur_level: results.firstFailBlurLevel,
           blur_steps_total: results.blurSteps,
           pupil_data_points: results.pupilData?.length ?? 0,
           user_responses: results.userResponses ?? [],
+          analysis_note: results.analysis_note,
           timestamp: new Date().toISOString(),
         },
       })
@@ -464,6 +546,14 @@ const AccommodativeLagTest = () => {
       <div className="max-w-4xl mx-auto text-center">
         <h2 className="text-3xl font-bold mb-4">Position Your Face</h2>
         <p className="text-gray-400 mb-6">Make sure your eyes are clearly visible</p>
+
+        {cameraReady && (
+          <p className={`mb-6 text-sm ${eyesLocated ? 'text-green-400' : 'text-gray-400'}`}>
+            {eyesLocated
+              ? 'Both pupils located — the test will track how they respond.'
+              : 'Looking for your eyes… keep your whole face in frame.'}
+          </p>
+        )}
 
         <div className="flex gap-4 justify-center">
           <button
@@ -621,6 +711,34 @@ const AccommodativeLagTest = () => {
               <p className="text-gray-600">How tired your focusing muscles are</p>
             </div>
 
+            {trackingQuality && (
+              <div
+                className={`border-l-4 p-4 mb-8 rounded-r-xl ${
+                  trackingQuality.confidence === 'low'
+                    ? 'bg-yellow-50 border-yellow-500'
+                    : 'bg-gray-50 border-gray-300'
+                }`}
+              >
+                {trackingQuality.confidence === 'low' ? (
+                  <p className="text-yellow-900 text-sm">
+                    <strong>Low confidence:</strong> we couldn't lock onto your pupils for most of
+                    this run, so pupil response had little effect on the score. Retake with your
+                    face clearly lit for a better reading.
+                  </p>
+                ) : (
+                  <p className="text-gray-700 text-sm">
+                    Pupils tracked in {trackingQuality.landmarkRatio}% of samples
+                    {trackingQuality.confidence === 'moderate'
+                      ? ' — steadier framing will improve accuracy.'
+                      : ' — good tracking.'}
+                    {Number.isFinite(trackingQuality.pupilConstriction) && (
+                      <> Pupil change during the test: {trackingQuality.pupilConstriction}%.</>
+                    )}
+                  </p>
+                )}
+              </div>
+            )}
+
             {/* Main score */}
             <div className={`border-2 rounded-2xl p-8 mb-8 text-center ${getCapacityBg(focusingCapacity)}`}>
               <h3 className="text-sm font-semibold text-gray-700 mb-2">FOCUSING POWER</h3>
@@ -678,7 +796,14 @@ const AccommodativeLagTest = () => {
 
             <div className="flex flex-col sm:flex-row gap-4">
               <button
-                onClick={() => setTestState('instructions')}
+                onClick={() => {
+                  setTrackingQuality(null)
+                  setEyesLocated(false)
+                  setPupilData([])
+                  setLastResponseLabel('')
+                  setResponseCount(0)
+                  setTestState('instructions')
+                }}
                 className="flex-1 px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-semibold"
               >
                 Test Again

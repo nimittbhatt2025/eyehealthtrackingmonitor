@@ -5,7 +5,7 @@ import { VisionTestShell } from './TestPrepLayout'
 
 /**
  * EyeCoverageVerification Component
- * Webcam-based verification that the correct eye is covered
+ * Webcam-based verification that the correct anatomical eye is covered
  */
 const EyeCoverageVerification = ({ expectedEye, onVerified, onSkip, splitLayout = false, testName = '' }) => {
   const [detector, setDetector] = useState(null)
@@ -13,11 +13,18 @@ const EyeCoverageVerification = ({ expectedEye, onVerified, onSkip, splitLayout 
   const [isChecking, setIsChecking] = useState(false)
   const [baselineEstablished, setBaselineEstablished] = useState(false)
   const [permissionState, setPermissionState] = useState('unknown')
+  const [holdProgress, setHoldProgress] = useState(0)
   const videoRef = useRef(null)
   const checkIntervalRef = useRef(null)
+  const detectorRef = useRef(null)
+  const checkingRef = useRef(false)
+  const correctSinceRef = useRef(null)
+  const cancelledRef = useRef(false)
+
+  const HOLD_MS = 1000
 
   useEffect(() => {
-    // Query permission status and then attempt initialization
+    cancelledRef.current = false
     const init = async () => {
       if (cameraManager && cameraManager.queryPermission) {
         try {
@@ -27,11 +34,12 @@ const EyeCoverageVerification = ({ expectedEye, onVerified, onSkip, splitLayout 
           setPermissionState('unknown')
         }
       }
-      initializeDetector()
+      await initializeDetector()
     }
     init()
-    
+
     return () => {
+      cancelledRef.current = true
       cleanup()
     }
   }, [])
@@ -40,40 +48,41 @@ const EyeCoverageVerification = ({ expectedEye, onVerified, onSkip, splitLayout 
     if (!videoRef.current) return
 
     try {
-      // Acquire shared camera stream (centralized)
-      const stream = await cameraManager.acquire({ video: true })
+      const stream = await cameraManager.acquire({ video: { facingMode: 'user', width: 640, height: 480 } })
       if (!stream) throw new Error('No stream returned')
       videoRef.current.srcObject = stream
-      // ensure the video plays (some browsers require explicit play after setting srcObject)
       try {
         await videoRef.current.play()
       } catch (playErr) {
-        // play may fail due to autoplay policies; muted + playsInline should allow it
         console.warn('Video play() failed:', playErr)
       }
 
       const det = new EyeCoverageDetector(videoRef.current)
       const initialized = await det.initialize()
 
+      if (cancelledRef.current) {
+        det.stop()
+        return
+      }
+
       if (initialized) {
+        detectorRef.current = det
         setDetector(det)
         setStatus({
           detected: 'unknown',
           correct: false,
-          message: 'Please look at the camera with both eyes visible...'
+          message: 'Please look at the camera with both eyes visible...',
         })
-        // Establish baseline first
         await establishBaseline(det)
       } else {
         setStatus({
           detected: 'unknown',
           correct: false,
-          message: 'Unable to initialize detector. Please ensure camera is available.'
+          message: 'Unable to initialize detector. Please ensure camera is available.',
         })
       }
     } catch (err) {
       console.warn('Camera permission or acquisition failed:', err)
-      // Update permission state if available
       if (cameraManager && cameraManager.getLastError) {
         const last = cameraManager.getLastError()
         if (last && last.name === 'NotAllowedError') {
@@ -84,34 +93,39 @@ const EyeCoverageVerification = ({ expectedEye, onVerified, onSkip, splitLayout 
       setStatus({
         detected: 'unknown',
         correct: false,
-        message: 'Unable to access webcam. Please allow camera access and use the button below to retry.'
+        message: 'Unable to access webcam. Please allow camera access and use the button below to retry.',
       })
-      // don't blindly retry; show a retry button so the user can re-trigger
-      return
     }
   }
 
   const tryAcquire = async () => {
     setStatus({ detected: 'unknown', correct: false, message: 'Requesting camera permission...' })
     try {
-      // clear any previous state
       if (cameraManager && cameraManager.reset) cameraManager.reset()
-      const stream = await cameraManager.acquire({ video: true })
+      const stream = await cameraManager.acquire({ video: { facingMode: 'user', width: 640, height: 480 } })
       setPermissionState('granted')
       if (videoRef.current && stream) {
         videoRef.current.srcObject = stream
-        try { await videoRef.current.play() } catch (e) { console.warn('play after retry failed', e) }
+        try {
+          await videoRef.current.play()
+        } catch (e) {
+          console.warn('play after retry failed', e)
+        }
       }
-      // Re-initialize detector flow
       const det = new EyeCoverageDetector(videoRef.current)
       const initialized = await det.initialize()
-      if (initialized) {
+      if (initialized && !cancelledRef.current) {
+        detectorRef.current = det
         setDetector(det)
         await establishBaseline(det)
       }
     } catch (e) {
       console.warn('Retry acquire failed', e)
-      setStatus({ detected: 'unknown', correct: false, message: 'Camera access not granted. Please check browser permissions.' })
+      setStatus({
+        detected: 'unknown',
+        correct: false,
+        message: 'Camera access not granted. Please check browser permissions.',
+      })
       if (cameraManager && cameraManager.getLastError) {
         const last = cameraManager.getLastError()
         if (last && last.name === 'NotAllowedError') setPermissionState('denied')
@@ -120,52 +134,90 @@ const EyeCoverageVerification = ({ expectedEye, onVerified, onSkip, splitLayout 
   }
 
   const establishBaseline = async (det) => {
+    setBaselineEstablished(false)
     setStatus({
       detected: 'unknown',
       correct: false,
-      message: '[camera] Detecting your face... Please ensure both eyes are visible and uncovered.'
+      message: 'Detecting your face… keep both eyes visible and uncovered.',
     })
-    
+
     const result = await det.establishBaseline()
-    
+    if (cancelledRef.current) return
+
     if (result.success) {
       setBaselineEstablished(true)
       setStatus({
         detected: 'neither',
         correct: false,
-        message: `Face detected! Now cover your ${expectedEye === 'left' ? 'LEFT' : 'RIGHT'} eye.`
+        message: `Face detected! Now cover your ${expectedEye === 'left' ? 'LEFT' : 'RIGHT'} eye.`,
+        handsAvailable: result.handsAvailable,
       })
       startChecking(det)
     } else {
       setStatus({
         detected: 'unknown',
         correct: false,
-        message: result.message
+        message: result.message,
       })
-      
-      // Retry after 2 seconds
-      setTimeout(() => establishBaseline(det), 2000)
+      setTimeout(() => {
+        if (!cancelledRef.current) establishBaseline(det)
+      }, 2000)
     }
   }
 
   const startChecking = (det) => {
+    if (checkIntervalRef.current) clearInterval(checkIntervalRef.current)
     setIsChecking(true)
-    
+    correctSinceRef.current = null
+    setHoldProgress(0)
+
     checkIntervalRef.current = setInterval(async () => {
-      const result = await det.verifyCoverage(expectedEye)
-      setStatus(result)
-    }, 500) // Check every 500ms
+      if (checkingRef.current || cancelledRef.current) return
+      checkingRef.current = true
+      try {
+        const result = await det.verifyCoverage(expectedEye)
+        if (cancelledRef.current) return
+
+        const now = Date.now()
+        if (result.correct) {
+          if (!correctSinceRef.current) correctSinceRef.current = now
+          const held = now - correctSinceRef.current
+          const progress = Math.min(100, Math.round((held / HOLD_MS) * 100))
+          setHoldProgress(progress)
+          setStatus({
+            ...result,
+            correct: held >= HOLD_MS,
+            message:
+              held >= HOLD_MS
+                ? result.message
+                : `Hold still… confirming coverage (${Math.ceil((HOLD_MS - held) / 100) / 10}s)`,
+          })
+        } else {
+          correctSinceRef.current = null
+          setHoldProgress(0)
+          setStatus(result)
+        }
+      } finally {
+        checkingRef.current = false
+      }
+    }, 350)
   }
 
   const cleanup = () => {
     if (checkIntervalRef.current) {
       clearInterval(checkIntervalRef.current)
+      checkIntervalRef.current = null
     }
-    if (detector) {
-      detector.stop()
+    if (detectorRef.current) {
+      detectorRef.current.stop()
+      detectorRef.current = null
     }
-    // Release shared camera when component unmounts
-    try { cameraManager.release() } catch (e) { }
+    setDetector(null)
+    try {
+      cameraManager.release()
+    } catch (e) {
+      /* ignore */
+    }
   }
 
   const handleContinue = () => {
@@ -179,6 +231,7 @@ const EyeCoverageVerification = ({ expectedEye, onVerified, onSkip, splitLayout 
   }
 
   const eyeLabel = expectedEye === 'left' ? 'LEFT' : 'RIGHT'
+  const canContinue = Boolean(status?.correct)
 
   const renderVideoFeed = () => (
     <div className="eye-coverage-video-wrap relative bg-black rounded-xl overflow-hidden border border-gray-200 w-full h-full min-h-[200px]">
@@ -190,22 +243,31 @@ const EyeCoverageVerification = ({ expectedEye, onVerified, onSkip, splitLayout 
         className="w-full h-full object-cover scale-x-[-1]"
       />
       <div className="absolute inset-0 pointer-events-none">
+        {/* Mirrored preview: anatomical left appears on screen-left */}
         <div className="absolute left-[10%] top-[35%] bottom-[45%] w-[40%] border-2 border-blue-400 border-dashed opacity-50 flex items-center justify-center">
-          <span className="bg-blue-600 text-white px-2 py-0.5 rounded text-xs font-bold">LEFT</span>
+          <span className="bg-blue-600 text-white px-2 py-0.5 rounded text-xs font-bold">YOUR LEFT</span>
         </div>
         <div className="absolute right-[10%] top-[35%] bottom-[45%] w-[40%] border-2 border-red-400 border-dashed opacity-50 flex items-center justify-center">
-          <span className="bg-red-600 text-white px-2 py-0.5 rounded text-xs font-bold">RIGHT</span>
+          <span className="bg-red-600 text-white px-2 py-0.5 rounded text-xs font-bold">YOUR RIGHT</span>
         </div>
         <div className="absolute left-1/2 top-0 bottom-0 w-0.5 bg-yellow-400 opacity-50" />
       </div>
+      {holdProgress > 0 && holdProgress < 100 && (
+        <div className="absolute bottom-0 left-0 right-0 h-1 bg-black/40">
+          <div className="h-full bg-green-500 transition-all" style={{ width: `${holdProgress}%` }} />
+        </div>
+      )}
     </div>
   )
 
   const renderInstructionsList = () => (
     <ul className="space-y-2 text-sm text-blue-900">
       <li>Center your face in the camera with good lighting.</li>
-      <li>On screen, your right eye appears on the left (mirrored view).</li>
-      <li>Cover your <strong>{eyeLabel}</strong> eye with your palm — do not press on the eye.</li>
+      <li>This is a mirrored view — your left eye is on the left side of the screen.</li>
+      <li>
+        Cover your <strong>{eyeLabel}</strong> eye with your palm — do not press on the eye.
+      </li>
+      <li>Hold for about a second once it turns green, then continue.</li>
       <li>Having trouble? Use Skip below to continue without detection.</li>
     </ul>
   )
@@ -229,9 +291,9 @@ const EyeCoverageVerification = ({ expectedEye, onVerified, onSkip, splitLayout 
         <button
           type="button"
           onClick={handleContinue}
-          disabled={!status?.correct}
+          disabled={!canContinue}
           className={`flex-1 min-h-[44px] text-sm rounded-xl font-bold ${
-            status?.correct ? 'btn-primary' : 'bg-gray-200 text-gray-500 cursor-not-allowed'
+            canContinue ? 'btn-primary' : 'bg-gray-200 text-gray-500 cursor-not-allowed'
           }`}
         >
           Continue
@@ -241,9 +303,11 @@ const EyeCoverageVerification = ({ expectedEye, onVerified, onSkip, splitLayout 
   )
 
   const renderStatusPanel = () => (
-    <div className={`rounded-xl border-2 p-4 ${
-      status?.correct ? 'bg-green-50 border-green-400' : 'bg-blue-50 border-blue-300'
-    }`}>
+    <div
+      className={`rounded-xl border-2 p-4 ${
+        status?.correct ? 'bg-green-50 border-green-400' : 'bg-blue-50 border-blue-300'
+      }`}
+    >
       <p className="text-sm font-medium text-gray-800 mb-2">
         {status?.message || 'Establishing baseline…'}
       </p>
@@ -254,6 +318,11 @@ const EyeCoverageVerification = ({ expectedEye, onVerified, onSkip, splitLayout 
         <span className="px-2 py-1 rounded bg-blue-100 text-blue-800">
           Cover: <strong>{expectedEye}</strong>
         </span>
+        {status?.method && status.method !== 'none' && (
+          <span className="px-2 py-1 rounded bg-gray-100 text-gray-700">
+            via {status.method}
+          </span>
+        )}
       </div>
     </div>
   )
@@ -292,12 +361,11 @@ const EyeCoverageVerification = ({ expectedEye, onVerified, onSkip, splitLayout 
         </p>
       </div>
 
-      {/* Status Message */}
-      <div className={`p-5 rounded-xl border-2 ${
-        status?.correct 
-          ? 'bg-green-50 border-green-500' 
-          : 'bg-blue-50 border-blue-400'
-      }`}>
+      <div
+        className={`p-5 rounded-xl border-2 ${
+          status?.correct ? 'bg-green-50 border-green-500' : 'bg-blue-50 border-blue-400'
+        }`}
+      >
         <div className="flex items-start gap-3">
           <div className="w-8 h-8 flex-shrink-0">
             {status?.correct ? (
@@ -315,14 +383,16 @@ const EyeCoverageVerification = ({ expectedEye, onVerified, onSkip, splitLayout 
             <p className="text-gray-800 font-medium mb-2">
               {status?.message || 'Establishing baseline...'}
             </p>
-            <div className="flex items-center gap-4 text-sm">
+            <div className="flex items-center gap-4 text-sm flex-wrap">
               <div className="flex items-center gap-2">
                 <span className="text-gray-600">Detected:</span>
-                <span className={`font-semibold px-2 py-1 rounded ${
-                  status?.detected === expectedEye 
-                    ? 'bg-green-100 text-green-700' 
-                    : 'bg-gray-100 text-gray-700'
-                }`}>
+                <span
+                  className={`font-semibold px-2 py-1 rounded ${
+                    status?.detected === expectedEye
+                      ? 'bg-green-100 text-green-700'
+                      : 'bg-gray-100 text-gray-700'
+                  }`}
+                >
                   {status?.detected || 'Checking...'}
                 </span>
               </div>
@@ -332,21 +402,22 @@ const EyeCoverageVerification = ({ expectedEye, onVerified, onSkip, splitLayout 
                   {expectedEye}
                 </span>
               </div>
+              {status?.method && status.method !== 'none' && (
+                <span className="text-xs text-gray-500">via {status.method}</span>
+              )}
             </div>
           </div>
         </div>
       </div>
 
-      {/* Webcam Feed with Detection Overlay */}
       {renderVideoFeed()}
 
-      {/* Status Indicator */}
       {status && (
-        <div className={`p-6 rounded-xl border-2 ${
-          status.correct 
-            ? 'bg-green-50 border-green-300' 
-            : 'bg-amber-50 border-amber-300'
-        }`}>
+        <div
+          className={`p-6 rounded-xl border-2 ${
+            status.correct ? 'bg-green-50 border-green-300' : 'bg-amber-50 border-amber-300'
+          }`}
+        >
           <div className="flex items-center gap-3 mb-2">
             {status.correct ? (
               <svg className="w-8 h-8 text-green-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -358,19 +429,15 @@ const EyeCoverageVerification = ({ expectedEye, onVerified, onSkip, splitLayout 
               </svg>
             )}
             <div className="flex-1">
-              <p className={`font-semibold text-lg ${
-                status.correct ? 'text-green-900' : 'text-amber-900'
-              }`}>
+              <p className={`font-semibold text-lg ${status.correct ? 'text-green-900' : 'text-amber-900'}`}>
                 {status.message}
               </p>
-              <p className={`text-sm mt-1 ${
-                status.correct ? 'text-green-700' : 'text-amber-700'
-              }`}>
+              <p className={`text-sm mt-1 ${status.correct ? 'text-green-700' : 'text-amber-700'}`}>
                 Detected: {status.detected || 'checking...'} | Expected: {expectedEye}
               </p>
             </div>
           </div>
-          
+
           {status.correct && (
             <button
               onClick={handleContinue}
@@ -382,7 +449,6 @@ const EyeCoverageVerification = ({ expectedEye, onVerified, onSkip, splitLayout 
         </div>
       )}
 
-      {/* Instructions */}
       <div className="bg-blue-50 border-2 border-blue-200 rounded-xl p-6">
         <h3 className="font-bold text-blue-900 mb-4 text-lg">Instructions for eye coverage</h3>
         {renderInstructionsList()}

@@ -14,8 +14,12 @@
  */
 
 // Constants
-const AVG_IPD_MM = 63 // Average adult interpupillary distance
+export const AVG_IPD_MM = 63 // Average adult interpupillary distance
 const IPD_RANGE = { min: 54, max: 74 } // 95% of adults fall within this range
+
+// Typical laptop / phone selfie-cam horizontal FOV. Used when the user has not
+// run a known-distance calibration yet (pinhole: D = IPD × f_px / pixelIPD).
+const DEFAULT_HFOV_DEG = 65
 
 // Test-specific optimal distances (in mm)
 export const OPTIMAL_DISTANCES = {
@@ -294,4 +298,34 @@ class DistanceCalibrationEngine {
 
 // Export singleton instance
 const distanceCalibration = new DistanceCalibrationEngine()
+
+/**
+ * Estimate viewing distance in cm from measured pixel IPD.
+ * Prefers a saved calibration focal constant; otherwise assumes DEFAULT_HFOV_DEG.
+ *
+ * @param {number} pixelIpd - Distance between pupils in pixels
+ * @param {number} [frameWidth] - Video frame width (needed for uncalibrated estimate)
+ * @returns {number|null} Distance in centimetres, or null if inputs are invalid
+ */
+export function estimateDistanceCmFromPixelIpd(pixelIpd, frameWidth) {
+  if (!pixelIpd || pixelIpd <= 0) return null
+
+  // Prefer a real calibration if one is still valid in localStorage
+  if (!distanceCalibration.calibrated) {
+    distanceCalibration.load()
+  }
+
+  let distanceMm = null
+  if (distanceCalibration.calibrated) {
+    distanceMm = distanceCalibration.getDistance(pixelIpd)
+  } else if (frameWidth && frameWidth > 0) {
+    const hfovRad = (DEFAULT_HFOV_DEG * Math.PI) / 180
+    const focalPx = frameWidth / (2 * Math.tan(hfovRad / 2))
+    distanceMm = (AVG_IPD_MM * focalPx) / pixelIpd
+  }
+
+  if (!Number.isFinite(distanceMm) || distanceMm <= 0) return null
+  return Math.max(20, Math.min(150, distanceMm / 10))
+}
+
 export default distanceCalibration
