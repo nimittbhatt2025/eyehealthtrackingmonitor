@@ -1,24 +1,25 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import * as faceapi from '@vladmandic/face-api'
-import distanceCalibration from '../utils/distanceCalibration'
-import modelManager from '../utils/modelManager'
+import distanceCalibration, {
+  estimateDistanceCmFromPixelIpd,
+} from '../utils/distanceCalibration'
+import { PupilRegionTracker } from '../utils/pupilRegionDetector'
 import cameraManager from '../utils/cameraManager'
 import voiceRecognition from '../utils/voiceRecognition'
 import { VisionTestShell } from './TestPrepLayout'
 
 /**
  * Distance Gate Component
- * Blocks test from starting until user is at correct distance
- * Test-specific distances based on clinical standards
+ * Blocks test from starting until user is at correct distance.
+ * Uses MediaPipe iris landmarks (IPD) — same stack as Posture & Lighting.
  */
 
-export default function InlineDistanceCalibration({ 
+export default function InlineDistanceCalibration({
   testType = 'default',
   optimalDistanceMM = 500,
-  toleranceMM = 100, // ±10cm tolerance by default
-  onDistanceValid, // Called when user reaches correct distance
-  onDistanceInvalid, // Called when user moves out of range
-  blockUntilValid = true, // Whether to block test until distance is valid
+  toleranceMM = 100,
+  onDistanceValid,
+  onDistanceInvalid,
+  blockUntilValid = true,
   testName = 'This Test',
   splitLayout = false,
   voiceConfirm = false,
@@ -27,257 +28,338 @@ export default function InlineDistanceCalibration({
   const canvasRef = useRef(null)
   const streamRef = useRef(null)
   const detectionIntervalRef = useRef(null)
-  const initializingRef = useRef(false) // Prevent double initialization
-  const cameraReadyRef = useRef(false) // Track camera state for interval
-  const calibratedRef = useRef(false) // Track if we've calibrated (prevents recalibration)
+  const initializingRef = useRef(false)
+  const cameraReadyRef = useRef(false)
+  const modelsLoadedRef = useRef(false)
+  const faceDetectedRef = useRef(false)
+  const voiceStartedRef = useRef(false)
+  const distanceHoldReadyRef = useRef(false)
+  const confirmedRef = useRef(false)
+  const initGenerationRef = useRef(0)
+  const detectingRef = useRef(false)
+  const pupilTrackerRef = useRef(null)
+  const rollingDistanceRef = useRef([])
 
   const [modelsLoaded, setModelsLoaded] = useState(false)
   const [cameraReady, setCameraReady] = useState(false)
   const [faceDetected, setFaceDetected] = useState(false)
   const [currentDistance, setCurrentDistance] = useState(null)
   const [feedback, setFeedback] = useState(null)
-  const [isCalibrating, setIsCalibrating] = useState(true)
-  const [calibrated, setCalibrated] = useState(false)
   const [isValidDistance, setIsValidDistance] = useState(false)
-  const [validDurationCount, setValidDurationCount] = useState(0) // Stable for 2 seconds before proceeding
+  const [validDurationCount, setValidDurationCount] = useState(0)
   const [loadingError, setLoadingError] = useState(null)
   const [voiceConfirmListening, setVoiceConfirmListening] = useState(false)
+  const [distanceHoldReady, setDistanceHoldReady] = useState(false)
+  const [trackingSource, setTrackingSource] = useState(null)
+  // idle | priming | ready | denied | unsupported
+  const [micStatus, setMicStatus] = useState('idle')
+  const [lastHeard, setLastHeard] = useState('')
+  const [voiceHint, setVoiceHint] = useState('')
+  const listenWatchdogRef = useRef(null)
 
   const optimalDistanceCM = Math.round(optimalDistanceMM / 10)
   const minDistance = optimalDistanceMM - toleranceMM
   const maxDistance = optimalDistanceMM + toleranceMM
 
-  useEffect(() => {
-    const timeoutId = setTimeout(() => {
-      if (!modelsLoaded || !cameraReady) {
-        console.error('⏱️ Loading timeout - taking too long')
-        setLoadingError('Loading is taking longer than expected. Please check console for errors.')
-      }
-    }, 15000) // 15 second timeout
+  const pushRolling = (arr, value, max = 4) => [...arr, value].slice(-max)
+  const rollingMean = (arr) =>
+    arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null
 
-    initCalibration()
-    
+  useEffect(() => {
+    modelsLoadedRef.current = modelsLoaded
+  }, [modelsLoaded])
+
+  useEffect(() => {
+    const generation = ++initGenerationRef.current
+
+    const timeoutId = setTimeout(() => {
+      if (generation !== initGenerationRef.current) return
+      if (!modelsLoadedRef.current || !cameraReadyRef.current) {
+        console.warn('Distance calibration still loading after 15s')
+        setLoadingError('Loading is taking longer than expected. You can wait, or refresh the page.')
+      }
+    }, 15000)
+
+    initCalibration(generation)
+
     return () => {
+      initGenerationRef.current += 1
       clearTimeout(timeoutId)
+      voiceRecognition.stop()
+      voiceStartedRef.current = false
       stopCamera()
       if (detectionIntervalRef.current) {
         clearInterval(detectionIntervalRef.current)
+        detectionIntervalRef.current = null
       }
+      initializingRef.current = false
     }
   }, [])
 
-  // Re-assign stream when transitioning from loading to main view
   useEffect(() => {
-    if (cameraReady && modelsLoaded && videoRef.current && streamRef.current) {
-      console.log('🔄 Checking video stream assignment after state transition')
-      
-      // If video element doesn't have the stream, assign it
-      if (videoRef.current.srcObject !== streamRef.current) {
-        console.log('📺 Re-assigning stream to video element')
-        videoRef.current.srcObject = streamRef.current
-        videoRef.current.autoplay = true
-        videoRef.current.muted = true
-        videoRef.current.playsInline = true
-        
-        // Force play
-        videoRef.current.play()
-          .then(() => console.log('[OK] Video playing after re-assignment'))
-          .catch(err => console.warn('[WARNING] Play failed after re-assignment:', err.message))
-      } else {
-        console.log('[OK] Video stream already assigned correctly')
-      }
+    if (modelsLoaded && cameraReady) {
+      setLoadingError(null)
+    }
+  }, [modelsLoaded, cameraReady])
+
+  useEffect(() => {
+    if (!cameraReady || !modelsLoaded || !videoRef.current || !streamRef.current) return
+    const video = videoRef.current
+    if (video.srcObject !== streamRef.current) {
+      video.srcObject = streamRef.current
+      video.autoplay = true
+      video.muted = true
+      video.playsInline = true
+    }
+    if (video.paused) {
+      video.play().catch(() => {})
     }
   }, [cameraReady, modelsLoaded])
 
-  // Track when user maintains valid distance (for UI feedback only)
   useEffect(() => {
     let timer
     if (isValidDistance) {
-      // Increment every 100ms when at valid distance
       timer = setInterval(() => {
-        setValidDurationCount(prev => prev + 1)
+        setValidDurationCount((prev) => {
+          const next = prev + 1
+          if (next >= 20) {
+            distanceHoldReadyRef.current = true
+            setDistanceHoldReady(true)
+          }
+          return next
+        })
       }, 100)
     } else {
       setValidDurationCount(0)
-      if (onDistanceInvalid) {
-        onDistanceInvalid()
-      }
+      distanceHoldReadyRef.current = false
+      setDistanceHoldReady(false)
+      if (onDistanceInvalid) onDistanceInvalid()
     }
-    
+
     return () => {
       if (timer) clearInterval(timer)
     }
   }, [isValidDistance, onDistanceInvalid])
 
-  const handleDistanceConfirmed = useCallback(() => {
-    voiceRecognition.stop()
-    setVoiceConfirmListening(false)
-    if (onDistanceValid) {
-      onDistanceValid(true)
+  const handleDistanceConfirmed = useCallback((meta = { viaVoice: false }) => {
+    if (confirmedRef.current) return
+    confirmedRef.current = true
+    if (listenWatchdogRef.current) {
+      clearTimeout(listenWatchdogRef.current)
+      listenWatchdogRef.current = null
     }
+    voiceRecognition.stop()
+    voiceStartedRef.current = false
+    setVoiceConfirmListening(false)
+    if (onDistanceValid) onDistanceValid(true, meta)
   }, [onDistanceValid])
 
-  // Voice command to confirm distance when user is far from screen
-  useEffect(() => {
-    if (!voiceConfirm || !voiceRecognition.isSupported()) return undefined
-    if (!isValidDistance || validDurationCount < 20) {
-      voiceRecognition.stop()
-      setVoiceConfirmListening(false)
-      return undefined
+  const startVoiceConfirmListening = useCallback(() => {
+    if (!voiceConfirm || !voiceRecognition.isSupported()) return false
+
+    if (voiceRecognition.isListening) {
+      voiceStartedRef.current = true
+      setVoiceConfirmListening(true)
+      setMicStatus('ready')
+      setVoiceHint('')
+      return true
     }
 
+    // Do not mark listening until onstart — browsers often need a real gesture.
     const started = voiceRecognition.start(
       (transcript) => {
+        const heard = Array.isArray(transcript) ? transcript[0] : String(transcript || '')
+        if (heard) setLastHeard(heard)
+
+        if (!distanceHoldReadyRef.current) {
+          setVoiceHint('Heard you — hold green distance, then say "ready" or "continue"')
+          return
+        }
         if (voiceRecognition.parseConfirmCommand(transcript)) {
-          handleDistanceConfirmed()
+          handleDistanceConfirmed({ viaVoice: true })
+        } else {
+          setVoiceHint(`Heard "${heard}" — say "ready" or "continue"`)
         }
       },
-      () => setVoiceConfirmListening(false)
+      (err) => {
+        setVoiceConfirmListening(false)
+        voiceStartedRef.current = false
+        if (err === 'not-allowed' || err === 'service-not-allowed' || err === 'audio-capture') {
+          setMicStatus('denied')
+          setVoiceHint('Microphone permission blocked. Allow mic in the address bar, then tap Enable again.')
+        } else if (err === 'network') {
+          setVoiceHint('Voice service hiccup — tap Enable microphone again.')
+          setMicStatus('idle')
+        } else if (err === 'start-failed') {
+          setMicStatus('idle')
+          setVoiceHint('Could not start listening — tap Enable microphone.')
+        }
+      },
+      () => {
+        if (listenWatchdogRef.current) {
+          clearTimeout(listenWatchdogRef.current)
+          listenWatchdogRef.current = null
+        }
+        voiceStartedRef.current = true
+        setVoiceConfirmListening(true)
+        setMicStatus('ready')
+        setVoiceHint('Mic is on. Step back, then say "ready" when distance is green.')
+      }
     )
-    setVoiceConfirmListening(started)
 
-    return () => {
-      voiceRecognition.stop()
+    if (!started) {
+      voiceStartedRef.current = false
       setVoiceConfirmListening(false)
+      setMicStatus('denied')
     }
-  }, [voiceConfirm, isValidDistance, validDurationCount, handleDistanceConfirmed])
+    return started
+  }, [voiceConfirm, handleDistanceConfirmed])
 
-  // Helper to set camera ready (updates both state and ref)
-  const activateCamera = () => {
-    console.log('[camera] Activating camera')
-    cameraReadyRef.current = true
-    setCameraReady(true)
-    startFaceDetection()
-  }
-
-  const initCalibration = async () => {
-    if (initializingRef.current) {
-      console.log('[WARNING] Already initializing, skipping...')
+  /**
+   * Must run from a click/tap. Chromium only reliably starts SpeechRecognition
+   * (and shows the mic permission prompt) inside a user gesture — awaiting
+   * getUserMedia first would break that chain.
+   */
+  const enableMicrophone = useCallback(() => {
+    if (!voiceConfirm) return
+    if (!voiceRecognition.isSupported()) {
+      setMicStatus('unsupported')
       return
     }
-    
+
+    setMicStatus('priming')
+    setVoiceHint('')
+    setLastHeard('')
+
+    if (listenWatchdogRef.current) {
+      clearTimeout(listenWatchdogRef.current)
+      listenWatchdogRef.current = null
+    }
+
+    // Synchronous start while the click gesture is still active.
+    const started = startVoiceConfirmListening()
+    if (!started) {
+      setMicStatus('denied')
+      setVoiceHint('Could not start voice recognition. Check browser mic permissions.')
+      return
+    }
+
+    // Optional background priming for later sessions (do not await before start).
+    voiceRecognition.primeMicrophone(true).catch(() => {})
+
+    // If onstart never fires, roll UI back so the Enable button stays available.
+    listenWatchdogRef.current = setTimeout(() => {
+      if (!voiceRecognition.isListening) {
+        voiceStartedRef.current = false
+        setVoiceConfirmListening(false)
+        setMicStatus('idle')
+        setVoiceHint('Mic did not start. Tap Enable microphone and allow access when prompted.')
+      }
+    }, 2500)
+  }, [voiceConfirm, startVoiceConfirmListening])
+
+  useEffect(() => {
+    if (!voiceConfirm) return
+    if (!voiceRecognition.isSupported()) {
+      setMicStatus('unsupported')
+    }
+  }, [voiceConfirm])
+
+  useEffect(() => {
+    return () => {
+      if (listenWatchdogRef.current) clearTimeout(listenWatchdogRef.current)
+      voiceRecognition.stop()
+      voiceStartedRef.current = false
+    }
+  }, [])
+
+  const activateCamera = () => {
+    cameraReadyRef.current = true
+    setCameraReady(true)
+    startIpdTracking()
+  }
+
+  const initCalibration = async (generation) => {
+    if (initializingRef.current) return
     initializingRef.current = true
-    
+
     try {
-      console.log('🔄 Starting distance calibration initialization...')
-      
-      try {
-        await modelManager.loadFaceAPIModels('/models')
-        setModelsLoaded(true)
-        console.log('📹 Starting camera...')
-        startCamera()
-      } catch (err) {
-        console.error('[X] Model loading failed in initCalibration:', err)
-        setLoadingError(`Model load failed: ${err.message}`)
-        initializingRef.current = false
+      if (!pupilTrackerRef.current) {
+        pupilTrackerRef.current = new PupilRegionTracker()
+      }
+      await pupilTrackerRef.current.init()
+      if (generation !== initGenerationRef.current) return
+
+      if (pupilTrackerRef.current.modelUnavailable) {
+        setLoadingError('Could not load the pupil landmark model. Check your network and retry.')
         return
       }
+
+      modelsLoadedRef.current = true
+      setModelsLoaded(true)
+      await startCamera(generation)
     } catch (error) {
-      console.error('[X] Failed to initialize calibration:', error)
-      console.error('Error details:', error.message, error.stack)
+      if (generation !== initGenerationRef.current) return
+      console.error('Failed to initialize distance calibration:', error)
       setLoadingError(`Failed to load: ${error.message}`)
-      initializingRef.current = false
+    } finally {
+      if (generation === initGenerationRef.current) {
+        initializingRef.current = false
+      }
     }
   }
 
-  const startCamera = async () => {
+  const startCamera = async (generation) => {
     try {
-      console.log('📹 Requesting camera access (via cameraManager)...')
-      const stream = await cameraManager.acquire({ video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } } })
-      console.log('[OK] Camera access granted (shared stream)')
-      console.log('📺 Video element exists?', !!videoRef.current)
-      
+      const stream = await cameraManager.acquire({
+        video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
+      })
+      if (generation != null && generation !== initGenerationRef.current) {
+        try {
+          cameraManager.release()
+        } catch (e) {
+          /* ignore */
+        }
+        return
+      }
+
       if (!videoRef.current) {
-        console.error('[X] Video element ref is null!')
         setLoadingError('Video element not ready')
         return
       }
-      
-      console.log('[OK] Video element found, setting up stream...')
-      
-      // Store stream in ref immediately
-  streamRef.current = stream
-      
-      // Assign stream to video element
-      videoRef.current.srcObject = stream
-      
-      // Force autoplay and muted
-      videoRef.current.autoplay = true
-      videoRef.current.muted = true
-      videoRef.current.playsInline = true
-      
-      console.log('🎬 Video element configured, waiting for ready state...')
-      
-      // Force play immediately
-      const playPromise = videoRef.current.play()
-      if (playPromise !== undefined) {
-        playPromise
-          .then(() => {
-            console.log('[OK] Video playing immediately')
-          })
-          .catch(err => {
-            console.warn('[WARNING] Immediate play failed:', err.message)
-          })
+
+      const video = videoRef.current
+      streamRef.current = stream
+      video.autoplay = true
+      video.muted = true
+      video.playsInline = true
+
+      const onReady = () => {
+        if (generation != null && generation !== initGenerationRef.current) return
+        if (!cameraReadyRef.current) activateCamera()
       }
-      
-      // Add multiple event listeners as fallback
-      videoRef.current.onloadedmetadata = () => {
-        console.log('[OK] Video metadata loaded (onloadedmetadata)')
-        if (!cameraReadyRef.current) {
-          activateCamera()
-        }
+
+      video.onloadedmetadata = onReady
+      video.oncanplay = onReady
+
+      if (video.srcObject !== stream) {
+        video.srcObject = stream
       }
-      
-      videoRef.current.oncanplay = () => {
-        console.log('[OK] Video can play (oncanplay)')
-        if (!cameraReadyRef.current) {
-          activateCamera()
-        }
-      }
-      
-      // Immediate fallback
-      setTimeout(async () => {
-        console.log('⏰ 500ms timeout - checking video state...')
-        if (!videoRef.current) {
-          console.error('[X] Video ref lost!')
-          return
-        }
-        
-        console.log('Video readyState:', videoRef.current.readyState)
-        console.log('Video paused:', videoRef.current.paused)
-        
-        try {
-          await videoRef.current.play()
-          console.log('[OK] Video playing via timeout')
-          
-          if (videoRef.current.readyState >= 1 && !cameraReadyRef.current) {
-            console.log('[OK] Video ready - activating camera (500ms)')
+
+      if (video.readyState >= 1) {
+        onReady()
+      } else {
+        setTimeout(() => {
+          if (generation != null && generation !== initGenerationRef.current) return
+          if (!cameraReadyRef.current && videoRef.current) {
+            videoRef.current.play().catch(() => {})
             activateCamera()
           }
-        } catch (err) {
-          console.warn('[WARNING] Play failed:', err.message)
-        }
-      }, 500)
-      
-      // Additional fallback after 1 second
-      setTimeout(() => {
-        if (!cameraReadyRef.current && videoRef.current) {
-          console.log('[OK] Force activating camera (1s fallback)')
-          console.log('Video readyState:', videoRef.current.readyState)
-          console.log('Video paused:', videoRef.current.paused)
-          console.log('Video dimensions:', videoRef.current.videoWidth, 'x', videoRef.current.videoHeight)
-          
-          // Force play again
-          videoRef.current.play().catch(e => console.warn('Play error:', e.message))
-          
-          activateCamera()
-        } else if (!videoRef.current) {
-          console.error('[X] Video ref lost after 1s!')
-        }
-      }, 1000)
+        }, 800)
+      }
     } catch (error) {
-      console.error('[X] Camera access denied or error:', error)
-      console.error('Error details:', error.message, error.name)
+      if (generation != null && generation !== initGenerationRef.current) return
+      console.error('Camera access denied or error:', error)
       setLoadingError(`Camera error: ${error.message}`)
     }
   }
@@ -288,16 +370,22 @@ export default function InlineDistanceCalibration({
       detectionIntervalRef.current = null
     }
 
+    if (pupilTrackerRef.current) {
+      pupilTrackerRef.current.stop()
+      pupilTrackerRef.current = null
+    }
+
     if (videoRef.current) {
       videoRef.current.srcObject = null
     }
 
     streamRef.current = null
+    rollingDistanceRef.current = []
 
     try {
       cameraManager.release()
     } catch (error) {
-      console.warn('stopCamera: release failed', error)
+      /* ignore */
     }
 
     cameraReadyRef.current = false
@@ -305,111 +393,121 @@ export default function InlineDistanceCalibration({
     initializingRef.current = false
   }
 
-  const startFaceDetection = () => {
-    if (detectionIntervalRef.current) {
-      console.log('[WARNING] Face detection already running')
-      return
+  const drawEyeOverlay = (regions, width, height) => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    canvas.width = width
+    canvas.height = height
+    const ctx = canvas.getContext('2d')
+    ctx.clearRect(0, 0, width, height)
+    if (!regions) return
+
+    // Draw in raw video frame space; CSS scaleX(-1) on video+canvas mirrors both together.
+    ctx.lineWidth = 2
+    ;[regions.anatomicalLeft, regions.anatomicalRight].forEach((eye) => {
+      if (!eye) return
+      ctx.beginPath()
+      ctx.arc(eye.x, eye.y, Math.max(6, eye.radius), 0, Math.PI * 2)
+      ctx.strokeStyle = 'rgba(34, 197, 94, 0.9)'
+      ctx.stroke()
+    })
+
+    if (regions.anatomicalLeft && regions.anatomicalRight) {
+      ctx.beginPath()
+      ctx.moveTo(regions.anatomicalLeft.x, regions.anatomicalLeft.y)
+      ctx.lineTo(regions.anatomicalRight.x, regions.anatomicalRight.y)
+      ctx.strokeStyle = 'rgba(250, 204, 21, 0.85)'
+      ctx.stroke()
     }
-    console.log('[target] Starting face detection interval')
-    detectionIntervalRef.current = setInterval(async () => {
-      await detectFace()
-    }, 100)
   }
 
-  const detectFace = async () => {
-    if (!videoRef.current || !canvasRef.current || !cameraReadyRef.current) {
-      if (!videoRef.current) console.warn('detectFace: No video ref')
-      if (!canvasRef.current) console.warn('detectFace: No canvas ref')
-      if (!cameraReadyRef.current) console.warn('detectFace: Camera not ready')
-      return
-    }
+  const startIpdTracking = () => {
+    if (detectionIntervalRef.current) return
+    detectionIntervalRef.current = setInterval(() => {
+      trackIpdDistance()
+    }, 250)
+  }
 
-    // Check if video has valid dimensions
-    if (videoRef.current.videoWidth === 0 || videoRef.current.videoHeight === 0) {
-      console.warn('detectFace: Video dimensions not ready:', videoRef.current.videoWidth, 'x', videoRef.current.videoHeight)
-      return
-    }
+  const trackIpdDistance = async () => {
+    if (!videoRef.current || !cameraReadyRef.current) return
+    if (videoRef.current.videoWidth === 0 || videoRef.current.videoHeight === 0) return
+    if (detectingRef.current) return
+    detectingRef.current = true
 
     try {
-      const detections = await faceapi
-        .detectSingleFace(videoRef.current, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.3 }))
-        .withFaceLandmarks()
+      if (!pupilTrackerRef.current) {
+        pupilTrackerRef.current = new PupilRegionTracker()
+        await pupilTrackerRef.current.init()
+      }
 
-      const canvas = canvasRef.current
-      const displaySize = { width: videoRef.current.videoWidth, height: videoRef.current.videoHeight }
-      faceapi.matchDimensions(canvas, displaySize)
-      const ctx = canvas.getContext('2d')
-      ctx.clearRect(0, 0, canvas.width, canvas.height)
+      const video = videoRef.current
+      const regions = await pupilTrackerRef.current.track(video)
+      drawEyeOverlay(regions, video.videoWidth, video.videoHeight)
 
-      if (detections) {
-        if (!faceDetected) {
-          console.log('[OK] Face detected! IPD pixels:', detections.landmarks ? 'landmarks present' : 'no landmarks')
+      if (regions?.eyeSpanPx > 0) {
+        if (!faceDetectedRef.current) {
+          faceDetectedRef.current = true
+          setFaceDetected(true)
         }
-        setFaceDetected(true)
-        
-        const landmarks = detections.landmarks.positions
-        const leftEyePoints = landmarks.slice(36, 42)
-        const rightEyePoints = landmarks.slice(42, 48)
-        
-        const leftEyeCenter = {
-          x: leftEyePoints.reduce((sum, p) => sum + p.x, 0) / leftEyePoints.length,
-          y: leftEyePoints.reduce((sum, p) => sum + p.y, 0) / leftEyePoints.length
+
+        const cm = estimateDistanceCmFromPixelIpd(regions.eyeSpanPx, video.videoWidth)
+        if (cm == null) {
+          setIsValidDistance(false)
+          return
         }
-        
-        const rightEyeCenter = {
-          x: rightEyePoints.reduce((sum, p) => sum + p.x, 0) / rightEyePoints.length,
-          y: rightEyePoints.reduce((sum, p) => sum + p.y, 0) / rightEyePoints.length
-        }
-        
-        const measuredIPD = Math.sqrt(
-          Math.pow(rightEyeCenter.x - leftEyeCenter.x, 2) +
-          Math.pow(rightEyeCenter.y - leftEyeCenter.y, 2)
+
+        const distanceMm = cm * 10
+        rollingDistanceRef.current = pushRolling(rollingDistanceRef.current, distanceMm)
+        const smoothedMm = rollingMean(rollingDistanceRef.current)
+        setCurrentDistance(smoothedMm)
+        setTrackingSource(regions.source || 'iris-landmarks')
+
+        const fb = distanceCalibration.getDistanceFeedback(smoothedMm, testType)
+        const valid = smoothedMm >= minDistance && smoothedMm <= maxDistance
+        setFeedback(
+          valid
+            ? {
+                ...fb,
+                status: 'perfect',
+                message: `Perfect Distance! (${Math.round(smoothedMm / 10)}cm)`,
+                color: 'green',
+                borderColor: 'border-green-500',
+                bgColor: 'bg-green-500',
+                textColor: 'text-green-500',
+                action: 'hold-steady',
+              }
+            : fb
         )
-        
-        // Calibrate ONCE on first face detection using estimated focal constant
-        if (!calibratedRef.current) {
-          // For 640x480 webcam, focal constant is typically 500-700
-          // Higher values = appears closer, lower = appears farther
-          // 600 is a good middle ground
-          const estimatedFocalConstant = 600
-          console.log(`📏 One-time calibration with focal constant: ${estimatedFocalConstant}`)
-          
-          // Calculate what distance this IPD measurement represents
-          const initialDistance = (estimatedFocalConstant * 63) / measuredIPD
-          console.log(`📐 Initial distance: ${Math.round(initialDistance)}mm (IPD: ${measuredIPD.toFixed(1)}px)`)
-          
-          // Do one-time calibration
-          distanceCalibration.calibrate(measuredIPD, initialDistance)
-          calibratedRef.current = true
-          setCalibrated(true)
-          setIsCalibrating(false)
-          console.log('[OK] Calibration complete - now tracking distance')
-        }
-        
-        // Calculate distance (only after calibration)
-        if (calibratedRef.current) {
-          const distance = distanceCalibration.getDistance(measuredIPD)
-          setCurrentDistance(distance)
-          
-          const fb = distanceCalibration.getDistanceFeedback(distance, testType)
-          setFeedback(fb)
-          
-          // Check if distance is within valid range
-          const valid = distance >= minDistance && distance <= maxDistance
-          setIsValidDistance(valid)
-        }
+        setIsValidDistance(valid)
       } else {
-        // Log occasionally when no face detected (every 50 attempts = 5 seconds)
-        if (Math.random() < 0.02) {
-          console.log('👤 No face detected - make sure your face is visible and well-lit')
+        if (faceDetectedRef.current) {
+          faceDetectedRef.current = false
+          setFaceDetected(false)
         }
-        setFaceDetected(false)
+        rollingDistanceRef.current = []
+        setTrackingSource(null)
         setIsValidDistance(false)
       }
     } catch (error) {
-      console.error('[X] Face detection error:', error)
-      console.error('Error details:', error.message, error.stack)
+      console.error('IPD distance tracking error:', error)
+    } finally {
+      detectingRef.current = false
     }
+  }
+
+  const handleRetry = () => {
+    setLoadingError(null)
+    setModelsLoaded(false)
+    setCameraReady(false)
+    setFaceDetected(false)
+    faceDetectedRef.current = false
+    modelsLoadedRef.current = false
+    cameraReadyRef.current = false
+    initializingRef.current = false
+    rollingDistanceRef.current = []
+    stopCamera()
+    const generation = ++initGenerationRef.current
+    initCalibration(generation)
   }
 
   const renderVideoPreview = () => (
@@ -428,17 +526,22 @@ export default function InlineDistanceCalibration({
         style={{ transform: 'scaleX(-1)' }}
       />
 
-      <div className="absolute top-3 right-3">
+      <div className="absolute top-3 right-3 flex flex-col items-end gap-1">
         {faceDetected ? (
           <div className="flex items-center gap-2 bg-green-500 text-white px-3 py-1.5 rounded-full text-xs font-semibold shadow-lg">
             <div className="w-2 h-2 bg-white rounded-full animate-pulse" />
-            Face detected
+            Pupils locked
           </div>
         ) : (
           <div className="flex items-center gap-2 bg-red-500 text-white px-3 py-1.5 rounded-full text-xs font-semibold shadow-lg">
             <div className="w-2 h-2 bg-white rounded-full" />
-            No face
+            Looking for eyes…
           </div>
+        )}
+        {trackingSource && (
+          <span className="text-[10px] bg-black/50 text-white/90 px-2 py-0.5 rounded">
+            via {trackingSource}
+          </span>
         )}
       </div>
 
@@ -455,6 +558,61 @@ export default function InlineDistanceCalibration({
 
   const renderControlsPanel = () => (
     <>
+      {voiceConfirm && voiceRecognition.isSupported() && (
+        <div className="border-2 border-indigo-400 bg-indigo-50 rounded-xl p-4 space-y-3">
+          <p className="text-sm font-semibold text-indigo-950">
+            Step 1 — enable the microphone (required)
+          </p>
+          <p className="text-xs text-indigo-900">
+            Tap the button below <strong>while you are still at the screen</strong>. Browsers only
+            show the mic permission prompt after a tap. Then step back; when distance is green, say{' '}
+            <strong>&quot;ready&quot;</strong> or <strong>&quot;continue&quot;</strong>.
+          </p>
+
+          {voiceConfirmListening ? (
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 text-sm text-indigo-900 font-medium">
+                <span className="w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse" />
+                Mic listening
+                {distanceHoldReady
+                  ? ' — say "ready" or "continue" now'
+                  : ' — wait for green distance, then speak'}
+              </div>
+              {lastHeard && (
+                <p className="text-xs text-indigo-800">Last heard: &quot;{lastHeard}&quot;</p>
+              )}
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={enableMicrophone}
+              className="w-full min-h-[48px] bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-base shadow"
+            >
+              {micStatus === 'priming' ? 'Starting microphone…' : 'Enable microphone'}
+            </button>
+          )}
+
+          {voiceHint && (
+            <p className="text-xs text-indigo-950 bg-white/70 border border-indigo-200 rounded-lg px-3 py-2">
+              {voiceHint}
+            </p>
+          )}
+
+          {micStatus === 'denied' && (
+            <p className="text-xs text-red-700">
+              Microphone blocked. Click the lock/camera icon in the address bar → allow microphone →
+              tap Enable again.
+            </p>
+          )}
+        </div>
+      )}
+
+      {voiceConfirm && !voiceRecognition.isSupported() && (
+        <div className="border-2 border-amber-300 bg-amber-50 rounded-xl p-4 text-sm text-amber-900">
+          Voice is not supported in this browser. Use Chrome or Edge, or tap Continue when distance is green.
+        </div>
+      )}
+
       {feedback && currentDistance ? (
         <div className={`border-2 ${feedback.borderColor} rounded-xl p-4 ${feedback.bgColor} bg-opacity-20`}>
           <div className={`text-lg font-bold ${feedback.textColor} mb-1`}>
@@ -477,7 +635,9 @@ export default function InlineDistanceCalibration({
               </div>
               <p className="text-xs text-center text-gray-600 mt-1.5">
                 {validDurationCount >= 20
-                  ? 'Distance stable'
+                  ? voiceConfirm
+                    ? 'Distance stable — say "ready"'
+                    : 'Distance stable'
                   : `Hold steady ${Math.max(0, Math.ceil((20 - validDurationCount) / 10))}s…`}
               </p>
             </div>
@@ -485,24 +645,33 @@ export default function InlineDistanceCalibration({
 
           {isValidDistance && validDurationCount >= 20 && (
             <div className="mt-4 space-y-2">
-              {voiceConfirm && voiceRecognition.isSupported() && (
-                <div className="text-xs bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2 text-indigo-900">
-                  {voiceConfirmListening ? (
-                    <span className="flex items-center gap-2">
-                      <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-                      Say <strong>&quot;ready&quot;</strong> or <strong>&quot;continue&quot;</strong> to begin
-                    </span>
-                  ) : (
-                    'Voice confirm starting… allow microphone if prompted'
-                  )}
+              {voiceConfirm && voiceRecognition.isSupported() && !voiceConfirmListening && (
+                <button
+                  type="button"
+                  onClick={enableMicrophone}
+                  className="w-full min-h-[48px] bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl"
+                >
+                  Enable microphone to say &quot;ready&quot;
+                </button>
+              )}
+              {voiceConfirm && voiceRecognition.isSupported() && voiceConfirmListening && (
+                <div className="text-center text-base font-bold text-indigo-900 bg-white/80 border border-indigo-200 rounded-xl px-3 py-3">
+                  Say <span className="underline">ready</span> or <span className="underline">continue</span>
+                  {lastHeard ? (
+                    <div className="text-xs font-normal text-indigo-700 mt-1">Last heard: &quot;{lastHeard}&quot;</div>
+                  ) : null}
                 </div>
               )}
               <button
                 type="button"
-                onClick={handleDistanceConfirmed}
-                className="w-full bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-bold py-3 px-4 rounded-xl shadow-lg min-h-[44px]"
+                onClick={() => handleDistanceConfirmed({ viaVoice: false })}
+                className={
+                  voiceConfirm
+                    ? 'w-full text-sm text-gray-600 underline underline-offset-2 py-2 min-h-[44px]'
+                    : 'w-full bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-bold py-3 px-4 rounded-xl shadow-lg min-h-[44px]'
+                }
               >
-                Distance confirmed — begin test
+                {voiceConfirm ? 'Or tap here if you are next to the screen' : 'Distance confirmed — begin test'}
               </button>
             </div>
           )}
@@ -530,13 +699,13 @@ export default function InlineDistanceCalibration({
       ) : (
         <div className="border-2 border-gray-200 rounded-xl p-6 bg-gray-50 text-center text-gray-600">
           <p className="font-medium mb-1">Position your face in the camera</p>
-          <p className="text-sm">Keep your face visible and well lit</p>
+          <p className="text-sm">Keep both eyes visible — distance is measured from pupil spacing</p>
         </div>
       )}
 
       {splitLayout && voiceConfirm && (
         <p className="text-xs text-gray-500">
-          You will stand about {optimalDistanceCM}cm away — use voice commands so you do not need to return to the screen.
+          Stand about {optimalDistanceCM}cm away. After distance is green, say &quot;ready&quot; — do not walk back to click.
         </p>
       )}
     </>
@@ -545,40 +714,27 @@ export default function InlineDistanceCalibration({
   if (!modelsLoaded || !cameraReady) {
     return (
       <div className="bg-gradient-to-br from-blue-50 to-indigo-50 border-2 border-blue-300 rounded-2xl p-8">
-        {/* Hidden video element for camera initialization */}
         <div style={{ position: 'absolute', left: '-9999px', width: '1px', height: '1px', overflow: 'hidden' }}>
           <video ref={videoRef} autoPlay playsInline muted style={{ width: '640px', height: '480px' }} />
           <canvas ref={canvasRef} style={{ width: '640px', height: '480px' }} />
         </div>
-        
+
         <div className="flex flex-col items-center gap-4">
-          <div className="animate-spin rounded-full h-16 w-16 border-4 border-blue-600 border-t-transparent"></div>
+          <div className="animate-spin rounded-full h-16 w-16 border-4 border-blue-600 border-t-transparent" />
           <div className="text-center">
-            <h3 className="text-xl font-bold text-gray-900 mb-2">Loading Distance Calibration...</h3>
-            <p className="text-sm text-gray-600 mb-2">Initializing camera and AI models</p>
+            <h3 className="text-xl font-bold text-gray-900 mb-2">Loading Distance Calibration…</h3>
+            <p className="text-sm text-gray-600 mb-2">Starting camera and MediaPipe iris tracking</p>
             {loadingError && (
               <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg">
-                <p className="text-sm text-red-700 font-medium mb-2">[WARNING] Error Loading</p>
+                <p className="text-sm text-red-700 font-medium mb-2">Error Loading</p>
                 <p className="text-xs text-red-600">{loadingError}</p>
                 <button
-                  onClick={() => {
-                    setLoadingError(null)
-                    setModelsLoaded(false)
-                    setCameraReady(false)
-                    initializingRef.current = false
-                    calibratedRef.current = false
-                    setCalibrated(false)
-                    setIsCalibrating(true)
-                    stopCamera()
-                    initCalibration()
-                  }}
+                  type="button"
+                  onClick={handleRetry}
                   className="mt-3 px-4 py-2 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700"
                 >
                   Retry
                 </button>
-                <p className="text-xs text-gray-500 mt-3">
-                  Check browser console (F12) for detailed logs
-                </p>
               </div>
             )}
           </div>
@@ -603,12 +759,12 @@ export default function InlineDistanceCalibration({
       <div className="text-center">
         <h2 className="text-3xl font-bold text-gray-900 mb-2">Distance Calibration Required</h2>
         <p className="text-lg text-gray-600">
-          {testName} requires you to be <span className="font-bold text-purple-600">{optimalDistanceCM}cm</span> from the screen
+          {testName} requires you to be{' '}
+          <span className="font-bold text-purple-600">{optimalDistanceCM}cm</span> from the screen
         </p>
       </div>
 
       {renderVideoPreview()}
-
       {renderControlsPanel()}
     </div>
   )

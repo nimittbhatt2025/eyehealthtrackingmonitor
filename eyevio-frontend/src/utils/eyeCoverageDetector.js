@@ -22,11 +22,13 @@ const EAR_POINTS_RIGHT = { p1: 33, p2: 160, p3: 159, p4: 133, p5: 145, p6: 144 }
 const EAR_POINTS_LEFT = { p1: 362, p2: 387, p3: 386, p4: 263, p5: 374, p6: 373 }
 
 const RESULT_TIMEOUT_MS = 200
-const HAND_OVERLAP_THRESHOLD = 0.28
-const EAR_COVERED_THRESHOLD = 0.15
-const OCCLUSION_BRIGHTNESS_DROP = 28 // mean brightness drop vs baseline ⇒ covered
-const OCCLUSION_VARIANCE_DROP_RATIO = 0.45 // variance collapse (flat palm skin)
-const STREAK_REQUIRED = 3 // consecutive agreeing frames before reporting a cover
+const HAND_OVERLAP_THRESHOLD = 0.18
+const EAR_COVERED_THRESHOLD = 0.18
+const OCCLUSION_BRIGHTNESS_DROP = 16 // mean brightness drop vs baseline ⇒ covered
+const OCCLUSION_VARIANCE_DROP_RATIO = 0.6 // variance collapse (flat palm skin)
+const ASYMMETRY_DROP_DELTA = 10 // one eye darkened more than the other
+const STREAK_REQUIRED = 2 // consecutive agreeing frames before reporting a cover
+const STALE_LANDMARK_MS = 2500 // keep sampling last eye boxes briefly if face is lost under a palm
 
 function distance(a, b) {
   const dx = a.x - b.x
@@ -48,7 +50,7 @@ function eyeAspectRatio(landmarks, points) {
   return (vertical1 + vertical2) / (2 * horizontal)
 }
 
-function regionFromIndices(landmarks, indices, width, height, pad = 0.35) {
+function regionFromIndices(landmarks, indices, width, height, pad = 0.55) {
   const xs = indices.map((i) => landmarks[i].x * width)
   const ys = indices.map((i) => landmarks[i].y * height)
   const minX = Math.min(...xs)
@@ -116,6 +118,9 @@ export class EyeCoverageDetector {
     this.baselineFace = null
     this._streak = { value: 'neither', count: 0 }
     this._ownsCamera = false
+    this._lastLandmarks = null
+    this._lastLandmarkAt = 0
+    this._lastEyeBoxes = null
   }
 
   /**
@@ -301,6 +306,9 @@ export class EyeCoverageDetector {
         source: stats.source,
         timestamp: Date.now(),
       }
+      this._lastLandmarks = landmarks
+      this._lastLandmarkAt = Date.now()
+      this._lastEyeBoxes = { left: stats.leftBox, right: stats.rightBox }
       this._streak = { value: 'neither', count: 0 }
 
       return {
@@ -343,8 +351,31 @@ export class EyeCoverageDetector {
     if (!current || !baseline) return false
     const brightnessDrop = baseline.mean - current.mean
     const varianceCollapsed =
-      baseline.variance > 20 && current.variance < baseline.variance * OCCLUSION_VARIANCE_DROP_RATIO
-    return brightnessDrop >= OCCLUSION_BRIGHTNESS_DROP || varianceCollapsed
+      baseline.variance > 12 && current.variance < baseline.variance * OCCLUSION_VARIANCE_DROP_RATIO
+    // Palm skin is often brighter/flatter than iris — catch both darkening and flattening
+    const brightnessRiseFlat =
+      current.mean - baseline.mean >= 18 &&
+      baseline.variance > 12 &&
+      current.variance < baseline.variance * 0.7
+    return brightnessDrop >= OCCLUSION_BRIGHTNESS_DROP || varianceCollapsed || brightnessRiseFlat
+  }
+
+  _asymmetricCover(leftStats, rightStats) {
+    if (!leftStats || !rightStats || !this.baselineFace?.left || !this.baselineFace?.right) {
+      return { left: false, right: false }
+    }
+    const leftDrop = this.baselineFace.left.mean - leftStats.mean
+    const rightDrop = this.baselineFace.right.mean - rightStats.mean
+    // Also treat a large relative brightening (palm) as cover
+    const leftRise = leftStats.mean - this.baselineFace.left.mean
+    const rightRise = rightStats.mean - this.baselineFace.right.mean
+    const leftSignal = Math.max(leftDrop, leftRise * 0.75)
+    const rightSignal = Math.max(rightDrop, rightRise * 0.75)
+
+    return {
+      left: leftSignal - rightSignal >= ASYMMETRY_DROP_DELTA && leftSignal >= 12,
+      right: rightSignal - leftSignal >= ASYMMETRY_DROP_DELTA && rightSignal >= 12,
+    }
   }
 
   _stabilize(raw) {
@@ -370,15 +401,38 @@ export class EyeCoverageDetector {
     try {
       await Promise.all([this._sendFace(), this._sendHands()])
 
-      if (!this.lastResults?.multiFaceLandmarks?.[0]) {
-        return this._stabilize('neither')
+      const liveLandmarks = this.lastResults?.multiFaceLandmarks?.[0] || null
+      if (liveLandmarks) {
+        this._lastLandmarks = liveLandmarks
+        this._lastLandmarkAt = Date.now()
       }
 
-      const landmarks = this.lastResults.multiFaceLandmarks[0]
+      const landmarksFresh =
+        liveLandmarks ||
+        (this._lastLandmarks && Date.now() - this._lastLandmarkAt < STALE_LANDMARK_MS
+          ? this._lastLandmarks
+          : null)
+
       const imageData = this._captureFrame()
       if (!imageData) return 'unknown'
 
-      const stats = this._eyeStats(landmarks, imageData)
+      // Face lost under a palm — still sample last known eye boxes if we have them
+      let stats = null
+      if (landmarksFresh) {
+        stats = this._eyeStats(landmarksFresh, imageData)
+        this._lastEyeBoxes = { left: stats.leftBox, right: stats.rightBox }
+      } else if (this._lastEyeBoxes) {
+        stats = {
+          left: sampleRegionStats(imageData, this._lastEyeBoxes.left),
+          right: sampleRegionStats(imageData, this._lastEyeBoxes.right),
+          leftBox: this._lastEyeBoxes.left,
+          rightBox: this._lastEyeBoxes.right,
+          source: 'stale-boxes',
+        }
+      } else {
+        return this._stabilize('neither')
+      }
+
       let method = 'none'
       let leftCovered = false
       let rightCovered = false
@@ -393,17 +447,25 @@ export class EyeCoverageDetector {
         }
       }
 
-      // 2) Iris occlusion vs baseline (primary for palm cover without hand landmarks)
+      // 2) Iris occlusion vs baseline (works when palm covers an open eye)
       if (method === 'none') {
         leftCovered = this._isOccluded(stats.left, this.baselineFace.left)
         rightCovered = this._isOccluded(stats.right, this.baselineFace.right)
         if (leftCovered || rightCovered) method = 'iris-occlusion'
       }
 
-      // 3) EAR fallback — closed / squinted eye
+      // 3) Relative left/right change — catches partial covers
       if (method === 'none') {
-        const leftEAR = eyeAspectRatio(landmarks, EAR_POINTS_LEFT)
-        const rightEAR = eyeAspectRatio(landmarks, EAR_POINTS_RIGHT)
+        const asym = this._asymmetricCover(stats.left, stats.right)
+        leftCovered = asym.left
+        rightCovered = asym.right
+        if (leftCovered || rightCovered) method = 'asymmetry'
+      }
+
+      // 4) EAR fallback — closed / squinted eye (only with live landmarks)
+      if (method === 'none' && liveLandmarks) {
+        const leftEAR = eyeAspectRatio(liveLandmarks, EAR_POINTS_LEFT)
+        const rightEAR = eyeAspectRatio(liveLandmarks, EAR_POINTS_RIGHT)
         leftCovered = leftEAR < EAR_COVERED_THRESHOLD
         rightCovered = rightEAR < EAR_COVERED_THRESHOLD
         if (leftCovered || rightCovered) method = 'ear'
@@ -471,6 +533,9 @@ export class EyeCoverageDetector {
     // Never stop the shared camera here — the verification component owns it
     this.isActive = false
     this.baselineFace = null
+    this._lastLandmarks = null
+    this._lastLandmarkAt = 0
+    this._lastEyeBoxes = null
     this._streak = { value: 'neither', count: 0 }
   }
 }

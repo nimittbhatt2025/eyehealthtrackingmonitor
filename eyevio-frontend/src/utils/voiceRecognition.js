@@ -43,6 +43,7 @@ class VoiceRecognition {
     this.fatalError = false
     this.lastLoggedError = null
     this.micPrimed = false
+    this._startPending = false
 
     this._initRecognition()
   }
@@ -77,7 +78,9 @@ class VoiceRecognition {
     }
 
     this.recognition.onerror = (event) => {
-      const fatalErrors = ['network', 'not-allowed', 'service-not-allowed', 'audio-capture', 'aborted']
+      // Chrome often emits transient "network" errors; don't kill the session.
+      // "aborted" is expected when we call stop().
+      const fatalErrors = ['not-allowed', 'service-not-allowed', 'audio-capture']
       const isFatal = fatalErrors.includes(event.error)
 
       if (isFatal) {
@@ -102,14 +105,14 @@ class VoiceRecognition {
     }
 
     this.recognition.onend = () => {
-      const shouldRestart = this.isListening && !this.fatalError
+      // Restart only when we still intend to listen (session active via callback).
+      const shouldRestart = Boolean(this.onResultCallback) && !this.fatalError
       this.isListening = false
       if (shouldRestart) {
         window.setTimeout(() => {
           if (!this.isListening && !this.fatalError && this.onResultCallback) {
             try {
               this.recognition.start()
-              this.isListening = true
             } catch {
               // already starting
             }
@@ -162,16 +165,41 @@ class VoiceRecognition {
     this.onErrorCallback = onError
     this.onStartCallback = onStart
 
+    // Already running — just refresh callbacks (avoids InvalidStateError)
+    if (this.isListening) {
+      onStart?.()
+      return true
+    }
+
+    // Stop may be in-flight; wait for onend before starting again
+    if (this._startPending) {
+      return true
+    }
+
     try {
-      try {
-        this.recognition.stop()
-      } catch {
-        // ignore
-      }
-      this.isListening = false
+      // Do NOT mark isListening until onstart — start() can "succeed" then silently fail.
       this.recognition.start()
       return true
     } catch (error) {
+      // Chrome throws if start() is called while still stopping
+      if (error?.name === 'InvalidStateError') {
+        this._startPending = true
+        const retry = () => {
+          this._startPending = false
+          if (!this.onResultCallback || this.fatalError) return
+          try {
+            this.recognition.start()
+          } catch (retryErr) {
+            if (retryErr?.name !== 'InvalidStateError') {
+              console.error('Failed to start recognition:', retryErr)
+            }
+            this.isListening = false
+            this.onErrorCallback?.('start-failed')
+          }
+        }
+        window.setTimeout(retry, 150)
+        return true
+      }
       console.error('Failed to start recognition:', error)
       this.isListening = false
       return false
@@ -179,6 +207,7 @@ class VoiceRecognition {
   }
 
   stop() {
+    this._startPending = false
     this.onResultCallback = null
     this.onErrorCallback = null
     this.onStartCallback = null
@@ -304,15 +333,20 @@ class VoiceRecognition {
 
   /** Spoken commands to confirm / continue (distance calibration, etc.) */
   parseConfirmCommand(transcript) {
-    const t = String(transcript || '').toLowerCase().trim()
     const phrases = [
       'ready', 'continue', 'begin', 'start', 'proceed', 'confirm',
-      'go ahead', 'done', 'next', 'okay', 'ok',
+      'go ahead', 'go', 'done', 'next', 'okay', 'ok', 'yes',
+      "i'm ready", 'im ready', 'lets go', "let's go",
     ]
     const texts = Array.isArray(transcript) ? transcript : [transcript]
     return texts.some((raw) => {
-      const line = String(raw || '').toLowerCase().trim()
-      return phrases.some((phrase) => line.includes(phrase))
+      const line = String(raw || '')
+        .toLowerCase()
+        .replace(/[^\w\s']/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+      if (!line) return false
+      return phrases.some((phrase) => line === phrase || line.includes(phrase))
     })
   }
 }

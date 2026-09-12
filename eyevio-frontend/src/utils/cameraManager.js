@@ -28,27 +28,21 @@ const acquire = async (constraints = { video: true, audio: false }) => {
   // Reuse only if the shared stream is still live
   if (sharedStream && isStreamLive(sharedStream)) {
     refCount += 1
-    console.log('cameraManager: Reusing existing stream (refs=', refCount, ')')
     return sharedStream
   }
 
   // Drop stale/dead cached streams before acquiring a new one
   if (sharedStream) {
-    console.warn('cameraManager: Cached stream is no longer live, re-acquiring')
     clearSharedStream()
   }
 
-  // Try to acquire a new stream. Do not cache failed attempts as a stream.
   try {
-    console.log('cameraManager: Acquiring new MediaStream...')
     lastAcquireError = null
     const stream = await navigator.mediaDevices.getUserMedia(constraints)
     sharedStream = stream
     refCount = 1
-    console.log('cameraManager: Acquired stream (refs=1)')
     return sharedStream
   } catch (err) {
-    // Record the error to help callers decide what to show, but don't keep a broken stream
     console.error('cameraManager: Failed to acquire MediaStream:', err)
     lastAcquireError = err
     throw err
@@ -60,16 +54,13 @@ const getStream = () => sharedStream
 const release = () => {
   if (!sharedStream) return
   refCount -= 1
-  console.log('cameraManager: release called (refs=', refCount, ', persistent=', persistent, ')')
   if (refCount <= 0 && !persistent) {
     clearSharedStream()
-    console.log('cameraManager: Stream stopped and cleared')
   }
 }
 
 const persist = (enable = true) => {
   persistent = !!enable
-  console.log('cameraManager: persist set to', persistent)
 }
 
 const isPersistent = () => persistent
@@ -78,7 +69,6 @@ const reset = () => {
   // Force-clear any cached stream and error; useful after user updates permissions
   clearSharedStream()
   lastAcquireError = null
-  console.log('cameraManager: reset completed')
 }
 
 const getLastError = () => lastAcquireError

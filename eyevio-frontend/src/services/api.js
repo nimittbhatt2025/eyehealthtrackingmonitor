@@ -3,8 +3,7 @@ import { toast } from 'react-hot-toast'
 import { useAuthStore } from '../store/authStore'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5002/api'
-
-console.log('🔧 [API] Initializing with base URL:', API_BASE_URL)
+const API_DEBUG = import.meta.env.DEV && import.meta.env.VITE_API_DEBUG === 'true'
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -16,24 +15,18 @@ const api = axios.create({
 // Request interceptor - add auth token
 api.interceptors.request.use(
   (config) => {
-    console.log('📤 [API] Outgoing request:', {
-      method: config.method?.toUpperCase(),
-      url: config.url,
-      baseURL: config.baseURL,
-      fullURL: `${config.baseURL}${config.url}`,
-      headers: config.headers,
-      data: config.data
-    })
-    
+    if (API_DEBUG) {
+      console.log('[API] request', config.method?.toUpperCase(), config.url)
+    }
+
     const token = localStorage.getItem('access_token')
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
-      console.log('🔑 [API] Added auth token')
     }
     return config
   },
   (error) => {
-    console.error(' [API] Request interceptor error:', error)
+    console.error('[API] Request interceptor error:', error)
     return Promise.reject(error)
   }
 )
@@ -41,21 +34,17 @@ api.interceptors.request.use(
 // Response interceptor - handle errors
 api.interceptors.response.use(
   (response) => {
-    console.log(' [API] Response received:', {
-      status: response.status,
-      url: response.config.url,
-      data: response.data
-    })
+    if (API_DEBUG) {
+      console.log('[API] response', response.status, response.config.url)
+    }
     return response
   },
   (error) => {
-    console.error(' [API] Response error:', {
+    console.error('[API] Response error:', {
       message: error.message,
-      code: error.code,
       url: error.config?.url,
-      method: error.config?.method,
       status: error.response?.status,
-      data: error.response?.data
+      data: error.response?.data,
     })
     const isAuthRequest = error.config?.url?.includes('/auth/login') ||
       error.config?.url?.includes('/auth/register')

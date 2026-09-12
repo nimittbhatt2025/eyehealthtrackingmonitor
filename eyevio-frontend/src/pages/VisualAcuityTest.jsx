@@ -273,6 +273,26 @@ const VisualAcuityTest = () => {
     }
   }, [handleVoiceError, parseSpokenLetter, stopSetupRecognition, voiceSupported])
 
+  // Auto-start mic check when landing on voice-setup (e.g. after clicking distance confirm).
+  useEffect(() => {
+    if (testState !== 'voice-setup') return undefined
+    if (voiceSetupPassed || voiceMicFailed || isListening) return undefined
+    const t = window.setTimeout(() => {
+      startSetupListening()
+    }, 250)
+    return () => window.clearTimeout(t)
+  }, [testState, voiceSetupPassed, voiceMicFailed, isListening, startSetupListening])
+
+  // After a successful letter check, advance without requiring another click.
+  useEffect(() => {
+    if (testState !== 'voice-setup' || !voiceSetupPassed) return undefined
+    const t = window.setTimeout(() => {
+      stopSetupRecognition()
+      setTestState('glasses-check')
+    }, 900)
+    return () => window.clearTimeout(t)
+  }, [testState, voiceSetupPassed, stopSetupRecognition])
+
   // Generate random letters for current line
   const generateLetters = useCallback((numLetters) => {
     const letters = []
@@ -706,7 +726,7 @@ const VisualAcuityTest = () => {
         </div>
         <h2 className="text-2xl font-bold text-gray-900">Enable your microphone</h2>
         <p className="text-gray-600 text-sm">
-          You will stand about 1 meter from the screen. Tap the button, then say one letter out loud.
+          You will stand about 1 meter from the screen. Say one letter out loud to verify the mic.
         </p>
 
         <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 text-left text-sm text-indigo-900">
@@ -1158,9 +1178,19 @@ const VisualAcuityTest = () => {
             toleranceMM={100}
             splitLayout
             voiceConfirm
-            onDistanceValid={() => {
+            onDistanceValid={(_ok, meta = {}) => {
               setDistanceValid(true)
-              setTestState('instructions')
+              setVoiceEnabled(true)
+              // Voice confirm already proved the mic works — skip click-heavy setup.
+              if (meta?.viaVoice) {
+                setVoiceSetupPassed(true)
+                setVoiceSetupHeard('ready')
+                voiceFatalErrorRef.current = false
+                setTestState('glasses-check')
+                return
+              }
+              // Clicked from screen: still skip long instructions; verify mic next.
+              setTestState(voiceSupported ? 'voice-setup' : 'glasses-check')
             }}
             onDistanceInvalid={() => setDistanceValid(false)}
             testName="Visual Acuity Test"

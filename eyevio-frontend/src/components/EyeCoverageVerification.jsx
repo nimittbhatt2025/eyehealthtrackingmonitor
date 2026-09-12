@@ -220,6 +220,12 @@ const EyeCoverageVerification = ({ expectedEye, onVerified, onSkip, splitLayout 
     }
   }
 
+  const eyeLabel = expectedEye === 'left' ? 'LEFT' : 'RIGHT'
+  const autoDetected = Boolean(status?.correct)
+  // Never trap the user: after baseline (or if camera failed), they can self-confirm / skip
+  const canSelfConfirm = Boolean(baselineEstablished) || status?.detected === 'unknown'
+  const canContinue = autoDetected || canSelfConfirm
+
   const handleContinue = () => {
     cleanup()
     onVerified()
@@ -229,9 +235,6 @@ const EyeCoverageVerification = ({ expectedEye, onVerified, onSkip, splitLayout 
     cleanup()
     onSkip()
   }
-
-  const eyeLabel = expectedEye === 'left' ? 'LEFT' : 'RIGHT'
-  const canContinue = Boolean(status?.correct)
 
   const renderVideoFeed = () => (
     <div className="eye-coverage-video-wrap relative bg-black rounded-xl overflow-hidden border border-gray-200 w-full h-full min-h-[200px]">
@@ -267,26 +270,28 @@ const EyeCoverageVerification = ({ expectedEye, onVerified, onSkip, splitLayout 
       <li>
         Cover your <strong>{eyeLabel}</strong> eye with your palm — do not press on the eye.
       </li>
-      <li>Hold for about a second once it turns green, then continue.</li>
-      <li>Having trouble? Use Skip below to continue without detection.</li>
+      <li>When it turns green, tap Continue (or confirm yourself if detection is slow).</li>
+      <li>Camera having trouble? Use Skip to proceed without auto-detection.</li>
     </ul>
   )
 
   const renderActionButtons = (compact = false) => (
     <div className={`flex flex-col gap-2 ${compact ? '' : 'gap-4'}`}>
-      {permissionState !== 'granted' && (
+      {(permissionState === 'denied' || permissionState === 'prompt') && (
         <div className="flex gap-2">
           <button type="button" onClick={tryAcquire} className="flex-1 btn-primary min-h-[44px] text-sm">
             Allow camera
           </button>
-          <button type="button" onClick={handleSkip} className="flex-1 btn-secondary min-h-[44px] text-sm">
-            Skip
-          </button>
         </div>
+      )}
+      {!autoDetected && baselineEstablished && (
+        <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+          Detection can miss a palm cover. If your {eyeLabel.toLowerCase()} eye is covered, tap Continue below.
+        </p>
       )}
       <div className="flex gap-2 vision-test-controls-actions">
         <button type="button" onClick={handleSkip} className="flex-1 btn-secondary min-h-[44px] text-sm">
-          Skip
+          Skip check
         </button>
         <button
           type="button"
@@ -296,7 +301,11 @@ const EyeCoverageVerification = ({ expectedEye, onVerified, onSkip, splitLayout 
             canContinue ? 'btn-primary' : 'bg-gray-200 text-gray-500 cursor-not-allowed'
           }`}
         >
-          Continue
+          {autoDetected
+            ? 'Continue'
+            : baselineEstablished
+              ? `I've covered ${eyeLabel} — Continue`
+              : 'Continue'}
         </button>
       </div>
     </div>
@@ -444,6 +453,14 @@ const EyeCoverageVerification = ({ expectedEye, onVerified, onSkip, splitLayout 
               className="w-full mt-4 bg-green-600 text-white px-6 py-3 rounded-full font-bold hover:bg-green-700 transition-colors"
             >
               Continue to Test →
+            </button>
+          )}
+          {!status.correct && baselineEstablished && (
+            <button
+              onClick={handleContinue}
+              className="w-full mt-4 bg-blue-600 text-white px-6 py-3 rounded-full font-bold hover:bg-blue-700 transition-colors"
+            >
+              I&apos;ve covered {eyeLabel} — Continue
             </button>
           )}
         </div>
