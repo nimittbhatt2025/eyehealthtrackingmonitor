@@ -784,6 +784,12 @@ export default function EyeHealthMonitor() {
                     {lastResult.analysis?.ml_redness?.available
                       ? 'ML redness model + heuristic surface metrics'
                       : 'Heuristic surface metrics (ML model not available on this device)'}
+                    {lastResult.analysis?.crop_source && (
+                      <> · crop: {lastResult.analysis.crop_source.replace(/_/g, ' ')}</>
+                    )}
+                    {lastResult.analysis?.scoring_path && (
+                      <> · path: {lastResult.analysis.scoring_path.replace(/_/g, ' ')}</>
+                    )}
                     {lastResult.analysis?.confidence?.level && (
                       <> · confidence: {lastResult.analysis.confidence.level}</>
                     )}

@@ -133,6 +133,7 @@ def haar_eye_crop_meta(frame_bgr: np.ndarray) -> Optional[Dict[str, Any]]:
         'landmarks': None,
         'external_eye_only': False,
         'crop_method': 'haar_eye',
+        'crop_source': 'haar_eye',
     }
 
 
@@ -280,6 +281,7 @@ def external_eye_crop_meta(frame_bgr: np.ndarray) -> Dict[str, Any]:
     if haar is not None:
         haar['external_eye_only'] = True
         haar['crop_method'] = 'haar_eye_macro'
+        haar['crop_source'] = 'haar_eye_macro'
         return haar
     left, right = split_binocular_eye_crop(frame_bgr)
     return {
@@ -288,6 +290,7 @@ def external_eye_crop_meta(frame_bgr: np.ndarray) -> Dict[str, Any]:
         'landmarks': None,
         'external_eye_only': True,
         'crop_method': 'binocular_split',
+        'crop_source': 'binocular_split',
     }
 
 

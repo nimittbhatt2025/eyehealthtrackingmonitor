@@ -4,6 +4,7 @@ import { useCalibration } from '../context/CalibrationContext'
 import { visionTestAPI } from '../services/api'
 import voiceRecognition from '../utils/voiceRecognition'
 import InlineDistanceCalibration from '../components/InlineDistanceCalibration'
+import EyeCoverageVerification from '../components/EyeCoverageVerification'
 import { TestPrepLayout, TestDetails, TestActiveBar, VisionTestShell } from '../components/TestPrepLayout'
 import SamdDisclaimer from '../components/SamdDisclaimer'
 import { SAMD_SHORT } from '../utils/samd'
@@ -25,7 +26,7 @@ import removeEmojis from '../utils/removeEmojis.js'
  * - Ishihara-inspired pseudoisochromatic plates
  * - Protan (red) and Deutan (green) deficiency detection
  * - Severity classification (mild/moderate/severe)
- * - Monocular testing optional
+ * - Monocular testing with MediaPipe eye-coverage verification
  * - Safe medical language (screening, not diagnosis)
  */
 
@@ -33,8 +34,9 @@ const ColorVisionTest = () => {
   const navigate = useNavigate()
   const { isCalibrated, needsRecalibration, getConfidence, loadCalibration } = useCalibration()
   
-  const [testState, setTestState] = useState('distance-gate') // distance-gate, instructions, testing, results
+  const [testState, setTestState] = useState('distance-gate') // distance-gate, instructions, eye-coverage, testing, switch-eyes, results
   const [distanceValid, setDistanceValid] = useState(false)
+  const [currentEye, setCurrentEye] = useState('left') // left first, then right
   const [currentPlateIndex, setCurrentPlateIndex] = useState(0)
   const [responses, setResponses] = useState([])
   const [showFeedback, setShowFeedback] = useState(false)
@@ -128,8 +130,8 @@ const ColorVisionTest = () => {
     const nonControlPlates = PLATE_BANK.filter(p => p.type !== 'control' && p.type !== 'demo')
     const controlPlates = PLATE_BANK.filter(p => p.type === 'control')
     
-    // Select 8-9 diagnostic plates + 1-2 control plates at the END
-    const shuffledDiagnostic = shuffleArray(nonControlPlates).slice(0, 9)
+    // Select 6 diagnostic plates + 1 control (kept shorter for monocular ×2)
+    const shuffledDiagnostic = shuffleArray(nonControlPlates).slice(0, 6)
     const shuffledControl = shuffleArray(controlPlates).slice(0, 1)
     
     // Combine: demo first, diagnostic middle, control last
@@ -151,7 +153,7 @@ const ColorVisionTest = () => {
     loadCalibration()
   }, [])
 
-  // Initialize test plates when test starts
+  // Initialize test plates when each eye's testing phase starts
   useEffect(() => {
     if (testState === 'testing' && testPlates.length === 0) {
       const plates = generateTestPlates()
@@ -159,7 +161,18 @@ const ColorVisionTest = () => {
       setCurrentPlate(plates[0])
       setCurrentPlateIndex(0)
     }
-  }, [testState, generateTestPlates])
+  }, [testState, generateTestPlates, testPlates.length, currentEye])
+
+  const currentEyeRef = useRef(currentEye)
+  useEffect(() => { currentEyeRef.current = currentEye }, [currentEye])
+
+  const finishEyeOrResults = useCallback(() => {
+    if (currentEyeRef.current === 'left') {
+      setTestState('switch-eyes')
+      return
+    }
+    setTestState('results')
+  }, [])
 
   // Generate SVG for current plate (ONLY when plate changes, not on every keystroke)
   // WITH CACHING for instant re-display
@@ -254,6 +267,7 @@ const ColorVisionTest = () => {
       errorType: 'timeout',
       category: currentPlate.category,
       difficulty: currentPlate.difficulty,
+      eye: currentEyeRef.current,
       timestamp: Date.now(),
       responseTime: FIXED_TIME_LIMIT,
       timeAllowed: FIXED_TIME_LIMIT
@@ -445,6 +459,7 @@ const ColorVisionTest = () => {
       errorType,
       category: plate.category,
       difficulty: plate.difficulty,
+      eye: currentEyeRef.current,
       timestamp: Date.now(),
       responseTime, // Track how fast they responded
       timeAllowed: FIXED_TIME_LIMIT
@@ -474,7 +489,7 @@ const ColorVisionTest = () => {
           }, 500)
         }
       } else {
-        setTestState('results')
+        finishEyeOrResults()
       }
     }, FEEDBACK_DURATION)
   }
@@ -517,8 +532,7 @@ const ColorVisionTest = () => {
       setCurrentPlateIndex(nextIndex)
       setCurrentPlate(testPlates[nextIndex])
     } else {
-      // Test complete
-      setTestState('results')
+      finishEyeOrResults()
     }
   }
 
@@ -568,6 +582,19 @@ const ColorVisionTest = () => {
       deficiencyType,
       severity,
       demo_plates_excluded: responses.filter((r) => r.category === 'demo').length,
+      left_eye: summarizeEye('left'),
+      right_eye: summarizeEye('right'),
+    }
+  }
+
+  const summarizeEye = (eye) => {
+    const eyeResponses = responses.filter((r) => r.eye === eye && r.category !== 'demo')
+    if (eyeResponses.length === 0) return null
+    const correct = eyeResponses.filter((r) => r.correct).length
+    return {
+      total: eyeResponses.length,
+      correct,
+      accuracy: Math.round((correct / eyeResponses.length) * 100),
     }
   }
 
@@ -590,6 +617,10 @@ const ColorVisionTest = () => {
           protan_errors: analysis.protanErrors,
           deutan_errors: analysis.deutanErrors,
           other_errors: analysis.otherErrors,
+          left_eye: analysis.left_eye,
+          right_eye: analysis.right_eye,
+          monocular: true,
+          eye_coverage_verified: true,
           responses: responses,
           calibration_confidence: confidence,
           test_duration_seconds: Math.round((responses[responses.length - 1]?.timestamp - responses[0]?.timestamp) / 1000),
@@ -604,13 +635,53 @@ const ColorVisionTest = () => {
     }
   }
 
-  // Start the test (skip glasses check, go directly to testing)
+  // Start the test → eye coverage for the left eye first
   const startTest = () => {
     const useVoice = inputMethod === 'voice' && voiceSupported
     setVoiceEnabled(useVoice)
     setVoiceNotice('')
-    setTestState('testing')
+    setCurrentEye('left')
+    setTestPlates([])
+    setCurrentPlate(null)
+    setCurrentPlateIndex(0)
+    setResponses([])
+    setTestState('eye-coverage')
   }
+
+  const startRightEye = () => {
+    setCurrentEye('right')
+    setTestPlates([])
+    setCurrentPlate(null)
+    setCurrentPlateIndex(0)
+    setShowFeedback(false)
+    setSelectedAnswer(null)
+    setUserInput('')
+    setTestState('eye-coverage')
+  }
+
+  const renderEyeCoverage = () => (
+    <EyeCoverageVerification
+      expectedEye={currentEye === 'left' ? 'right' : 'left'}
+      splitLayout
+      testName="Color Vision Test"
+      onVerified={() => setTestState('testing')}
+      onSkip={() => setTestState('testing')}
+    />
+  )
+
+  const renderSwitchEyes = () => (
+    <div className="max-w-xl mx-auto">
+      <div className="card text-center space-y-4">
+        <h2 className="text-2xl font-bold text-gray-900">Left eye done</h2>
+        <p className="text-gray-600 text-sm">
+          Next we&apos;ll check your <strong>right</strong> eye. Cover your left eye when prompted.
+        </p>
+        <button type="button" onClick={startRightEye} className="w-full btn-primary min-h-[48px]">
+          Continue to right eye
+        </button>
+      </div>
+    </div>
+  )
 
   // Render Distance Gate - blocks until user is at correct distance
   const renderDistanceGate = () => (
@@ -650,11 +721,11 @@ const ColorVisionTest = () => {
   const renderInstructions = () => (
     <TestPrepLayout
       title="Color Vision Test"
-      subtitle="Tap the number you see on each plate (~3 min)"
+      subtitle="Each eye separately · tap the number you see (~4 min)"
       steps={[
-        'Look at each colored dot pattern.',
-        'Tap the number you see (or Nothing).',
-        'Get a red-green screening result.',
+        'Cover one eye when the camera asks you to.',
+        'Look at each colored dot pattern and tap the number (or Nothing).',
+        'Repeat for the other eye, then get a red-green screening result.',
       ]}
       onBack={() => navigate('/vision-tests')}
       onPrimary={startTest}
@@ -686,7 +757,7 @@ const ColorVisionTest = () => {
         <ul className="list-disc list-inside space-y-1 text-xs">
           <li>Bright, even light — remove tinted or blue-light glasses</li>
           <li>Screen brightness ~70–80%, Night Shift off</li>
-          <li>Hold device at arm's length</li>
+          <li>Allow camera access so we can confirm the correct eye is covered</li>
         </ul>
       </TestDetails>
       <TestDetails summary="Disclaimer & limits">
@@ -1018,8 +1089,8 @@ const ColorVisionTest = () => {
 
     return (
       <VisionTestShell
-        title={`Plate ${currentPlateIndex + 1} of ${testPlates.length}`}
-        subtitle="What number do you see?"
+        title={`${currentEye === 'left' ? 'Left' : 'Right'} eye · Plate ${currentPlateIndex + 1} of ${testPlates.length}`}
+        subtitle="Cover the other eye — what number do you see?"
         statusBar={(
           <div className="flex items-center gap-2 min-w-[120px]">
             <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden min-w-[80px]">
@@ -1125,6 +1196,27 @@ const ColorVisionTest = () => {
             </div>
           </div>
 
+          {(analysis.left_eye || analysis.right_eye) && (
+            <div className="grid grid-cols-2 gap-3 mb-6">
+              {['left', 'right'].map((eye) => {
+                const data = eye === 'left' ? analysis.left_eye : analysis.right_eye
+                return (
+                  <div key={eye} className="bg-gray-50 rounded-xl p-4 text-center border border-gray-100">
+                    <div className="text-xs font-semibold text-gray-500 uppercase mb-1">{eye} eye</div>
+                    {data ? (
+                      <>
+                        <div className="text-2xl font-bold text-gray-900">{data.accuracy}%</div>
+                        <div className="text-xs text-gray-500">{data.correct}/{data.total} plates</div>
+                      </>
+                    ) : (
+                      <div className="text-sm text-gray-400">No data</div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
           <SamdDisclaimer testType="color_vision" className="mb-6" />
 
           <div className="flex gap-4">
@@ -1150,7 +1242,9 @@ const ColorVisionTest = () => {
     <div className="px-2 pb-4">
       {testState === 'distance-gate' && renderDistanceGate()}
       {testState === 'instructions' && renderInstructions()}
+      {testState === 'eye-coverage' && renderEyeCoverage()}
       {testState === 'testing' && renderTesting()}
+      {testState === 'switch-eyes' && renderSwitchEyes()}
       {testState === 'results' && renderResults()}
     </div>
   )

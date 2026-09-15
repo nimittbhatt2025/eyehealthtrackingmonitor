@@ -95,7 +95,7 @@ function App() {
   return (
     <ErrorBoundary>
       <ThemeProvider>
-        <CameraProvider eagerModels={true}>
+        <CameraProvider>
           <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
             <KeyboardShortcutsProvider>
             <Toaster 

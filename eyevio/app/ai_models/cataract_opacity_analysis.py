@@ -1,9 +1,9 @@
 """
-Cataract opacity screening from anterior eye photos (Phase 1).
+Cataract opacity screening from anterior eye photos.
 
 Estimates lens opacity grade from pupil-centered eye crops using MediaPipe
-landmarks + computer-vision heuristics. Optional ResNet hook is scaffolded
-for a future deep-learning grader (LOCS-style) when weights are available.
+landmarks + computer-vision heuristics. Optional ResNet-18 binary classifier
+(CATARACT_MODEL_PATH or CATARACT_USE_HF=1) maps P(cataract) → opacity 0–100.
 
 Screening only — not a clinical LOCS III diagnosis or mm size measurement.
 """
@@ -128,14 +128,16 @@ def estimate_pupil_opacity(eye_bgr: np.ndarray) -> Dict[str, float]:
 
 def try_resnet_cataract_score(eye_bgr: np.ndarray) -> Optional[Dict[str, Any]]:
     """
-    Phase-1 scaffold for optional ResNet cataract classifier.
+    Optional ResNet-18 cataract classifier (binary → opacity 0–100).
 
-    Returns None unless a model is configured and torch is installed.
-    Future: load Hugging Face ResNet-18 weights and map logits → opacity grade.
+    Offline-safe: returns None unless CATARACT_MODEL_PATH is set or CATARACT_USE_HF=1.
+    See app.ai_models.cataract_resnet and train_cataract_resnet.py.
     """
-    # Intentionally inactive in Phase 1 — keeps install light and offline-safe.
-    # Hook point for: AventIQ-AI/resnet18-cataract-detection-system or fine-tuned LOCS model.
-    return None
+    try:
+        from app.ai_models.cataract_resnet import predict_cataract_opacity
+        return predict_cataract_opacity(eye_bgr)
+    except Exception:
+        return None
 
 
 def _analyze_eye(eye_bgr: np.ndarray) -> Dict[str, Any]:

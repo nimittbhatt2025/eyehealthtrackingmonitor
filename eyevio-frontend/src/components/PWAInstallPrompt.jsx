@@ -10,15 +10,19 @@ function PWAInstallPrompt() {
     const iOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream
     setIsIOS(iOS)
 
-    // Listen for beforeinstallprompt event
+    // Listen for beforeinstallprompt — only defer if we may show our custom UI.
     const handleBeforeInstallPrompt = (e) => {
+      const dismissed = localStorage.getItem('pwa-prompt-dismissed')
+      if (dismissed) {
+        // Do not call preventDefault — otherwise Chrome warns that prompt() was never called.
+        return
+      }
       e.preventDefault()
       setDeferredPrompt(e)
-      
+
       // Show prompt after 30 seconds (give user time to explore)
       setTimeout(() => {
-        const dismissed = localStorage.getItem('pwa-prompt-dismissed')
-        if (!dismissed) {
+        if (!localStorage.getItem('pwa-prompt-dismissed')) {
           setShowPrompt(true)
         }
       }, 30000)
@@ -41,12 +45,10 @@ function PWAInstallPrompt() {
 
     deferredPrompt.prompt()
     const { outcome } = await deferredPrompt.userChoice
-    
-    console.log(`User response to install prompt: ${outcome}`)
-    
+
     setDeferredPrompt(null)
     setShowPrompt(false)
-    
+
     if (outcome === 'dismissed') {
       localStorage.setItem('pwa-prompt-dismissed', 'true')
     }

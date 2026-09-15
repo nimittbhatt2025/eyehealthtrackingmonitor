@@ -19,6 +19,20 @@ import SamdDisclaimer from '../components/SamdDisclaimer'
  * Screening only — not a clinical diagnosis.
  */
 
+const CROP_SOURCE_LABELS = {
+  mediapipe_face_landmarker: 'MediaPipe eye landmarks',
+  haar_eye: 'Haar eye detector (fallback)',
+  haar_eye_macro: 'Close-up Haar crop',
+  binocular_split: 'Binocular split (fallback)',
+  production_smart_crop: 'Smart periocular crop (fallback)',
+  external_eye: 'External eye crop',
+}
+
+function formatCropSource(source) {
+  if (!source) return 'unknown'
+  return CROP_SOURCE_LABELS[source] || source.replace(/_/g, ' ')
+}
+
 const DryEyeTest = () => {
   const navigate = useNavigate()
   const videoRef = useRef(null)
@@ -145,7 +159,7 @@ const DryEyeTest = () => {
     stopCamera()
 
     try {
-      const response = await visionTestAPI.analyzeDryEye({ image: dataUrl })
+      const response = await visionTestAPI.analyzeDryEye({ image: dataUrl, capture_mode: 'camera' })
       const cvData = response.data
       const blended = combineDryEyeScores(cvData.score, symptoms.symptomHealthScore)
 
@@ -185,6 +199,8 @@ const DryEyeTest = () => {
           symptom_responses: symptoms.responses,
           findings: cvData.findings,
           metrics: cvData.metrics,
+          crop_source: cvData.crop_source,
+          scoring_path: cvData.scoring_path,
           left_eye: cvData.left_eye,
           right_eye: cvData.right_eye,
           lighting: cvData.lighting,
@@ -462,6 +478,12 @@ const DryEyeTest = () => {
                 {results.left_eye?.ml_grade != null && (
                   <p className="text-xs text-teal-700 mt-1">
                     ML grade L:{results.left_eye.ml_grade} R:{results.right_eye?.ml_grade}
+                  </p>
+                )}
+                {(results.crop_source || results.scoring_path) && (
+                  <p className="text-[11px] text-gray-400 mt-2">
+                    Crop: {formatCropSource(results.crop_source)}
+                    {results.ml_redness?.available ? ' · sclera model on' : ''}
                   </p>
                 )}
               </div>

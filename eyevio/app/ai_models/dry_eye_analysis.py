@@ -130,7 +130,12 @@ def _crop_eye_regions(frame: np.ndarray) -> Dict[str, Any]:
         crops[side] = frame[y0:y1, x0:x1].copy()
         crops[f'{side}_bbox'] = [x0, y0, x1, y1]
 
-    return {'crops': crops, 'face_detected': True, 'landmarks': landmarks}
+    return {
+        'crops': crops,
+        'face_detected': True,
+        'landmarks': landmarks,
+        'crop_source': 'mediapipe_face_landmarker',
+    }
 
 
 def _exclude_canthus_and_brow(mask: np.ndarray, side: Optional[str]) -> np.ndarray:
@@ -476,8 +481,16 @@ def _analyze_cropped_eyes(
     *,
     landmarks: Any = None,
     external_eye_only: bool = False,
+    crop_source: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Run appearance analysis on pre-cropped left/right eye patches."""
+    if crop_source is None:
+        if external_eye_only:
+            crop_source = 'external_eye'
+        elif landmarks is not None:
+            crop_source = 'mediapipe_face_landmarker'
+        else:
+            crop_source = 'haar_or_prepared'
     if external_eye_only or landmarks is None:
         lighting = {
             'status': 'external_eye_crop',
@@ -598,6 +611,16 @@ def _analyze_cropped_eyes(
         'aligned_crops': aligned_crops,
         'eye_asymmetry': asymmetry,
         'ml_redness': ml_redness,
+        'crop_source': crop_source,
+        'scoring_path': (
+            'landmark_dual_eye_ml'
+            if ml_redness.get('available') and landmarks is not None
+            else 'landmark_heuristics'
+            if landmarks is not None
+            else 'macro_or_haar_ml'
+            if ml_redness.get('available')
+            else 'heuristics_only'
+        ),
         'metrics': {
             'avg_sclera_redness': round(avg_redness, 1) if avg_redness is not None else None,
             'ml_sclera_score': ml_redness.get('score'),
@@ -606,6 +629,7 @@ def _analyze_cropped_eyes(
             'ml_sclera_uncertainty_std': ml_redness.get('uncertainty_std'),
             'ml_sclera_available': ml_redness.get('available', False),
             'ml_model_version': ml_redness.get('model_version'),
+            'crop_source': crop_source,
             'avg_tear_film_quality': round(avg_tear, 1),
             'avg_surface_irregularity': round(avg_irreg, 1),
             'avg_experimental_tear_proxy': round(avg_tear, 1),
@@ -639,27 +663,43 @@ def analyze_dry_eye_frame(frame: np.ndarray) -> Dict[str, Any]:
         crop_result['crops'],
         landmarks=crop_result.get('landmarks'),
         external_eye_only=crop_result.get('external_eye_only', False),
+        crop_source=crop_result.get('crop_source') or crop_result.get('crop_method'),
     )
 
 
 def analyze_dry_eye_from_base64(image_data: str, *, capture_mode: str = 'camera') -> Dict[str, Any]:
+    """
+    Decode a photo and score dry-eye / sclera appearance.
+
+    Camera happy path: MediaPipe Face Landmarker dual-eye crops + sclera ResNet
+    on tight landmark patches. Production Face-Detection smart-crop runs only for
+    gallery uploads or when landmarks fail (fallback).
+    """
     frame = decode_base64_image(image_data)
     if frame is None:
         return {'error': 'Could not decode image. Please capture again.'}
 
-    raw_bytes = base64_to_bytes(image_data)
-    production = None
-    if raw_bytes:
-        from app.ai_models.sclera_inference import predict_sclera_redness_production
-
-        production = predict_sclera_redness_production(raw_bytes)
-
     result = analyze_dry_eye_frame(frame)
 
-    from app.ai_models.sclera_inference import apply_production_ml_redness, production_to_ml_redness
+    from app.ai_models.sclera_inference import (
+        apply_production_ml_redness,
+        predict_sclera_redness_production,
+        production_to_ml_redness,
+    )
 
-    if production is not None:
-        result['production_sclera'] = production
+    need_production = (
+        capture_mode == 'upload'
+        or bool(result.get('error'))
+        or not (result.get('ml_redness') or {}).get('available')
+    )
+
+    production = None
+    if need_production:
+        raw_bytes = base64_to_bytes(image_data)
+        if raw_bytes:
+            production = predict_sclera_redness_production(raw_bytes)
+            if production is not None:
+                result['production_sclera'] = production
 
     if result.get('error') and production and production.get('status') == 'success':
         ml_redness = production_to_ml_redness(production)
@@ -681,6 +721,7 @@ def analyze_dry_eye_from_base64(image_data: str, *, capture_mode: str = 'camera'
                 'findings': findings,
                 'ml_redness': ml_redness,
                 'production_fallback': True,
+                'crop_source': 'production_smart_crop',
                 'scoring_path': 'production_upload',
                 'metrics': {
                     'ml_sclera_score': ml_redness.get('score'),
@@ -689,6 +730,7 @@ def analyze_dry_eye_from_base64(image_data: str, *, capture_mode: str = 'camera'
                     'ml_sclera_uncertainty_std': ml_redness.get('uncertainty_std'),
                     'ml_sclera_available': True,
                     'ml_model_version': ml_redness.get('model_version'),
+                    'crop_source': 'production_smart_crop',
                 },
                 'disclaimer': (
                     'Appearance tracking only — not a medical diagnosis. '
@@ -697,6 +739,8 @@ def analyze_dry_eye_from_base64(image_data: str, *, capture_mode: str = 'camera'
             })
     elif capture_mode == 'upload' and not result.get('error') and production and production.get('status') == 'success':
         apply_production_ml_redness(result, production)
+        result['crop_source'] = result.get('crop_source') or 'mediapipe_face_landmarker'
+        result['scoring_path'] = 'production_upload'
 
     return result
 
@@ -720,6 +764,7 @@ def check_photo_lighting_from_base64(image_data: str) -> Dict[str, Any]:
     return {
         'lighting': lighting,
         'face_detected': True,
+        'crop_source': crop_result.get('crop_source') or crop_result.get('crop_method'),
     }
 
 

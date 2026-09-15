@@ -137,7 +137,10 @@ def analyze_dry_eye():
             return jsonify({'error': 'image is required (base64 data URL)'}), 400
 
         from app.ai_models.dry_eye_analysis import analyze_dry_eye_from_base64
-        results = analyze_dry_eye_from_base64(image_data)
+        results = analyze_dry_eye_from_base64(
+            image_data,
+            capture_mode=data.get('capture_mode', 'camera'),
+        )
         if results.get('error'):
             return jsonify(results), 400
 

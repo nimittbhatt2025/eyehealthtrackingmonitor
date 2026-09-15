@@ -1,0 +1,12 @@
+
+# Local training data (large; pull with scripts/pull_ocular_datasets.py)
+data/
+train.csv
+val.csv
+test.csv
+cataract_detection_resnet18.pth
+cataract_class_names.json
+pathology_resnet18.pth
+pathology_class_names.json
+best_unfrozen_ordinal.pth
+sclera_redness_ordinal.pth

@@ -39,9 +39,10 @@ def get_sclera_model():
 
 def smart_crop_eyes(img: Image.Image) -> Image.Image:
     """
-    Isolate the eye region from wide/full-face photos.
+    Isolate the periocular region from wide/full-face photos.
 
-    Uses MediaPipe face detection when available, otherwise a center-crop heuristic.
+    Prefer MediaPipe Face Landmarker eye boxes (same stack as webcam dry-eye),
+    then Face Detection eye-band, then a center-crop heuristic.
     Skips cropping when the image is already a clinical/macro eye close-up.
     """
     w, h = img.size
@@ -49,6 +50,10 @@ def smart_crop_eyes(img: Image.Image) -> Image.Image:
         return img
     if abs(w - h) < min(w, h) * 0.2 and w < 600:
         return img
+
+    landmarker_crop = _landmarker_periocular_crop(img)
+    if landmarker_crop is not None:
+        return landmarker_crop
 
     if HAS_MEDIAPIPE:
         try:
@@ -72,6 +77,44 @@ def smart_crop_eyes(img: Image.Image) -> Image.Image:
             pass
 
     return img.crop((w // 4, h // 4, 3 * w // 4, 3 * h // 4))
+
+
+def _landmarker_periocular_crop(img: Image.Image):
+    """Union of L/R landmark eye boxes — tighter than Face Detection face-band."""
+    try:
+        from app.ai_models.eye_analysis import get_face_landmarker
+        from app.ai_models.ocular_ml_preprocess import LEFT_EYE_REGION, RIGHT_EYE_REGION, landmark_bbox
+    except Exception:
+        return None
+
+    detector = get_face_landmarker()
+    if detector is None or not HAS_MEDIAPIPE:
+        return None
+
+    try:
+        import cv2
+
+        bgr = _pil_to_bgr(img)
+        rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+        results = detector.detect(mp_image)
+        if not results.face_landmarks:
+            return None
+        landmarks = results.face_landmarks[0]
+        h, w = bgr.shape[:2]
+        boxes = [
+            landmark_bbox(landmarks, LEFT_EYE_REGION, w, h, pad_x=0.35, pad_y=0.45),
+            landmark_bbox(landmarks, RIGHT_EYE_REGION, w, h, pad_x=0.35, pad_y=0.45),
+        ]
+        x0 = min(b[0] for b in boxes)
+        y0 = min(b[1] for b in boxes)
+        x1 = max(b[2] for b in boxes)
+        y1 = max(b[3] for b in boxes)
+        if x1 - x0 < 32 or y1 - y0 < 32:
+            return None
+        return img.crop((x0, y0, x1, y1))
+    except Exception:
+        return None
 
 
 def predict_sclera_redness_production(image_bytes: bytes) -> Dict[str, Any]:

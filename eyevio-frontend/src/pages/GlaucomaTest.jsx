@@ -3,13 +3,16 @@ import { useNavigate } from 'react-router-dom'
 import { visionTestAPI } from '../services/api'
 import SamdDisclaimer from '../components/SamdDisclaimer'
 import { scoreSideVision } from '../utils/visionTestScoring'
+import cameraManager from '../utils/cameraManager.js'
+import EyeTracker from '../utils/eyeTracker'
 
 /**
  * PERIPHERAL FIELD SCREEN — 4-Quadrant Paracentral Test
  *
  * Clinical basis: Digital Goldmann Perimetry
  * ─────────────────────────────────────────────────────
- * • Fixation Monitor: pulsing central "+" + occasional gaze-trap letter
+ * • Fixation Monitor: MediaPipe iris gaze (same stack as Peripheral Awareness)
+ *   + pulsing central "+" + occasional gaze-trap letter
  * • Stimulus: 15° eccentricity (paracentral), 200–400 ms flash, M-scaled 4×
  * • Contrast: 0.3 LogCS easier than the user's central threshold (from Test 1)
  *             Falls back to LogCS 1.0 (10% contrast) if no prior result
@@ -67,6 +70,9 @@ const FLASH_MIN_MS = 200
 const FLASH_MAX_MS = 400
 const GAZE_TRAP_EVERY = 4
 const STAIRCASE_STEP = 0.15
+const FIXATION_TOLERANCE = 0.18
+const CALIBRATION_MS = 2000
+const FIXATION_OK_RATIO = 0.5
 
 const buildTrials = (centralLogCS) => {
   const startLogCS = Math.max(0.3, centralLogCS - 0.3)
@@ -109,6 +115,12 @@ const GlaucomaTest = () => {
 
   const [fixPulse, setFixPulse] = useState(false)
   const [gazeTrapWarning, setGazeTrapWarning] = useState(false)
+  const [fixationWarning, setFixationWarning] = useState(false)
+  const [isLookingCenter, setIsLookingCenter] = useState(true)
+  const [fixationEnabled, setFixationEnabled] = useState(false)
+  const [calibrationProgress, setCalibrationProgress] = useState(0)
+  const [setupError, setSetupError] = useState(null)
+  const [fixationLossCount, setFixationLossCount] = useState(0)
   const [isListening, setIsListening] = useState(false)
   const [voiceTranscript, setVoiceTranscript] = useState('')
   const [feedback, setFeedback] = useState(null)
@@ -121,6 +133,16 @@ const GlaucomaTest = () => {
   const responsesRef = useRef([])
   const phaseRef = useRef('instructions')
   const frameRef = useRef(null)
+  const videoRef = useRef(null)
+  const streamRef = useRef(null)
+  const eyeTrackerRef = useRef(null)
+  const calibrationCenterRef = useRef({ x: 0.5, y: 0.5 })
+  const calibrationSamplesRef = useRef([])
+  const isLookingCenterRef = useRef(true)
+  const stimVisibleRef = useRef(false)
+  const fixationFlashRef = useRef({ ok: 0, total: 0 })
+  const fixationLossCountRef = useRef(0)
+  const fixationEnabledRef = useRef(false)
   const recognitionRef = useRef(null)
   const recognitionBusyRef = useRef(false)
   const handleVoiceResultRef = useRef(null)
@@ -130,8 +152,52 @@ const GlaucomaTest = () => {
   useEffect(() => { phaseRef.current = phase }, [phase])
   useEffect(() => { trialIdxRef.current = trialIdx }, [trialIdx])
 
+  const stopFixationTracking = useCallback(() => {
+    if (eyeTrackerRef.current) {
+      try { eyeTrackerRef.current.stop() } catch (e) { /* ignore */ }
+      eyeTrackerRef.current = null
+    }
+    if (streamRef.current) {
+      try { cameraManager.release() } catch (e) {
+        try { streamRef.current.getTracks().forEach((t) => t.stop()) } catch (err) { /* ignore */ }
+      }
+      streamRef.current = null
+    }
+    if (videoRef.current) videoRef.current.srcObject = null
+    fixationEnabledRef.current = false
+    setFixationEnabled(false)
+  }, [])
+
+  useEffect(() => () => {
+    stopFixationTracking()
+    clearTimeout(flashTimerRef.current)
+    clearTimeout(waitTimerRef.current)
+  }, [stopFixationTracking])
+
+  const handleGazeUpdate = useCallback((gazeData) => {
+    const center = calibrationCenterRef.current
+    const dist = Math.sqrt(
+      (gazeData.x - center.x) ** 2 + (gazeData.y - center.y) ** 2
+    )
+    const looking = Boolean(gazeData.detected) && dist < FIXATION_TOLERANCE
+    isLookingCenterRef.current = looking
+    setIsLookingCenter(looking)
+
+    if (phaseRef.current === 'calibrating' && gazeData.detected) {
+      calibrationSamplesRef.current.push({ x: gazeData.x, y: gazeData.y })
+    }
+
+    if (phaseRef.current === 'testing' && stimVisibleRef.current && gazeData.detected) {
+      fixationFlashRef.current.total += 1
+      if (looking) fixationFlashRef.current.ok += 1
+    }
+  }, [])
+
   const getCentralLogCS = () => {
-    try { const s = localStorage.getItem('cs_last_logCS'); if (s) return parseFloat(s) } catch (e) {}
+    try {
+      const s = localStorage.getItem('cs_last_logCS')
+      if (s) return parseFloat(s)
+    } catch (e) { /* ignore */ }
     return 1.0
   }
 
@@ -199,15 +265,93 @@ const GlaucomaTest = () => {
     setStimSizePx(isGT ? getTrapSize() : getPeriphSize())
     setStimLetter(trial.letter)
     setFeedback(null); setVoiceTranscript(''); setHearBubble('')
+    fixationFlashRef.current = { ok: 0, total: 0 }
     const flashDur = FLASH_MIN_MS + Math.random() * (FLASH_MAX_MS - FLASH_MIN_MS)
+    stimVisibleRef.current = true
     setStimVisible(true)
     flashTimerRef.current = setTimeout(() => {
+      stimVisibleRef.current = false
       setStimVisible(false)
       waitTimerRef.current = setTimeout(() => {
         if (handleVoiceResultRef.current) handleVoiceResultRef.current(['NOTHING'])
       }, 3000)
     }, flashDur)
   }, [])
+
+  const runTrialRef = useRef(runTrial)
+  useEffect(() => { runTrialRef.current = runTrial }, [runTrial])
+
+  const beginTrials = useCallback(() => {
+    const cl = getCentralLogCS()
+    const tl = buildTrials(cl)
+    trialsRef.current = tl
+    responsesRef.current = []
+    staircaseRef.current = {}
+    fixationLossCountRef.current = 0
+    setTrials(tl)
+    setResponses([])
+    setTrialIdx(0)
+    trialIdxRef.current = 0
+    setPhase('testing')
+    setTimeout(() => { try { recognitionRef.current?.start() } catch (e) { /* ignore */ } }, 400)
+    setTimeout(() => runTrialRef.current(0, tl), 800)
+  }, [])
+
+  const startFixationSetup = useCallback(async () => {
+    setSetupError(null)
+    setCalibrationProgress(0)
+    setPhase('calibrating')
+    calibrationSamplesRef.current = []
+
+    // Let calibrating UI mount the hidden video before acquiring camera.
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+
+    try {
+      const stream = await cameraManager.acquire({
+        video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
+      })
+      streamRef.current = stream
+      if (!videoRef.current) throw new Error('Camera preview not ready')
+      videoRef.current.srcObject = stream
+      await videoRef.current.play()
+
+      eyeTrackerRef.current = new EyeTracker()
+      await eyeTrackerRef.current.initialize(videoRef.current, handleGazeUpdate)
+      fixationEnabledRef.current = true
+      setFixationEnabled(true)
+
+      const start = Date.now()
+      await new Promise((resolve) => {
+        const tick = setInterval(() => {
+          const elapsed = Date.now() - start
+          setCalibrationProgress(Math.min(100, Math.round((elapsed / CALIBRATION_MS) * 100)))
+          if (elapsed >= CALIBRATION_MS) {
+            clearInterval(tick)
+            resolve()
+          }
+        }, 50)
+      })
+
+      const samples = calibrationSamplesRef.current
+      if (samples.length >= 8) {
+        calibrationCenterRef.current = {
+          x: samples.reduce((s, p) => s + p.x, 0) / samples.length,
+          y: samples.reduce((s, p) => s + p.y, 0) / samples.length,
+        }
+      } else {
+        calibrationCenterRef.current = { x: 0.5, y: 0.5 }
+      }
+
+      beginTrials()
+    } catch (err) {
+      console.warn('Fixation camera unavailable — continuing with gaze traps only', err)
+      fixationEnabledRef.current = false
+      setFixationEnabled(false)
+      setSetupError('Camera fixation unavailable. Continuing with on-screen centre checks only.')
+      stopFixationTracking()
+      beginTrials()
+    }
+  }, [beginTrials, handleGazeUpdate, stopFixationTracking])
 
   const advanceTrial = useCallback((isGazeTrapTrial) => {
     const nextIdx = trialIdxRef.current + 1
@@ -228,6 +372,41 @@ const GlaucomaTest = () => {
       if (!correct) { setGazeTrapWarning(true); setTimeout(() => setGazeTrapWarning(false), 2500) }
       advanceTrial(true); return
     }
+
+    // MediaPipe fixation: discard peripheral answer if gaze left the centre during the flash.
+    let fixationLoss = false
+    if (fixationEnabledRef.current) {
+      const { ok, total } = fixationFlashRef.current
+      if (total > 0) {
+        fixationLoss = (ok / total) < FIXATION_OK_RATIO
+      } else if (!isLookingCenterRef.current) {
+        fixationLoss = true
+      }
+    }
+
+    if (fixationLoss) {
+      fixationLossCountRef.current += 1
+      setFixationWarning(true)
+      setTimeout(() => setFixationWarning(false), 2500)
+      setFeedback({ text: 'Look at the “+” — that flash was not counted', color: '#f97316' })
+      const resp = {
+        type: 'peripheral',
+        quadrant: trial.quadrant.id,
+        quadrantLabel: trial.quadrant.label,
+        letter: trial.letter,
+        answer: spokenLetter,
+        correct: false,
+        saw,
+        logCS: trial.logCS,
+        round: trial.round,
+        fixationLoss: true,
+      }
+      responsesRef.current = [...responsesRef.current, resp]
+      setResponses([...responsesRef.current])
+      advanceTrial(false)
+      return
+    }
+
     const qid = trial.quadrant.id
     const cur = staircaseRef.current[qid] ?? trial.logCS
     staircaseRef.current[qid] = correct
@@ -237,6 +416,7 @@ const GlaucomaTest = () => {
     const resp = {
       type: 'peripheral', quadrant: qid, quadrantLabel: trial.quadrant.label,
       letter: trial.letter, answer: spokenLetter, correct, saw, logCS: trial.logCS, round: trial.round,
+      fixationLoss: false,
     }
     responsesRef.current = [...responsesRef.current, resp]
     setResponses([...responsesRef.current])
@@ -245,18 +425,15 @@ const GlaucomaTest = () => {
 
   useEffect(() => { handleVoiceResultRef.current = handleVoiceResult }, [handleVoiceResult])
 
-  const startTest = () => {
-    const cl = getCentralLogCS(); const tl = buildTrials(cl)
-    trialsRef.current = tl; responsesRef.current = []; staircaseRef.current = {}
-    setTrials(tl); setResponses([]); setTrialIdx(0); trialIdxRef.current = 0; setPhase('testing')
-    setTimeout(() => { try { recognitionRef.current?.start() } catch (e) {} }, 400)
-    setTimeout(() => runTrial(0, tl), 800)
-  }
-
   const finishTest = async () => {
-    setPhase('results'); try { recognitionRef.current?.stop() } catch (e) {}
+    setPhase('results')
+    try { recognitionRef.current?.stop() } catch (e) { /* ignore */ }
+    const usedMediaPipeFixation = fixationEnabledRef.current
+    const fixationLosses = fixationLossCountRef.current
+    setFixationLossCount(fixationLosses)
+    stopFixationTracking()
     const cl = getCentralLogCS()
-    const periphR = responsesRef.current.filter(r => r.type === 'peripheral')
+    const periphR = responsesRef.current.filter(r => r.type === 'peripheral' && !r.fixationLoss)
     const qd = {}; for (const q of QUADRANTS) {
       const qr = periphR.filter(r => r.quadrant === q.id)
       const correct = qr.filter(r => r.correct).length; const total = qr.length
@@ -270,14 +447,24 @@ const GlaucomaTest = () => {
     const blendedScore = scoreSideVision(oa, maxD)
     try {
       await visionTestAPI.submit({ test_type: 'glaucoma_neural', score: blendedScore, response_time_ms: 0, errors: totalT - totalC,
-        test_details: { central_logCS_reference: cl, quadrant_data: qd, overall_accuracy: oa, max_deficit: maxD, score_breakdown: { accuracy_component: Math.round(oa * 100), blended_score: blendedScore }, relative_scotoma_quadrants: scotoma.map(([id]) => id), responses: responsesRef.current }
+        test_details: {
+          central_logCS_reference: cl,
+          quadrant_data: qd,
+          overall_accuracy: oa,
+          max_deficit: maxD,
+          score_breakdown: { accuracy_component: Math.round(oa * 100), blended_score: blendedScore },
+          relative_scotoma_quadrants: scotoma.map(([id]) => id),
+          fixation_loss_count: fixationLosses,
+          fixation_monitoring: usedMediaPipeFixation ? 'mediapipe_iris' : 'gaze_traps_only',
+          responses: responsesRef.current,
+        }
       })
     } catch (e) { console.error('submit failed:', e) }
   }
 
   const computeResults = () => {
     const cl = getCentralLogCS()
-    const periphR = responses.filter(r => r.type === 'peripheral')
+    const periphR = responses.filter(r => r.type === 'peripheral' && !r.fixationLoss)
     const totalC = periphR.filter(r => r.correct).length; const totalT = periphR.length
     const oa = totalT > 0 ? totalC / totalT : 0
     const qd = {}; for (const q of QUADRANTS) {
@@ -307,6 +494,9 @@ const GlaucomaTest = () => {
   return (
     <div className="test-shell">
       <div className="max-w-3xl mx-auto">
+        {(phase === 'calibrating' || phase === 'testing') && (
+          <video ref={videoRef} autoPlay playsInline muted className="sr-only" aria-hidden="true" />
+        )}
 
         {/* INSTRUCTIONS */}
         {phase === 'instructions' && (
@@ -373,14 +563,27 @@ const GlaucomaTest = () => {
               </div>
             </div>
 
-            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-8 text-xs text-amber-800">
-              <strong>Allow microphone access</strong> when prompted — answering by voice lets you keep looking straight ahead.
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-8 text-xs text-amber-800 space-y-1">
+              <p><strong>Allow camera + microphone</strong> when prompted.</p>
+              <p>The camera watches that your eyes stay on the “+” (MediaPipe iris tracking). Mic lets you answer without looking away.</p>
             </div>
 
             <div className="flex gap-4">
               <button onClick={() => navigate('/vision-tests')} className="flex-1 px-5 py-3 border-2 border-gray-300 rounded-full font-semibold text-gray-700 hover:bg-gray-50 transition-colors">Back</button>
-              <button onClick={startTest} className="test-btn">Begin Test</button>
+              <button onClick={startFixationSetup} className="test-btn">Begin Test</button>
             </div>
+          </div>
+        )}
+
+        {phase === 'calibrating' && (
+          <div className="test-panel text-center py-12">
+            <div className="text-5xl font-bold text-accent-600 mb-4 animate-pulse">+</div>
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Look at the “+”</h2>
+            <p className="text-gray-600 mb-6">Calibrating gaze so we can tell if you look toward the corners…</p>
+            <div className="max-w-xs mx-auto h-2 bg-gray-200 rounded-full overflow-hidden mb-2">
+              <div className="h-full bg-accent-500 transition-all duration-100" style={{ width: `${calibrationProgress}%` }} />
+            </div>
+            <p className="text-xs text-gray-500">{calibrationProgress}%</p>
           </div>
         )}
 
@@ -390,6 +593,12 @@ const GlaucomaTest = () => {
             <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
               <span className="text-sm text-gray-500 font-medium">Side Vision Test</span>
               <div className="flex items-center gap-3">
+                {fixationEnabled && (
+                  <div className={`flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded-full ${isLookingCenter ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>
+                    <div className={`w-2 h-2 rounded-full ${isLookingCenter ? 'bg-green-500' : 'bg-orange-500 animate-pulse'}`} />
+                    {isLookingCenter ? 'Fixation OK' : 'Look at +'}
+                  </div>
+                )}
                 <div className={`flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded-full ${isListening ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
                   <div className={`w-2 h-2 rounded-full ${isListening ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`} />
                   {isListening ? 'Listening' : 'Mic'}
@@ -402,7 +611,13 @@ const GlaucomaTest = () => {
               <div className="h-1.5 bg-accent-500 transition-all duration-500" style={{ width: `${progress}%` }} />
             </div>
 
-            {gazeTrapWarning && (
+            {setupError && (
+              <div className="bg-amber-100 text-amber-900 text-center text-xs font-medium py-2 px-4">
+                {setupError}
+              </div>
+            )}
+
+            {(gazeTrapWarning || fixationWarning) && (
               <div className="bg-orange-500 text-white text-center text-sm font-semibold py-2 px-4 animate-pulse">
                 Keep your eyes on the centre "+" — don't look at the corners!
               </div>
@@ -492,6 +707,12 @@ const GlaucomaTest = () => {
                 </div>
               </div>
 
+              {fixationLossCount > 0 && (
+                <p className="text-sm text-orange-800 bg-orange-50 border border-orange-200 rounded-xl px-4 py-3 mb-6">
+                  {fixationLossCount} flash{fixationLossCount === 1 ? '' : 'es'} were discarded because gaze left the centre “+”.
+                </p>
+              )}
+
               <h3 className="font-semibold text-gray-900 mb-3">Your four corners</h3>
               <div className="grid grid-cols-2 gap-3 mb-8">
                 {QUADRANTS.map(q => {
@@ -520,7 +741,21 @@ const GlaucomaTest = () => {
 
               <div className="flex gap-4">
                 <button onClick={() => navigate('/vision-tests')} className="flex-1 px-5 py-3 border-2 border-gray-300 rounded-full font-semibold text-gray-700 hover:bg-gray-50 transition-colors">Back to Tests</button>
-                <button onClick={() => { setPhase('instructions'); setTrials([]); setTrialIdx(0); setResponses([]); setFeedback(null); setGazeTrapWarning(false); staircaseRef.current={}; responsesRef.current=[] }} className="flex-1 px-5 py-3 bg-accent-600 hover:bg-accent-700 text-white rounded-full font-semibold transition-colors">Retake Test</button>
+                <button onClick={() => {
+                  stopFixationTracking()
+                  setPhase('instructions')
+                  setTrials([])
+                  setTrialIdx(0)
+                  setResponses([])
+                  setFeedback(null)
+                  setGazeTrapWarning(false)
+                  setFixationWarning(false)
+                  setSetupError(null)
+                  setFixationLossCount(0)
+                  staircaseRef.current = {}
+                  responsesRef.current = []
+                  fixationLossCountRef.current = 0
+                }} className="flex-1 px-5 py-3 bg-accent-600 hover:bg-accent-700 text-white rounded-full font-semibold transition-colors">Retake Test</button>
               </div>
             </div>
           )

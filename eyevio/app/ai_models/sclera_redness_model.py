@@ -70,12 +70,20 @@ class OrdinalScleraModel(nn.Module):
 
 
 def _resolve_weights_path() -> Path:
+    """
+    Resolve sclera ResNet weights.
+
+    Order: SCLERA_MODEL_PATH → sclera_redness_ordinal.pth → best_unfrozen_ordinal.pth
+    (legacy file is the shipped artifact until the preferred name is published).
+    """
     env_path = os.environ.get('SCLERA_MODEL_PATH', '').strip()
     if env_path:
         return Path(env_path).expanduser().resolve()
     if DEFAULT_WEIGHTS.is_file():
         return DEFAULT_WEIGHTS
-    return LEGACY_WEIGHTS
+    if LEGACY_WEIGHTS.is_file():
+        return LEGACY_WEIGHTS
+    return DEFAULT_WEIGHTS
 
 
 def _select_device() -> torch.device:

@@ -1,33 +1,19 @@
-import React, { createContext, useContext, useState, useEffect } from 'react'
+import React, { createContext, useContext, useState } from 'react'
 import cameraManager from '../utils/cameraManager'
-import modelManager from '../utils/modelManager'
 
 const CameraContext = createContext(null)
 
 export const useCamera = () => useContext(CameraContext)
 
-export const CameraProvider = ({ children, eagerModels = true }) => {
+/** Camera stream helpers. Face models are MediaPipe/on-demand — no eager face-api preload. */
+export const CameraProvider = ({ children }) => {
   const [active, setActive] = useState(false)
-  const [loadingModels, setLoadingModels] = useState(false)
-
-  useEffect(() => {
-    let mounted = true
-    if (eagerModels) {
-      setLoadingModels(true)
-      modelManager.loadFaceAPIModels('/models')
-        .catch(err => console.warn('CameraProvider: model preload failed', err))
-        .finally(() => { if (mounted) setLoadingModels(false) })
-    }
-
-    return () => { mounted = false }
-  }, [eagerModels])
 
   const startPersistentCamera = async (constraints = { video: true }) => {
     try {
       cameraManager.persist(true)
       await cameraManager.acquire(constraints)
       setActive(true)
-      console.log('CameraProvider: persistent camera started')
       return cameraManager.getStream()
     } catch (err) {
       console.error('CameraProvider: failed to start persistent camera', err)
@@ -40,7 +26,6 @@ export const CameraProvider = ({ children, eagerModels = true }) => {
       cameraManager.persist(false)
       cameraManager.release()
       setActive(false)
-      console.log('CameraProvider: persistent camera stopped')
     } catch (err) {
       console.warn('CameraProvider: error stopping camera', err)
     }
@@ -48,9 +33,7 @@ export const CameraProvider = ({ children, eagerModels = true }) => {
 
   const startTemporaryCamera = async (constraints = { video: true }) => {
     try {
-      const s = await cameraManager.acquire(constraints)
-      console.log('CameraProvider: temporary camera acquired')
-      return s
+      return await cameraManager.acquire(constraints)
     } catch (err) {
       console.error('CameraProvider: failed to acquire temporary camera', err)
       throw err
@@ -59,10 +42,10 @@ export const CameraProvider = ({ children, eagerModels = true }) => {
 
   const value = {
     active,
-    loadingModels,
+    loadingModels: false,
     startPersistentCamera,
     stopPersistentCamera,
-    startTemporaryCamera
+    startTemporaryCamera,
   }
 
   return (

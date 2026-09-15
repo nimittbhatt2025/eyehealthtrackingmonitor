@@ -100,6 +100,7 @@ const RedReflexTest = () => {
   const IPD_RATIO_TOO_FAR = 0.045
 
   const applyDistanceStatus = (status) => {
+    if (distanceStatusRef.current === status) return
     distanceStatusRef.current = status
     setDistanceStatus(status)
   }
@@ -146,7 +147,7 @@ const RedReflexTest = () => {
     }
   }, [])
 
-  // Simplified face width estimation from center-band skin tones
+  // Simplified face width estimation from center-band skin tones (subsampled)
   const estimateFaceWidth = (imageData) => {
     const data = imageData.data
     const width = imageData.width
@@ -155,8 +156,9 @@ const RedReflexTest = () => {
     let rightmost = 0
     const centerY = Math.floor(height * 0.4)
     const searchHeight = Math.floor(height * 0.3)
-    for (let y = centerY; y < centerY + searchHeight; y++) {
-      for (let x = 0; x < width; x++) {
+    const step = Math.max(2, Math.floor(width / 320))
+    for (let y = centerY; y < centerY + searchHeight; y += step) {
+      for (let x = 0; x < width; x += step) {
         const idx = (y * width + x) * 4
         const r = data[idx]
         const g = data[idx + 1]
@@ -258,7 +260,7 @@ const RedReflexTest = () => {
     }
   }
 
-  // Analyze captured frames for red reflex
+  // Analyze captured frame samples for red reflex (lightweight — no full ImageData retained)
   const analyzeFrames = useCallback((frames) => {
     if (frames.length === 0) {
       setError('No frames captured. Please try again.')
@@ -277,27 +279,23 @@ const RedReflexTest = () => {
 
     const confidence = !usedLandmarks ? 'low' : landmarkRatio >= 0.7 ? 'high' : 'moderate'
 
-    // Analyze each frame to extract red reflex data
     const leftEyeIntensities = []
     const rightEyeIntensities = []
-    // Count per-frame flags so a single bad frame can't produce a warning
     const flagCounts = {}
     const countFlag = (key) => {
       flagCounts[key] = (flagCounts[key] || 0) + 1
     }
 
-    scoredFrames.forEach(({ imageData, regions }) => {
-      const analysis = analyzeRedReflex(imageData, regions)
-
-      if (analysis.leftEye) {
-        leftEyeIntensities.push(analysis.leftEye.redIntensity)
-        if (analysis.leftEye.isWhite) countFlag('left:leukocoria')
-        if (analysis.leftEye.hasOpacity) countFlag('left:opacity')
+    scoredFrames.forEach(({ leftEye, rightEye }) => {
+      if (leftEye) {
+        leftEyeIntensities.push(leftEye.redIntensity)
+        if (leftEye.isWhite) countFlag('left:leukocoria')
+        if (leftEye.hasOpacity) countFlag('left:opacity')
       }
-      if (analysis.rightEye) {
-        rightEyeIntensities.push(analysis.rightEye.redIntensity)
-        if (analysis.rightEye.isWhite) countFlag('right:leukocoria')
-        if (analysis.rightEye.hasOpacity) countFlag('right:opacity')
+      if (rightEye) {
+        rightEyeIntensities.push(rightEye.redIntensity)
+        if (rightEye.isWhite) countFlag('right:leukocoria')
+        if (rightEye.hasOpacity) countFlag('right:opacity')
       }
     })
 
@@ -319,20 +317,16 @@ const RedReflexTest = () => {
       })
     })
 
-    // Calculate average intensities
     const avgLeftIntensity = leftEyeIntensities.reduce((a, b) => a + b, 0) / leftEyeIntensities.length
     const avgRightIntensity = rightEyeIntensities.reduce((a, b) => a + b, 0) / rightEyeIntensities.length
 
-    // Calculate symmetry score (0-100, 100 = perfect symmetry)
     const intensityDiff = Math.abs(avgLeftIntensity - avgRightIntensity)
     const symmetryPercent = Math.max(0, 100 - (intensityDiff / 2.55))
 
-    // Calculate reflex intensity score (0-100)
     const avgIntensity = (avgLeftIntensity + avgRightIntensity) / 2
     const intensityScore = (avgIntensity / 255) * 100
 
-    // Flag refractive imbalance if difference > 15%
-    if (intensityDiff > 38) { // 15% of 255
+    if (intensityDiff > 38) {
       warnings.push({ type: 'asymmetry', severity: 'warning' })
     }
 
@@ -351,11 +345,9 @@ const RedReflexTest = () => {
     const symmetryScore = Math.round(symmetryPercent)
     const combinedScore = scoreRedReflex(reflexIntensityScore, warnings)
 
-    // Stop camera after analysis
     stopCamera()
     setTestState('results')
 
-    // Submit results to backend
     submitResults({
       reflexIntensityScore,
       symmetryScore,
@@ -384,58 +376,103 @@ const RedReflexTest = () => {
     setCapturedFrames([])
 
     const frames = []
-    const totalFrames = 90 // 3 seconds at 30 fps
-    const captureInterval = 33 // ~30fps
+    // ~3s scan at 5fps — enough for reflex stats without flooding memory/main thread.
+    const totalFrames = 15
+    const captureIntervalMs = 200
+    const trackIntervalMs = 200
+    // Downscale before getImageData — full 1080p × N frames freezes the tab.
+    const ANALYSIS_MAX_WIDTH = 640
 
     let frameCount = 0
-
-    // Landmark tracking runs on its own loop; each captured frame pairs with the
-    // most recent pupil positions so eye ROIs follow head movement during the scan.
     let trackingCancelled = false
-    const trackLoop = async () => {
-      while (!trackingCancelled) {
-        if (!videoRef.current) break
-        try {
-          await pupilTrackerRef.current?.track(videoRef.current)
-        } catch (err) {
-          console.warn('Pupil tracking failed mid-scan:', err)
-          break
+    let captureTimerId = null
+    let trackTimerId = null
+
+    const trackOnce = async () => {
+      if (trackingCancelled || !videoRef.current) return
+      try {
+        if (pupilTrackerRef.current) {
+          await pupilTrackerRef.current.track(videoRef.current)
         }
+      } catch (err) {
+        console.warn('Pupil tracking failed mid-scan:', err)
+      }
+      if (!trackingCancelled) {
+        trackTimerId = setTimeout(trackOnce, trackIntervalMs)
       }
     }
-    trackLoop()
+    trackOnce()
+
+    const finishScan = () => {
+      trackingCancelled = true
+      if (captureTimerId) clearInterval(captureTimerId)
+      if (trackTimerId) clearTimeout(trackTimerId)
+      setTestState('analyzing')
+      // Yield so the analyzing UI can paint before CPU-heavy scoring.
+      window.setTimeout(() => analyzeFrames(frames), 50)
+    }
 
     const captureFrame = () => {
       if (frameCount >= totalFrames) {
-        clearInterval(intervalId)
-        trackingCancelled = true
-        setTestState('analyzing')
-        analyzeFrames(frames)
+        finishScan()
         return
       }
 
       if (!videoRef.current || !canvasRef.current) return
 
       const video = videoRef.current
+      if (!video.videoWidth) return
+
       const canvas = canvasRef.current
-      const ctx = canvas.getContext('2d')
+      const ctx = canvas.getContext('2d', { willReadFrequently: true })
 
-      canvas.width = video.videoWidth
-      canvas.height = video.videoHeight
-      ctx.drawImage(video, 0, 0)
+      const scale = Math.min(1, ANALYSIS_MAX_WIDTH / video.videoWidth)
+      const w = Math.max(1, Math.round(video.videoWidth * scale))
+      const h = Math.max(1, Math.round(video.videoHeight * scale))
+      canvas.width = w
+      canvas.height = h
+      ctx.drawImage(video, 0, 0, w, h)
 
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
-      const regions =
-        pupilTrackerRef.current?.getRegions(canvas.width, canvas.height) ||
-        fallbackPupilRegions(canvas.width, canvas.height)
+      const imageData = ctx.getImageData(0, 0, w, h)
+      const rawRegions =
+        pupilTrackerRef.current?.getRegions(video.videoWidth, video.videoHeight) ||
+        fallbackPupilRegions(video.videoWidth, video.videoHeight)
 
-      frames.push({ imageData, regions })
+      // Scale landmark coords into the downscaled analysis canvas.
+      const regions = {
+        ...rawRegions,
+        anatomicalLeft: rawRegions.anatomicalLeft && {
+          ...rawRegions.anatomicalLeft,
+          x: rawRegions.anatomicalLeft.x * scale,
+          y: rawRegions.anatomicalLeft.y * scale,
+          radius: Math.max(4, rawRegions.anatomicalLeft.radius * scale),
+          irisRadius: rawRegions.anatomicalLeft.irisRadius
+            ? Math.max(4, rawRegions.anatomicalLeft.irisRadius * scale)
+            : undefined,
+        },
+        anatomicalRight: rawRegions.anatomicalRight && {
+          ...rawRegions.anatomicalRight,
+          x: rawRegions.anatomicalRight.x * scale,
+          y: rawRegions.anatomicalRight.y * scale,
+          radius: Math.max(4, rawRegions.anatomicalRight.radius * scale),
+          irisRadius: rawRegions.anatomicalRight.irisRadius
+            ? Math.max(4, rawRegions.anatomicalRight.irisRadius * scale)
+            : undefined,
+        },
+      }
 
-      frameCount++
+      const analysis = analyzeRedReflex(imageData, regions)
+      frames.push({
+        regions: { source: rawRegions.source },
+        leftEye: analysis.leftEye,
+        rightEye: analysis.rightEye,
+      })
+
+      frameCount += 1
       setScanProgress((frameCount / totalFrames) * 100)
     }
 
-    const intervalId = setInterval(captureFrame, captureInterval)
+    captureTimerId = setInterval(captureFrame, captureIntervalMs)
   }, [analyzeFrames])
 
   // Submit results to backend
@@ -538,7 +575,7 @@ const RedReflexTest = () => {
                 </div>
                 <div>
                   <h4 className="font-bold text-gray-900 mb-1">3-Second Video Scan</h4>
-                  <p className="text-gray-600">Keep your eyes on the focal point while we capture 90 frames for analysis</p>
+                  <p className="text-gray-600">Keep your eyes on the focal point while we capture a short video for analysis</p>
                 </div>
               </div>
 
@@ -777,13 +814,13 @@ const RedReflexTest = () => {
 
         {/* Scanning animation bars */}
         <div className="mt-8 flex justify-center gap-2">
-          {[...Array(5)].map((_, i) => (
+          {[28, 44, 36, 52, 32].map((height, i) => (
             <div
               key={i}
               className="w-2 bg-red-600 rounded-full animate-pulse"
               style={{
-                height: `${20 + Math.random() * 40}px`,
-                animationDelay: `${i * 0.1}s`
+                height: `${height}px`,
+                animationDelay: `${i * 0.1}s`,
               }}
             />
           ))}

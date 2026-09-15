@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { toast } from 'react-hot-toast'
 import cameraManager from '../utils/cameraManager.js'
+import { loadWebGazer } from '../utils/loadWebGazer.js'
 
 /**
  * Webcam-based eye tracking using simple face detection
@@ -97,15 +98,22 @@ export default function WebcamEyeTracker({ stage, onComplete }) {
   }, [])
 
   const initializeWebGazer = async () => {
+    try {
+      if (!window.webgazer) {
+        await loadWebGazer()
+      }
+    } catch (err) {
+      console.warn('WebGazer not available — using fallback mode', err)
+      setCameraReady(true)
+      return
+    }
+
     if (!window.webgazer) {
-      console.error('[ERROR] WebGazer not loaded - will use fallback mode')
-      setCameraReady(true) // Still allow test to run
+      setCameraReady(true)
       return
     }
 
     try {
-      console.log('[WebGazer] Initializing...')
-      
       // Initialize WebGazer with error handling
       await window.webgazer
         .setRegression('ridge')
@@ -123,7 +131,6 @@ export default function WebcamEyeTracker({ stage, onComplete }) {
       window.webgazer.showFaceFeedbackBox(false)
       
       // CRITICAL: Start prediction listener to activate the tracker
-      console.log('[WebGazer] Starting prediction listener...')
       window.webgazer.setGazeListener((data, timestamp) => {
         // Store the latest prediction in a ref for use in detectGaze()
         if (data && data.x !== undefined && data.y !== undefined) {
