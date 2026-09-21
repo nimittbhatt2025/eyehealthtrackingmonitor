@@ -17,6 +17,7 @@ import { eyePhotoAPI } from '../services/api'
 import StableLightingPreview from '../utils/stableLightingPreview'
 import PhotoLightingBanner from '../components/PhotoLightingBanner'
 import SamdDisclaimer from '../components/SamdDisclaimer'
+import PathologyTriagePanel from '../components/PathologyTriagePanel'
 
 const CONDITION_TYPE = 'cataract'
 const DOCTOR_INTERVAL_KEY = 'cataract_monitor_doctor_months'
@@ -222,7 +223,7 @@ export default function CataractOpacityMonitor() {
       setLastResult(data)
       setView('results')
 
-      if (data.lighting_warning) {
+      if (data.lighting?.quality === 'fair' || data.lighting?.acknowledged) {
         toast('Photo saved, but lighting was not ideal — grade comparison may be less reliable.', {
           icon: '⚠️',
           duration: 6000,
@@ -305,10 +306,11 @@ export default function CataractOpacityMonitor() {
 
       <div className="card p-5 grid gap-4 sm:grid-cols-2">
         <div>
-          <div className="text-sm font-medium text-gray-700 mb-1.5">What Phase 1 tracks</div>
+          <div className="text-sm font-medium text-gray-700 mb-1.5">What this tracks</div>
           <ul className="text-sm text-gray-600 space-y-1 list-disc pl-5">
             <li>Opacity grade: clear → mild → moderate → dense</li>
             <li>Clarity score (higher = clearer lens region)</li>
+            <li>ResNet-18 grader when weights are present (else CV heuristics)</li>
             <li>Month-over-month grade change alerts</li>
           </ul>
           <p className="text-xs text-gray-500 mt-2">
@@ -464,7 +466,10 @@ export default function CataractOpacityMonitor() {
             <li>Even front light aimed at your face (avoid strong backlight)</li>
             <li>Remove glasses; look straight ahead with both eyes open</li>
             <li>Move close enough that both eyes fill most of the frame</li>
-            <li>Wait for the green lighting indicator before capturing</li>
+            <li>
+              Wait for the green lighting indicator — or use Capture anyway if you must
+              (saved but less reliable for month-over-month comparison)
+            </li>
           </ul>
 
           <PhotoLightingBanner lighting={liveLighting} />
@@ -500,6 +505,16 @@ export default function CataractOpacityMonitor() {
             >
               Capture &amp; grade opacity
             </button>
+            {liveLighting && !liveLighting.acceptable && (
+              <button
+                type="button"
+                onClick={() => captureAndAnalyze(true)}
+                disabled={!cameraReady}
+                className="btn-secondary min-h-[44px] disabled:opacity-50"
+              >
+                Capture anyway
+              </button>
+            )}
             <button
               type="button"
               onClick={() => {
@@ -518,7 +533,9 @@ export default function CataractOpacityMonitor() {
         <div className="card p-10 text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-4 border-accent-100 border-t-accent-600 mx-auto mb-4" />
           <p className="text-gray-700 font-medium">Estimating opacity grade…</p>
-          <p className="text-sm text-gray-500 mt-1">Aligning pupil-region crops and comparing to prior months</p>
+          <p className="text-sm text-gray-500 mt-1">
+            Aligning pupil-region crops, running ResNet when available, comparing to prior months
+          </p>
         </div>
       )}
 
@@ -559,7 +576,7 @@ export default function CataractOpacityMonitor() {
             )}
           </div>
 
-          {(lastResult.lighting_warning || lastResult.lighting?.quality === 'fair') && (
+          {(lastResult.lighting?.quality === 'fair' || lastResult.lighting?.acknowledged) && (
             <div className="card p-4 border-l-4 border-l-amber-500 bg-amber-50">
               <p className="text-sm font-semibold text-amber-900">Lighting warning</p>
               <p className="text-sm text-amber-800 mt-1">
@@ -624,13 +641,49 @@ export default function CataractOpacityMonitor() {
                   <p>
                     Method:{' '}
                     <strong className="text-gray-800">
-                      {analysis.method === 'resnet_v1' ? 'ResNet grader' : 'CV heuristic (Phase 1)'}
+                      {analysis.method === 'resnet_v1'
+                        ? 'ResNet-18 grader'
+                        : 'CV heuristic (ResNet unavailable)'}
                     </strong>
                   </p>
-                  <p className="text-xs text-gray-500">
-                    ResNet deep-learning grading is scaffolded for a later phase; Phase 1 uses pupil-region
-                    brightness and texture heuristics.
-                  </p>
+                  {analysis.method === 'resnet_v1' ? (
+                    <p className="text-xs text-gray-500">
+                      Binary cataract classifier on pupil-region crops. Probability maps to opacity
+                      0–100 for month-over-month trends — not LOCS III.
+                      {analysis.cataract_probability != null && (
+                        <>
+                          {' '}
+                          Avg P(cataract):{' '}
+                          <strong className="text-gray-700">
+                            {(Number(analysis.cataract_probability) * 100).toFixed(1)}%
+                          </strong>
+                        </>
+                      )}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-gray-500">
+                      Pupil-region brightness and texture heuristics. Place{' '}
+                      <code className="text-[11px]">cataract_detection_resnet18.pth</code> at the
+                      repo root (or set CATARACT_MODEL_PATH) to enable ResNet grading.
+                    </p>
+                  )}
+                  {(analysis.left_eye?.opacity_score != null ||
+                    analysis.right_eye?.opacity_score != null) && (
+                    <p className="text-xs text-gray-500">
+                      Per eye — L: {analysis.left_eye?.opacity_score ?? '—'}
+                      {analysis.left_eye?.method === 'resnet_v1' &&
+                        analysis.left_eye?.dl_metrics?.cataract_probability != null && (
+                          <> ({(analysis.left_eye.dl_metrics.cataract_probability * 100).toFixed(0)}%)</>
+                        )}
+                      {' · '}
+                      R: {analysis.right_eye?.opacity_score ?? '—'}
+                      {analysis.right_eye?.method === 'resnet_v1' &&
+                        analysis.right_eye?.dl_metrics?.cataract_probability != null && (
+                          <> ({(analysis.right_eye.dl_metrics.cataract_probability * 100).toFixed(0)}%)</>
+                        )}
+                    </p>
+                  )}
+                  <PathologyTriagePanel triage={analysis.pathology_triage} />
                   <button
                     type="button"
                     onClick={() => handleDeletePhoto(lastResult.photo.id, { fromResults: true })}

@@ -145,15 +145,19 @@ def _get_bundle() -> Optional[Dict[str, Any]]:
 
 def model_status() -> Dict[str, Any]:
     bundle = _get_bundle()
+    if os.environ.get('CATARACT_MODEL_PATH', '').strip():
+        via = 'CATARACT_MODEL_PATH'
+    elif bundle and Path(bundle['weights_path']).resolve() == DEFAULT_WEIGHTS.resolve():
+        via = 'default_weights'
+    elif os.environ.get('CATARACT_USE_HF', '').strip():
+        via = 'CATARACT_USE_HF'
+    else:
+        via = None
     return {
         'available': bundle is not None,
         'weights_path': bundle['weights_path'] if bundle else None,
         'labels': bundle['labels'] if bundle else None,
-        'enabled_via': (
-            'CATARACT_MODEL_PATH'
-            if os.environ.get('CATARACT_MODEL_PATH', '').strip()
-            else ('CATARACT_USE_HF' if os.environ.get('CATARACT_USE_HF', '').strip() else None)
-        ),
+        'enabled_via': via if bundle else None,
     }
 
 
@@ -200,5 +204,5 @@ def predict_cataract_opacity(eye_bgr: np.ndarray) -> Optional[Dict[str, Any]]:
             labels[i]: round(float(probs[i]), 4) for i in range(len(labels))
         },
         'method': 'resnet_v1',
-        'model': HF_REPO,
+        'model': 'cataract_detection_resnet18',
     }

@@ -19,6 +19,7 @@ import PhotoLightingBanner from '../components/PhotoLightingBanner'
 import EyewearReminderBanner from '../components/EyewearReminderBanner'
 import GlassesContactsCheck from '../components/GlassesContactsCheck'
 import SamdDisclaimer from '../components/SamdDisclaimer'
+import PathologyTriagePanel from '../components/PathologyTriagePanel'
 import { getLightingUiCopy } from '../utils/photoLightingCheck'
 import { formatLocalDate, formatLocalDateTime, getClientLocalDateString } from '../utils/formatDateTime'
 
@@ -829,6 +830,7 @@ export default function EyeHealthMonitor() {
                       )}
                     </div>
                   )}
+                  <PathologyTriagePanel triage={lastResult.analysis?.pathology_triage} />
                   <p><strong>Condition:</strong> {conditionLabel(lastResult.photo.condition_type)}</p>
                   <p><strong>Saved:</strong> {formatLocalDateTime(lastResult.photo.captured_at)}</p>
                   <p className="text-xs text-gray-500 pt-2">

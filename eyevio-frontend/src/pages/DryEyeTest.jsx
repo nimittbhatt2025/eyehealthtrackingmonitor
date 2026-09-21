@@ -11,6 +11,7 @@ import {
 import StableLightingPreview from '../utils/stableLightingPreview'
 import PhotoLightingBanner from '../components/PhotoLightingBanner'
 import SamdDisclaimer from '../components/SamdDisclaimer'
+import PathologyTriagePanel from '../components/PathologyTriagePanel'
 
 /**
  * Dry Eye Screening Test (Option B + OSDI-lite)
@@ -201,6 +202,7 @@ const DryEyeTest = () => {
           metrics: cvData.metrics,
           crop_source: cvData.crop_source,
           scoring_path: cvData.scoring_path,
+          pathology_triage: cvData.pathology_triage,
           left_eye: cvData.left_eye,
           right_eye: cvData.right_eye,
           lighting: cvData.lighting,
@@ -487,6 +489,10 @@ const DryEyeTest = () => {
                   </p>
                 )}
               </div>
+            </div>
+
+            <div className="mb-6">
+              <PathologyTriagePanel triage={results.pathology_triage} />
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">

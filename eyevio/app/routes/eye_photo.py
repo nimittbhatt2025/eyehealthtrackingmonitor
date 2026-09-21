@@ -124,6 +124,10 @@ def capture_eye_photo():
                 'message': lighting.get('message', 'Extreme lighting — improve conditions before capture.'),
             }), 422
 
+        if acknowledge_poor_lighting:
+            lighting = {**lighting, 'acknowledged': True}
+            analysis = {**analysis, 'lighting': lighting}
+
         metrics = analysis.get('metrics') or {}
         left = analysis.get('left_eye') or {}
         right = analysis.get('right_eye') or {}

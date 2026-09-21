@@ -2,8 +2,9 @@
 Cataract opacity screening from anterior eye photos.
 
 Estimates lens opacity grade from pupil-centered eye crops using MediaPipe
-landmarks + computer-vision heuristics. Optional ResNet-18 binary classifier
-(CATARACT_MODEL_PATH or CATARACT_USE_HF=1) maps P(cataract) → opacity 0–100.
+landmarks + computer-vision heuristics. When local ResNet-18 weights are present
+(cataract_detection_resnet18.pth), P(cataract) maps to opacity 0–100 and drives
+the grade; otherwise CV heuristics are used.
 
 Screening only — not a clinical LOCS III diagnosis or mm size measurement.
 """
@@ -130,14 +131,53 @@ def try_resnet_cataract_score(eye_bgr: np.ndarray) -> Optional[Dict[str, Any]]:
     """
     Optional ResNet-18 cataract classifier (binary → opacity 0–100).
 
-    Offline-safe: returns None unless CATARACT_MODEL_PATH is set or CATARACT_USE_HF=1.
-    See app.ai_models.cataract_resnet and train_cataract_resnet.py.
+    Prefers the pupil/lens ROI; falls back to the full eye crop.
+    Offline-safe: returns None unless repo weights, CATARACT_MODEL_PATH, or HF are available.
     """
     try:
         from app.ai_models.cataract_resnet import predict_cataract_opacity
-        return predict_cataract_opacity(eye_bgr)
     except Exception:
         return None
+
+    roi = _pupil_roi(eye_bgr)
+    for crop, crop_source in ((roi, 'pupil_roi'), (eye_bgr, 'eye_crop')):
+        if crop is None or crop.size == 0:
+            continue
+        try:
+            result = predict_cataract_opacity(crop)
+        except Exception:
+            result = None
+        if result and result.get('opacity_score') is not None:
+            return {**result, 'crop_source': crop_source}
+    return None
+
+
+def _aggregate_method(left: Dict[str, Any], right: Dict[str, Any]) -> str:
+    methods = {left.get('method'), right.get('method')}
+    if 'resnet_v1' in methods:
+        return 'resnet_v1'
+    return 'cv_heuristic_v1'
+
+
+def _resnet_model_status() -> Dict[str, Any]:
+    try:
+        from app.ai_models.cataract_resnet import model_status as resnet_status
+        status = resnet_status()
+        if status.get('available'):
+            return {
+                'available': True,
+                'active': 'resnet_v1',
+                'weights_path': status.get('weights_path'),
+                'labels': status.get('labels'),
+                'enabled_via': status.get('enabled_via') or 'default_weights',
+            }
+        return {
+            'available': False,
+            'active': 'cv_heuristic_v1',
+            'enabled_via': None,
+        }
+    except Exception:
+        return {'available': False, 'active': 'cv_heuristic_v1', 'enabled_via': None}
 
 
 def _analyze_eye(eye_bgr: np.ndarray) -> Dict[str, Any]:
@@ -198,7 +238,7 @@ def _crop_eyes(frame: np.ndarray) -> Dict[str, Any]:
 
 
 def analyze_cataract_frame(frame: np.ndarray) -> Dict[str, Any]:
-    """Full Phase-1 cataract opacity analysis on a BGR frame."""
+    """Full cataract opacity analysis on a BGR frame (ResNet when weights present)."""
     if frame is None or frame.size == 0:
         return {'error': 'Invalid image'}
 
@@ -230,6 +270,8 @@ def analyze_cataract_frame(frame: np.ndarray) -> Dict[str, Any]:
     avg_opacity = round((left['opacity_score'] + right['opacity_score']) / 2, 1)
     avg_health = round((left['health_score'] + right['health_score']) / 2, 1)
     grade = _score_to_grade(avg_opacity)
+    method = _aggregate_method(left, right)
+    model_status = _resnet_model_status()
 
     findings: List[str] = []
     if avg_opacity <= 20:
@@ -244,11 +286,23 @@ def analyze_cataract_frame(frame: np.ndarray) -> Dict[str, Any]:
     if abs(left['opacity_score'] - right['opacity_score']) >= 15:
         findings.append('Noticeable left/right opacity difference')
 
-    findings.append(
-        'Phase 1 uses computer-vision opacity grading from an anterior eye photo — not LOCS III and not a millimeter size measurement.'
-    )
+    if method == 'resnet_v1':
+        findings.append(
+            'Opacity grade uses a ResNet-18 cataract classifier on pupil-region crops '
+            '(screening only — not LOCS III, not a millimeter size measurement).'
+        )
+    else:
+        findings.append(
+            'Opacity grade uses computer-vision heuristics on the pupil region '
+            '(ResNet weights unavailable — not LOCS III, not a millimeter size measurement).'
+        )
 
-    return {
+    left_p = (left.get('dl_metrics') or {}).get('cataract_probability')
+    right_p = (right.get('dl_metrics') or {}).get('cataract_probability')
+    probs = [p for p in (left_p, right_p) if p is not None]
+    avg_prob = round(sum(probs) / len(probs), 4) if probs else None
+
+    result = {
         'score': avg_health,  # EyePhoto.health_score (higher = clearer)
         'opacity_score': avg_opacity,
         'opacity_grade': grade['opacity_grade'],
@@ -273,20 +327,32 @@ def analyze_cataract_frame(frame: np.ndarray) -> Dict[str, Any]:
             'avg_opacity_score': avg_opacity,
             'avg_clarity_score': avg_health,
             'grade_level': grade['grade_level'],
+            'avg_cataract_probability': avg_prob,
             # Map into EyePhoto columns for trend compatibility
             'avg_sclera_redness': round(avg_opacity * 0.35, 1),
             'avg_tear_film_quality': avg_health,
             'avg_surface_irregularity': round(avg_opacity * 0.55, 1),
         },
         'analysis_type': 'cataract_opacity',
-        'method': left.get('method') if left.get('method') == right.get('method') else 'cv_heuristic_v1',
-        'model_status': 'heuristic_active_resnet_scaffold',
+        'method': method,
+        'model_status': model_status,
+        'cataract_probability': avg_prob,
         'disclaimer': (
             'Screening only — not a medical diagnosis. Cataract size cannot be measured in millimeters '
             'from a phone selfie. This tool estimates an opacity grade for month-over-month trends. '
             'A dilated slit-lamp exam remains the clinical standard (LOCS III).'
         ),
     }
+    try:
+        from app.ai_models.pathology_classifier import attach_pathology_triage
+        attach_pathology_triage(
+            result,
+            left_bgr=crops.get('left'),
+            right_bgr=crops.get('right'),
+        )
+    except Exception:
+        result['pathology_triage'] = {'available': False, 'reason': 'attach_error'}
+    return result
 
 
 def analyze_cataract_from_base64(image_data: str) -> Dict[str, Any]:

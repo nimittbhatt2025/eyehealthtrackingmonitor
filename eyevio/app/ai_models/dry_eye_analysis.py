@@ -646,6 +646,18 @@ def _analyze_cropped_eyes(
     }
     if external_eye_only:
         result['external_eye_only'] = True
+    try:
+        from app.ai_models.pathology_classifier import attach_pathology_triage
+        attach_pathology_triage(
+            result,
+            left_bgr=crops.get('left'),
+            right_bgr=crops.get('right'),
+        )
+    except Exception:
+        result['pathology_triage'] = {
+            'available': False,
+            'reason': 'attach_error',
+        }
     return result
 
 
@@ -737,6 +749,13 @@ def analyze_dry_eye_from_base64(image_data: str, *, capture_mode: str = 'camera'
                     'Face landmarks were unavailable; score used smart-crop production pipeline.'
                 ),
             })
+            try:
+                from app.ai_models.pathology_classifier import attach_pathology_triage
+                attach_pathology_triage(result, left_bgr=frame, right_bgr=frame)
+                if result.get('pathology_triage'):
+                    result['pathology_triage']['crop_note'] = 'full_frame_fallback'
+            except Exception:
+                result.setdefault('pathology_triage', {'available': False, 'reason': 'attach_error'})
     elif capture_mode == 'upload' and not result.get('error') and production and production.get('status') == 'success':
         apply_production_ml_redness(result, production)
         result['crop_source'] = result.get('crop_source') or 'mediapipe_face_landmarker'
