@@ -686,7 +686,7 @@ class TestRecommendationEngine {
         name: 'Eye Tracking & Blink Analysis',
         description: 'Monitor fatigue and blink rate',
         icon: '',
-        duration: '5 min',
+        duration: '90s or 5 min',
         relevantFor: ['eye strain', 'dry eyes', 'fatigue', 'digital eye strain'],
       },
       dry_eye: {

@@ -22,12 +22,12 @@ const EAR_POINTS_RIGHT = { p1: 33, p2: 160, p3: 159, p4: 133, p5: 145, p6: 144 }
 const EAR_POINTS_LEFT = { p1: 362, p2: 387, p3: 386, p4: 263, p5: 374, p6: 373 }
 
 const RESULT_TIMEOUT_MS = 200
-const HAND_OVERLAP_THRESHOLD = 0.18
-const EAR_COVERED_THRESHOLD = 0.18
-const OCCLUSION_BRIGHTNESS_DROP = 16 // mean brightness drop vs baseline ⇒ covered
-const OCCLUSION_VARIANCE_DROP_RATIO = 0.6 // variance collapse (flat palm skin)
-const ASYMMETRY_DROP_DELTA = 10 // one eye darkened more than the other
-const STREAK_REQUIRED = 2 // consecutive agreeing frames before reporting a cover
+const HAND_OVERLAP_THRESHOLD = 0.12
+const EAR_COVERED_THRESHOLD = 0.2
+const OCCLUSION_BRIGHTNESS_DROP = 10 // mean brightness drop vs baseline ⇒ covered
+const OCCLUSION_VARIANCE_DROP_RATIO = 0.65 // variance collapse (flat palm skin)
+const ASYMMETRY_DROP_DELTA = 7 // one eye changed more than the other (palm cover)
+const STREAK_REQUIRED = 1 // report cover on first confident frame
 const STALE_LANDMARK_MS = 2500 // keep sampling last eye boxes briefly if face is lost under a palm
 
 function distance(a, b) {
@@ -157,11 +157,11 @@ export class EyeCoverageDetector {
             `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/${file}`,
         })
         this.hands.setOptions({
-          selfieMode: false,
+          selfieMode: true,
           maxNumHands: 2,
-          modelComplexity: 0,
-          minDetectionConfidence: 0.5,
-          minTrackingConfidence: 0.5,
+          modelComplexity: 1,
+          minDetectionConfidence: 0.4,
+          minTrackingConfidence: 0.4,
         })
         this.hands.onResults((results) => {
           this.lastHandResults = results
@@ -281,7 +281,7 @@ export class EyeCoverageDetector {
       const leftEAR = eyeAspectRatio(landmarks, EAR_POINTS_LEFT)
       const rightEAR = eyeAspectRatio(landmarks, EAR_POINTS_RIGHT)
 
-      if (leftEAR < 0.15 || rightEAR < 0.15) {
+      if (leftEAR < 0.12 || rightEAR < 0.12) {
         await new Promise((r) => setTimeout(r, 150))
         continue
       }
@@ -354,9 +354,9 @@ export class EyeCoverageDetector {
       baseline.variance > 12 && current.variance < baseline.variance * OCCLUSION_VARIANCE_DROP_RATIO
     // Palm skin is often brighter/flatter than iris — catch both darkening and flattening
     const brightnessRiseFlat =
-      current.mean - baseline.mean >= 18 &&
-      baseline.variance > 12 &&
-      current.variance < baseline.variance * 0.7
+      current.mean - baseline.mean >= 14 &&
+      baseline.variance > 8 &&
+      current.variance < baseline.variance * 0.75
     return brightnessDrop >= OCCLUSION_BRIGHTNESS_DROP || varianceCollapsed || brightnessRiseFlat
   }
 
@@ -373,8 +373,8 @@ export class EyeCoverageDetector {
     const rightSignal = Math.max(rightDrop, rightRise * 0.75)
 
     return {
-      left: leftSignal - rightSignal >= ASYMMETRY_DROP_DELTA && leftSignal >= 12,
-      right: rightSignal - leftSignal >= ASYMMETRY_DROP_DELTA && rightSignal >= 12,
+      left: leftSignal - rightSignal >= ASYMMETRY_DROP_DELTA && leftSignal >= 8,
+      right: rightSignal - leftSignal >= ASYMMETRY_DROP_DELTA && rightSignal >= 8,
     }
   }
 

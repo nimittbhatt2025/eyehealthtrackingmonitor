@@ -117,12 +117,118 @@ export function scoreSideVision(overallAccuracy, maxDeficit = 0, maxDeficitScale
 }
 
 /**
- * Glare tolerance score with sensitivity penalty.
+ * Glare tolerance (0–100).
+ *
+ * Weights:
+ *   50% with-glare accuracy  — main signal for this home check
+ *   30% no-glare accuracy    — baseline visibility
+ *   20% retention           — how little performance dropped under glare
+ *
+ * "Glare sensitivity / drop" = max(0, noGlareAccuracy − glareAccuracy).
+ * A large drop with a solid baseline means glare specifically hurt you.
  */
 export function scoreGlareTolerance(noGlareAccuracy, glareAccuracy, glareSensitivity) {
-  const base = glareAccuracy * 0.7 + noGlareAccuracy * 0.3
-  const sensitivityPenalty = Math.min(0.3, glareSensitivity) * 0.5
-  return clampScore((base - sensitivityPenalty) * 100)
+  const noGlare = clampUnit(noGlareAccuracy)
+  const glare = clampUnit(glareAccuracy)
+  const drop =
+    glareSensitivity != null && Number.isFinite(Number(glareSensitivity))
+      ? Math.max(0, Math.min(1, Number(glareSensitivity)))
+      : Math.max(0, noGlare - glare)
+
+  // Retention: no drop → 1; 50+ point drop → 0
+  const retention = 1 - Math.min(1, drop / 0.5)
+
+  const raw = glare * 0.5 + noGlare * 0.3 + retention * 0.2
+  return clampScore(raw * 100)
+}
+
+function clampUnit(value, fallback = 0) {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return fallback
+  return Math.max(0, Math.min(1, n))
+}
+
+/**
+ * Build a clear, non-diagnostic interpretation of glare-test results.
+ */
+export function interpretGlareResults({
+  score,
+  noGlareAccuracy,
+  glareAccuracy,
+  glareSensitivity,
+  noGlareCorrect,
+  noGlareTotal,
+  glareCorrect,
+  glareTotal,
+  avgGlareResponseMs,
+  avgNoGlareResponseMs,
+}) {
+  const noGlarePct = Math.round(clampUnit(noGlareAccuracy) * 100)
+  const glarePct = Math.round(clampUnit(glareAccuracy) * 100)
+  const dropRaw =
+    glareSensitivity != null && Number.isFinite(Number(glareSensitivity))
+      ? Number(glareSensitivity)
+      : clampUnit(noGlareAccuracy) - clampUnit(glareAccuracy)
+  const dropPts = Math.round(Math.max(0, Math.min(1, dropRaw)) * 100)
+  const s = clampScore(score)
+
+  let band // good | fair | poor
+  let status
+  let headline
+  let detail
+  let color // green | amber | red — mapped to static Tailwind in UI
+
+  if (s >= 75 && dropPts < 25) {
+    band = 'good'
+    color = 'green'
+    status = 'Good glare tolerance'
+    headline = 'Bright glare did not hurt your stripe reading much on this run.'
+    detail =
+      'You kept most stripe directions correct even with the bright overlay. That is a reassuring home check — not proof the lens is clear, and not a cataract exam.'
+  } else if (s >= 55 && dropPts < 40) {
+    band = 'fair'
+    color = 'amber'
+    status = 'Some glare trouble'
+    headline = 'Glare made the stripes harder, but you still got many right.'
+    detail =
+      'A moderate drop under glare is common with screen glare, dry eyes, or uncorrected prescription. If night driving or headlights feel worse lately, mention it at an eye exam.'
+  } else if (noGlarePct < 55) {
+    band = 'poor'
+    color = 'red'
+    status = 'Hard even without glare'
+    headline = 'Stripes were difficult even before the bright flash.'
+    detail =
+      'When baseline accuracy is low, the score reflects overall difficulty seeing the pattern — not glare alone. Retake in a dimmer room at ~50 cm, or book an eye exam if this is new.'
+  } else {
+    band = 'poor'
+    color = 'red'
+    status = 'Glare hurt performance a lot'
+    headline = 'You did much better without glare than with it.'
+    detail =
+      'A large drop under glare is the main signal this home check looks for. Many things can cause that (dirty lenses, dry eye, prescription, or lens cloudiness). Please book a full eye exam — this is not a cataract diagnosis.'
+  }
+
+  const scoreMeaning =
+    'Score blends how often you named the stripe direction correctly with glare (50%), without glare (30%), and how little you dropped under glare (20%). Higher is better.'
+
+  return {
+    band,
+    color,
+    status,
+    headline,
+    detail,
+    scoreMeaning,
+    noGlarePct,
+    glarePct,
+    dropPts,
+    noGlareCorrect: noGlareCorrect ?? null,
+    noGlareTotal: noGlareTotal ?? null,
+    glareCorrect: glareCorrect ?? null,
+    glareTotal: glareTotal ?? null,
+    avgGlareResponseMs: avgGlareResponseMs ?? null,
+    avgNoGlareResponseMs: avgNoGlareResponseMs ?? null,
+    score: s,
+  }
 }
 
 /**

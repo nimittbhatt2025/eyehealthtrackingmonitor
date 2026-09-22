@@ -14,17 +14,21 @@ const EyeCoverageVerification = ({ expectedEye, onVerified, onSkip, splitLayout 
   const [baselineEstablished, setBaselineEstablished] = useState(false)
   const [permissionState, setPermissionState] = useState('unknown')
   const [holdProgress, setHoldProgress] = useState(0)
+  const [manualContinueReady, setManualContinueReady] = useState(false)
   const videoRef = useRef(null)
   const checkIntervalRef = useRef(null)
   const detectorRef = useRef(null)
   const checkingRef = useRef(false)
   const correctSinceRef = useRef(null)
   const cancelledRef = useRef(false)
+  const autoAdvancedRef = useRef(false)
 
-  const HOLD_MS = 1000
+  const HOLD_MS = 800
 
   useEffect(() => {
     cancelledRef.current = false
+    autoAdvancedRef.current = false
+    const manualTimer = setTimeout(() => setManualContinueReady(true), 2000)
     const init = async () => {
       if (cameraManager && cameraManager.queryPermission) {
         try {
@@ -40,12 +44,26 @@ const EyeCoverageVerification = ({ expectedEye, onVerified, onSkip, splitLayout 
 
     return () => {
       cancelledRef.current = true
+      clearTimeout(manualTimer)
       cleanup()
     }
   }, [])
 
   const initializeDetector = async () => {
-    if (!videoRef.current) return
+    for (let attempt = 0; attempt < 30; attempt++) {
+      if (cancelledRef.current) return
+      if (videoRef.current) break
+      await new Promise((r) => setTimeout(r, 100))
+    }
+    if (!videoRef.current) {
+      setManualContinueReady(true)
+      setStatus({
+        detected: 'unknown',
+        correct: false,
+        message: 'Camera preview not ready — you can still continue when your eye is covered.',
+      })
+      return
+    }
 
     try {
       const stream = await cameraManager.acquire({ video: { facingMode: 'user', width: 640, height: 480 } })
@@ -146,6 +164,7 @@ const EyeCoverageVerification = ({ expectedEye, onVerified, onSkip, splitLayout 
 
     if (result.success) {
       setBaselineEstablished(true)
+      setManualContinueReady(true)
       setStatus({
         detected: 'neither',
         correct: false,
@@ -154,13 +173,14 @@ const EyeCoverageVerification = ({ expectedEye, onVerified, onSkip, splitLayout 
       })
       startChecking(det)
     } else {
+      setManualContinueReady(true)
       setStatus({
         detected: 'unknown',
         correct: false,
         message: result.message,
       })
       setTimeout(() => {
-        if (!cancelledRef.current) establishBaseline(det)
+        if (!cancelledRef.current && det) establishBaseline(det)
       }, 2000)
     }
   }
@@ -184,14 +204,19 @@ const EyeCoverageVerification = ({ expectedEye, onVerified, onSkip, splitLayout 
           const held = now - correctSinceRef.current
           const progress = Math.min(100, Math.round((held / HOLD_MS) * 100))
           setHoldProgress(progress)
+          const confirmed = held >= HOLD_MS
           setStatus({
             ...result,
-            correct: held >= HOLD_MS,
+            correct: confirmed,
             message:
-              held >= HOLD_MS
-                ? result.message
+              confirmed
+                ? `${result.message} Tap Continue when ready.`
                 : `Hold still… confirming coverage (${Math.ceil((HOLD_MS - held) / 100) / 10}s)`,
           })
+          if (confirmed && !autoAdvancedRef.current) {
+            autoAdvancedRef.current = true
+            setManualContinueReady(true)
+          }
         } else {
           correctSinceRef.current = null
           setHoldProgress(0)
@@ -222,9 +247,13 @@ const EyeCoverageVerification = ({ expectedEye, onVerified, onSkip, splitLayout 
 
   const eyeLabel = expectedEye === 'left' ? 'LEFT' : 'RIGHT'
   const autoDetected = Boolean(status?.correct)
-  // Never trap the user: after baseline (or if camera failed), they can self-confirm / skip
-  const canSelfConfirm = Boolean(baselineEstablished) || status?.detected === 'unknown'
-  const canContinue = autoDetected || canSelfConfirm
+  // Never trap the user: manual continue after brief setup, baseline, or camera issues
+  const canContinue =
+    manualContinueReady ||
+    Boolean(baselineEstablished) ||
+    autoDetected ||
+    status?.detected === 'unknown' ||
+    permissionState === 'denied'
 
   const handleContinue = () => {
     cleanup()
@@ -270,8 +299,8 @@ const EyeCoverageVerification = ({ expectedEye, onVerified, onSkip, splitLayout 
       <li>
         Cover your <strong>{eyeLabel}</strong> eye with your palm — do not press on the eye.
       </li>
-      <li>When it turns green, tap Continue (or confirm yourself if detection is slow).</li>
-      <li>Camera having trouble? Use Skip to proceed without auto-detection.</li>
+      <li>When detection turns green, tap Continue — or tap Continue yourself once your eye is covered.</li>
+      <li>Auto-detection can miss a palm; self-confirm is OK for this screening step.</li>
     </ul>
   )
 
@@ -284,28 +313,26 @@ const EyeCoverageVerification = ({ expectedEye, onVerified, onSkip, splitLayout 
           </button>
         </div>
       )}
-      {!autoDetected && baselineEstablished && (
+      {!autoDetected && canContinue && (
         <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-          Detection can miss a palm cover. If your {eyeLabel.toLowerCase()} eye is covered, tap Continue below.
+          If your {eyeLabel.toLowerCase()} eye is covered, tap Continue — detection is optional.
         </p>
       )}
       <div className="flex gap-2 vision-test-controls-actions">
-        <button type="button" onClick={handleSkip} className="flex-1 btn-secondary min-h-[44px] text-sm">
-          Skip check
-        </button>
         <button
           type="button"
           onClick={handleContinue}
           disabled={!canContinue}
-          className={`flex-1 min-h-[44px] text-sm rounded-xl font-bold ${
+          className={`flex-[2] min-h-[44px] text-sm rounded-xl font-bold ${
             canContinue ? 'btn-primary' : 'bg-gray-200 text-gray-500 cursor-not-allowed'
           }`}
         >
           {autoDetected
-            ? 'Continue'
-            : baselineEstablished
-              ? `I've covered ${eyeLabel} — Continue`
-              : 'Continue'}
+            ? 'Continue to test'
+            : `I've covered ${eyeLabel} — Continue`}
+        </button>
+        <button type="button" onClick={handleSkip} className="flex-1 btn-secondary min-h-[44px] text-sm">
+          Skip
         </button>
       </div>
     </div>
@@ -447,20 +474,17 @@ const EyeCoverageVerification = ({ expectedEye, onVerified, onSkip, splitLayout 
             </div>
           </div>
 
-          {status.correct && (
+          {canContinue && (
             <button
+              type="button"
               onClick={handleContinue}
-              className="w-full mt-4 bg-green-600 text-white px-6 py-3 rounded-full font-bold hover:bg-green-700 transition-colors"
+              className={`w-full mt-4 px-6 py-3 rounded-full font-bold transition-colors min-h-[44px] ${
+                status.correct
+                  ? 'bg-green-600 text-white hover:bg-green-700'
+                  : 'bg-blue-600 text-white hover:bg-blue-700'
+              }`}
             >
-              Continue to Test →
-            </button>
-          )}
-          {!status.correct && baselineEstablished && (
-            <button
-              onClick={handleContinue}
-              className="w-full mt-4 bg-blue-600 text-white px-6 py-3 rounded-full font-bold hover:bg-blue-700 transition-colors"
-            >
-              I&apos;ve covered {eyeLabel} — Continue
+              {status.correct ? 'Continue to test →' : `I've covered ${eyeLabel} — Continue`}
             </button>
           )}
         </div>

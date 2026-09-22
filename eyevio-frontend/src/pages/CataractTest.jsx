@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { visionTestAPI } from '../services/api'
 import SamdDisclaimer from '../components/SamdDisclaimer'
-import { scoreGlareTolerance } from '../utils/visionTestScoring'
+import { VisionTestShell } from '../components/TestPrepLayout'
+import { scoreGlareTolerance, interpretGlareResults } from '../utils/visionTestScoring'
 
 /**
  * Cataract "Glare & Scatter" Test
@@ -25,6 +26,7 @@ const CataractTest = () => {
   const [currentStimulus, setCurrentStimulus] = useState(null)
   const [glareActive, setGlareActive] = useState(false)
   const [score, setScore] = useState(0)
+  const [resultSummary, setResultSummary] = useState(null)
   const [isListening, setIsListening] = useState(false)
   const [transcript, setTranscript] = useState('')
   const [recognition, setRecognition] = useState(null)
@@ -57,10 +59,30 @@ const CataractTest = () => {
   ]
 
   const directionButtons = [
-    { direction: 'horizontal', label: 'Horizontal' },
-    { direction: 'vertical', label: 'Vertical' },
-    { direction: 'diagonal-right', label: 'Diagonal Right' },
-    { direction: 'diagonal-left', label: 'Diagonal Left' },
+    {
+      direction: 'horizontal',
+      label: 'Horizontal',
+      hint: '← →',
+      preview: 'repeating-linear-gradient(0deg, #fff 0 2px, transparent 2px 6px)',
+    },
+    {
+      direction: 'vertical',
+      label: 'Vertical',
+      hint: '↑ ↓',
+      preview: 'repeating-linear-gradient(90deg, #fff 0 2px, transparent 2px 6px)',
+    },
+    {
+      direction: 'diagonal-right',
+      label: 'Diag. right',
+      hint: '↗',
+      preview: 'repeating-linear-gradient(45deg, #fff 0 2px, transparent 2px 6px)',
+    },
+    {
+      direction: 'diagonal-left',
+      label: 'Diag. left',
+      hint: '↖',
+      preview: 'repeating-linear-gradient(135deg, #fff 0 2px, transparent 2px 6px)',
+    },
   ]
 
   // Draw sine-wave grating on canvas
@@ -348,111 +370,294 @@ const CataractTest = () => {
     handleResponseRef.current = handleResponse
   }, [handleResponse])
 
-  // Calculate final score and analyze for cataract risk
+  // Calculate final score and analyze for glare tolerance (not a cataract diagnosis)
   const finishTest = async (finalResponses) => {
-    setTestState('results')
+    const noGlareResponses = finalResponses.filter((r) => !r.withGlare)
+    const glareResponses = finalResponses.filter((r) => r.withGlare)
 
-    // Separate performance by glare condition
-    const noGlareResponses = finalResponses.filter(r => !r.withGlare)
-    const glareResponses = finalResponses.filter(r => r.withGlare)
-    
-    const noGlareAccuracy = noGlareResponses.filter(r => r.correct).length / noGlareResponses.length
-    const glareAccuracy = glareResponses.filter(r => r.correct).length / glareResponses.length
-    
-    // Key cataract indicator: Drop in performance with glare
-    const glareSensitivity = noGlareAccuracy - glareAccuracy
-    
-    // Performance by spatial frequency
+    const noGlareTotal = noGlareResponses.length
+    const glareTotal = glareResponses.length
+    const noGlareCorrect = noGlareResponses.filter((r) => r.correct).length
+    const glareCorrect = glareResponses.filter((r) => r.correct).length
+
+    const noGlareAccuracy = noGlareTotal > 0 ? noGlareCorrect / noGlareTotal : 0
+    const glareAccuracy = glareTotal > 0 ? glareCorrect / glareTotal : 0
+    const glareSensitivity = Math.max(0, noGlareAccuracy - glareAccuracy)
+
     const freqPerformance = {}
-    spatialFrequencies.forEach(freq => {
-      const freqResponses = finalResponses.filter(r => r.frequency.cpd === freq.cpd)
+    spatialFrequencies.forEach((freq) => {
+      const freqResponses = finalResponses.filter((r) => r.frequency.cpd === freq.cpd)
+      const glareFreq = freqResponses.filter((r) => r.withGlare)
+      const noGlareFreq = freqResponses.filter((r) => !r.withGlare)
       freqPerformance[freq.cpd] = {
+        label: freq.description,
+        difficulty: freq.difficulty,
         total: freqResponses.length,
-        correct: freqResponses.filter(r => r.correct).length,
-        accuracy: freqResponses.filter(r => r.correct).length / freqResponses.length,
-        withGlare: freqResponses.filter(r => r.withGlare && r.correct).length / 
-                   freqResponses.filter(r => r.withGlare).length
+        correct: freqResponses.filter((r) => r.correct).length,
+        accuracy: freqResponses.length
+          ? freqResponses.filter((r) => r.correct).length / freqResponses.length
+          : 0,
+        noGlareAccuracy: noGlareFreq.length
+          ? noGlareFreq.filter((r) => r.correct).length / noGlareFreq.length
+          : null,
+        glareAccuracy: glareFreq.length
+          ? glareFreq.filter((r) => r.correct).length / glareFreq.length
+          : null,
       }
     })
-    
-    // Overall score weighted heavily on glare performance
-    const overallAccuracy = finalResponses.filter(r => r.correct).length / finalResponses.length
-    const glareWeight = glareAccuracy * 0.7 + noGlareAccuracy * 0.3
+
+    const avgMs = (list) =>
+      list.length
+        ? Math.round(list.reduce((sum, r) => sum + r.responseTime, 0) / list.length)
+        : null
+
+    const avgGlareResponseTime = avgMs(glareResponses)
+    const avgNoGlareResponseTime = avgMs(noGlareResponses)
+    const avgResponseTime = avgMs(finalResponses) || 0
 
     const finalScore = scoreGlareTolerance(noGlareAccuracy, glareAccuracy, glareSensitivity)
+    const interpretation = interpretGlareResults({
+      score: finalScore,
+      noGlareAccuracy,
+      glareAccuracy,
+      glareSensitivity,
+      noGlareCorrect,
+      noGlareTotal,
+      glareCorrect,
+      glareTotal,
+      avgGlareResponseMs: avgGlareResponseTime,
+      avgNoGlareResponseMs: avgNoGlareResponseTime,
+    })
+
+    const glareImpact =
+      glareSensitivity > 0.4 ? 'high' : glareSensitivity > 0.25 ? 'moderate' : 'low'
+
     setScore(finalScore)
+    setResultSummary({
+      ...interpretation,
+      glareImpact,
+      freqPerformance,
+      totalCorrect: finalResponses.filter((r) => r.correct).length,
+      totalTrials: finalResponses.length,
+      overallPct: finalResponses.length
+        ? Math.round(
+            (finalResponses.filter((r) => r.correct).length / finalResponses.length) * 100
+          )
+        : 0,
+    })
+    setTestState('results')
 
-    // Glare impact assessment (comfort framing — not diagnostic)
-    const glareImpact = glareSensitivity > 0.4 ? 'high' :
-                         glareSensitivity > 0.25 ? 'moderate' : 'low'
-
-    // Average response time in glare conditions
-    const avgGlareResponseTime = glareResponses.length > 0 ?
-      Math.round(glareResponses.reduce((sum, r) => sum + r.responseTime, 0) / glareResponses.length) : 0
-
-    // Average response time
-    const avgResponseTime = Math.round(
-      finalResponses.reduce((sum, r) => sum + r.responseTime, 0) / finalResponses.length
-    )
-
-    // Submit to backend
     try {
       await visionTestAPI.submit({
         test_type: 'cataract_glare',
         score: finalScore,
         response_time_ms: avgResponseTime,
-        errors: finalResponses.filter(r => !r.correct).length,
+        errors: finalResponses.filter((r) => !r.correct).length,
         test_details: {
           no_glare_accuracy: noGlareAccuracy,
           glare_accuracy: glareAccuracy,
           glare_sensitivity: glareSensitivity,
           glare_impact: glareImpact,
-          glare_weighted_accuracy: glareWeight,
+          no_glare_correct: noGlareCorrect,
+          no_glare_total: noGlareTotal,
+          glare_correct: glareCorrect,
+          glare_total: glareTotal,
           frequency_performance: freqPerformance,
           avg_glare_response_time: avgGlareResponseTime,
+          avg_no_glare_response_time: avgNoGlareResponseTime,
+          interpretation_band: interpretation.band,
+          interpretation_status: interpretation.status,
+          scoring_note:
+            'Score = 50% glare accuracy + 30% no-glare accuracy + 20% retention (1 − drop/0.5). Not a cataract diagnosis.',
           responses: finalResponses,
-          test_duration_ms: Date.now() - testStartTime
-        }
+          test_duration_ms: Date.now() - testStartTime,
+        },
       })
     } catch (error) {
       console.error('Failed to submit test:', error)
     }
   }
 
-  // Get risk interpretation
-  const getRiskInterpretation = () => {
-    const noGlare = responses.filter(r => !r.withGlare)
-    const withGlare = responses.filter(r => r.withGlare)
-    
-    const noGlareAcc = noGlare.length > 0 ? noGlare.filter(r => r.correct).length / noGlare.length : 1
-    const glareAcc = withGlare.length > 0 ? withGlare.filter(r => r.correct).length / withGlare.length : 1
-    const sensitivity = noGlareAcc - glareAcc
+  const resultTone = {
+    green: {
+      badge: 'bg-green-100 text-green-800',
+      panel: 'bg-green-50 border-green-200',
+      title: 'text-green-900',
+      body: 'text-green-800',
+      iconBg: 'bg-green-100',
+      iconText: 'text-green-700',
+    },
+    amber: {
+      badge: 'bg-amber-100 text-amber-900',
+      panel: 'bg-amber-50 border-amber-200',
+      title: 'text-amber-900',
+      body: 'text-amber-900',
+      iconBg: 'bg-amber-100',
+      iconText: 'text-amber-700',
+    },
+    red: {
+      badge: 'bg-red-100 text-red-800',
+      panel: 'bg-red-50 border-red-200',
+      title: 'text-red-900',
+      body: 'text-red-800',
+      iconBg: 'bg-red-100',
+      iconText: 'text-red-700',
+    },
+  }
 
-    if (score >= 75 && sensitivity < 0.25) {
-      return {
-        status: 'Less glare trouble',
-        color: 'green',
-        message: 'Glare bothered you less on this home check. That is not proof the lens is clear and is not a cataract exam.',
-        icon: '✓',
-        risk: 'low'
-      }
-    } else if (score >= 60 && sensitivity < 0.4) {
-      return {
-        status: 'Some glare trouble',
-        color: 'yellow',
-        message: 'Bright glare gave you some trouble. Book an eye exam if this is new. This home check does not diagnose cataract.',
-        icon: '!',
-        risk: 'moderate'
-      }
-    } else {
-      return {
-        status: 'More glare trouble',
-        color: 'red',
-        message: 'Bright glare made it much harder for you to see. Please book a full eye exam. This home check does not diagnose cataract or measure lens opacity.',
-        icon: '!',
-        risk: 'high'
-      }
-    }
+  if (testState === 'testing' && currentStimulus) {
+    return (
+      <VisionTestShell
+        title="Glare Sensitivity"
+        subtitle={
+          currentStimulus.withGlare
+            ? `Glare on · ${currentStimulus.frequency.description}`
+            : `No glare · ${currentStimulus.frequency.description}`
+        }
+        statusBar={
+          <div className="flex items-center gap-3 min-w-[140px]">
+            <span className="text-xs font-medium whitespace-nowrap">
+              {currentTrial + 1}/{TOTAL_TRIALS}
+            </span>
+            <div className="w-24 bg-gray-200 rounded-full h-1.5">
+              <div
+                className="bg-accent-600 h-1.5 rounded-full transition-all duration-300"
+                style={{ width: `${((currentTrial + 1) / TOTAL_TRIALS) * 100}%` }}
+              />
+            </div>
+          </div>
+        }
+        stimulus={(
+          <div className="vision-test-stimulus-inner w-full h-full">
+            <div className="relative max-w-full max-h-full aspect-square">
+              <canvas
+                ref={canvasRef}
+                width={400}
+                height={400}
+                className="w-full h-full rounded-2xl border-2 border-gray-300"
+                style={{ imageRendering: 'pixelated' }}
+              />
+              {glareActive && (
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none rounded-2xl overflow-hidden">
+                  <div
+                    className="absolute inset-0 bg-white opacity-70 animate-pulse"
+                    style={{
+                      boxShadow:
+                        '0 0 100px 50px rgba(255,255,255,0.9), inset 0 0 100px 50px rgba(255,255,255,0.7)',
+                    }}
+                  />
+                  <div className="absolute w-3/4 h-3/4 rounded-full border-8 border-white opacity-90 animate-ping" />
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+        controls={(
+          <>
+            <div>
+              <p className="text-sm font-semibold text-gray-900">
+                Which way do the stripes run?
+              </p>
+              <p className="text-xs text-gray-500 mt-1">
+                Diag. right leans ↗ · Diag. left leans ↖
+              </p>
+              {currentStimulus.withGlare && (
+                <p className="text-xs text-accent-700 font-medium mt-2 bg-accent-50 border border-accent-200 rounded-lg px-2 py-1.5">
+                  Try to see the bars through the glare
+                </p>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              {directionButtons.map((btn) => (
+                <button
+                  key={btn.direction}
+                  type="button"
+                  onClick={() => handleResponse(btn.direction)}
+                  className="flex flex-col items-center gap-1.5 px-2 py-3 bg-accent-600 hover:bg-accent-700 text-white rounded-xl text-xs font-semibold min-h-[72px] transition-colors"
+                >
+                  <span
+                    className="w-9 h-9 rounded border border-white/40 shrink-0"
+                    style={{ background: btn.preview }}
+                    aria-hidden
+                  />
+                  <span>
+                    {btn.hint} {btn.label}
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            {transcript && (
+              <p className="text-sm font-medium text-accent-700 text-center">{transcript}</p>
+            )}
+
+            {speechAvailable && (
+              <div className="border-t border-gray-200 pt-3 mt-auto">
+                {!useVoice ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUseVoice(true)
+                      speechRetryCountRef.current = 0
+                      startListening()
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-xl text-xs font-semibold text-gray-700 hover:bg-gray-50 transition-colors min-h-[40px]"
+                  >
+                    Use voice instead
+                  </button>
+                ) : (
+                  <div className="space-y-2">
+                    <div
+                      className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold ${
+                        isListening
+                          ? 'bg-accent-50 border border-accent-400 text-accent-900'
+                          : 'bg-gray-100 border border-gray-300 text-gray-700'
+                      }`}
+                    >
+                      <div
+                        className={`w-2.5 h-2.5 rounded-full shrink-0 ${
+                          isListening ? 'bg-accent-600 animate-pulse' : 'bg-gray-400'
+                        }`}
+                      />
+                      {isListening ? 'Listening… say the direction' : 'Voice ready'}
+                    </div>
+                    <div className="flex gap-2">
+                      {!isListening && (
+                        <button
+                          type="button"
+                          onClick={startListening}
+                          className="flex-1 px-3 py-2 bg-accent-600 hover:bg-accent-700 text-white rounded-xl text-xs font-semibold min-h-[40px]"
+                        >
+                          Start speaking
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setUseVoice(false)
+                          setIsListening(false)
+                          if (recognition) {
+                            try {
+                              recognition.stop()
+                            } catch {
+                              /* already stopped */
+                            }
+                          }
+                        }}
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded-xl text-xs font-semibold text-gray-700 hover:bg-gray-50 min-h-[40px]"
+                      >
+                        Use buttons
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </>
+        )}
+      />
+    )
   }
 
   return (
@@ -578,280 +783,159 @@ const CataractTest = () => {
           </div>
         )}
 
-        {/* Testing Phase */}
-        {testState === 'testing' && currentStimulus && (
+        {/* Results */}
+        {testState === 'results' && resultSummary && (
           <div className="card p-8">
-            {/* Progress */}
-            <div className="mb-8">
-              <div className="flex justify-between text-sm text-gray-600 mb-2">
-                <span>Progress</span>
-                <span>{currentTrial + 1} of {TOTAL_TRIALS}</span>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-2">
-                <div
-                  className="bg-accent-600 h-2 rounded-full transition-all duration-300"
-                  style={{ width: `${((currentTrial + 1) / TOTAL_TRIALS) * 100}%` }}
-                />
-              </div>
-            </div>
-
-            {/* Condition indicator */}
-            <div className="text-center mb-6">
-              <p className="text-sm font-semibold text-gray-600">
-                {currentStimulus.withGlare ? 'Glare Condition' : 'Normal Condition'}
-              </p>
-              <p className="text-xs text-gray-500 mt-1">
-                Bars: {currentStimulus.frequency.description}
-              </p>
-            </div>
-
-            {/* Stimulus Display with Canvas */}
-            <div className="relative mb-12">
-              <div className="relative w-full max-w-lg mx-auto">
-                <canvas
-                  ref={canvasRef}
-                  width={400}
-                  height={400}
-                  className="w-full rounded-2xl border-4 border-gray-300"
-                  style={{ imageRendering: 'pixelated' }}
-                />
-                
-                {/* Glare overlay - bright white ring */}
-                {glareActive && (
-                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                    <div 
-                      className="absolute inset-0 bg-white opacity-70 rounded-2xl animate-pulse"
-                      style={{
-                        boxShadow: '0 0 100px 50px rgba(255,255,255,0.9), inset 0 0 100px 50px rgba(255,255,255,0.7)'
-                      }}
-                    />
-                    <div className="absolute w-3/4 h-3/4 rounded-full border-8 border-white opacity-90 animate-ping" />
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Direction compass — visual arrows + mini stripe previews */}
-            <div className="text-center">
-              <p className="text-sm font-semibold text-gray-700 mb-2">
-                Which way do the stripes run?
-              </p>
-              <p className="text-xs text-gray-500 mb-4">
-                Diagonal right = stripes leaning like ↗ · Diagonal left = like ↖
-              </p>
-              <div className="relative max-w-md mx-auto mb-6 aspect-square">
-                <button
-                  type="button"
-                  onClick={() => handleResponse('vertical')}
-                  className="absolute top-0 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 px-3 py-2 bg-accent-600 hover:bg-accent-700 text-white rounded-xl text-xs font-semibold min-w-[100px]"
-                >
-                  <span
-                    className="w-10 h-10 rounded border border-white/40"
-                    style={{ background: 'repeating-linear-gradient(90deg, #fff 0 2px, transparent 2px 6px)' }}
-                    aria-hidden
-                  />
-                  ↑ Vertical
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleResponse('horizontal')}
-                  className="absolute left-0 top-1/2 -translate-y-1/2 flex flex-col items-center gap-1 px-3 py-2 bg-accent-600 hover:bg-accent-700 text-white rounded-xl text-xs font-semibold"
-                >
-                  <span
-                    className="w-10 h-10 rounded border border-white/40"
-                    style={{ background: 'repeating-linear-gradient(0deg, #fff 0 2px, transparent 2px 6px)' }}
-                    aria-hidden
-                  />
-                  ← Horizontal
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleResponse('diagonal-right')}
-                  className="absolute right-0 top-1/4 flex flex-col items-center gap-1 px-3 py-2 bg-accent-600 hover:bg-accent-700 text-white rounded-xl text-xs font-semibold"
-                >
-                  <span
-                    className="w-10 h-10 rounded border border-white/40"
-                    style={{ background: 'repeating-linear-gradient(45deg, #fff 0 2px, transparent 2px 6px)' }}
-                    aria-hidden
-                  />
-                  ↗ Diag right
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleResponse('diagonal-left')}
-                  className="absolute right-0 bottom-1/4 flex flex-col items-center gap-1 px-3 py-2 bg-accent-600 hover:bg-accent-700 text-white rounded-xl text-xs font-semibold"
-                >
-                  <span
-                    className="w-10 h-10 rounded border border-white/40"
-                    style={{ background: 'repeating-linear-gradient(135deg, #fff 0 2px, transparent 2px 6px)' }}
-                    aria-hidden
-                  />
-                  ↖ Diag left
-                </button>
-                <div className="absolute inset-[28%] rounded-2xl border-2 border-dashed border-gray-300 flex items-center justify-center text-xs text-gray-400 pointer-events-none">
-                  Stimulus above
-                </div>
-              </div>
-
-              {currentStimulus.withGlare && (
-                <p className="text-sm text-accent-600 font-medium mb-4">
-                  Try to see the bars through the glare
-                </p>
-              )}
-
-              {transcript && (
-                <div className="mb-4 text-sm font-medium text-accent-700">
-                  {transcript}
-                </div>
-              )}
-
-              {/* Optional voice input */}
-              {speechAvailable && (
-                <div className="border-t border-gray-200 pt-6 mt-2">
-                  <p className="text-xs text-gray-500 mb-3">Or use your voice (needs internet)</p>
-                  {!useVoice ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setUseVoice(true)
-                        speechRetryCountRef.current = 0
-                        startListening()
-                      }}
-                      className="px-5 py-2 border-2 border-gray-300 rounded-full text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+            {(() => {
+              const tone = resultTone[resultSummary.color] || resultTone.amber
+              return (
+                <>
+                  <div className="text-center mb-8">
+                    <div
+                      className={`w-20 h-20 ${tone.iconBg} rounded-full flex items-center justify-center mx-auto mb-4`}
                     >
-                      Switch to voice
-                    </button>
-                  ) : (
-                    <div>
-                      <div className={`inline-flex items-center gap-3 px-5 py-3 rounded-2xl ${
-                        isListening ? 'bg-accent-50 border-2 border-accent-400' : 'bg-gray-100 border-2 border-gray-300'
-                      }`}>
-                        <div className={`w-3 h-3 rounded-full ${isListening ? 'bg-accent-600 animate-pulse' : 'bg-gray-400'}`} />
-                        <span className="text-sm font-semibold text-gray-800">
-                          {isListening ? 'Listening… say the direction' : 'Voice ready'}
-                        </span>
-                      </div>
-                      <div className="flex gap-3 justify-center mt-3">
-                        {!isListening && (
-                          <button
-                            type="button"
-                            onClick={startListening}
-                            className="px-4 py-2 bg-accent-600 hover:bg-accent-700 text-white rounded-full text-sm font-semibold transition-colors"
-                          >
-                            Start speaking
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setUseVoice(false)
-                            setIsListening(false)
-                            if (recognition) {
-                              try { recognition.stop() } catch { /* already stopped */ }
-                            }
-                          }}
-                          className="px-4 py-2 border-2 border-gray-300 rounded-full text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
-                        >
-                          Use buttons instead
-                        </button>
+                      <span className={`text-3xl font-bold ${tone.iconText}`}>
+                        {resultSummary.band === 'good' ? '✓' : '!'}
+                      </span>
+                    </div>
+                    <h2 className="text-3xl font-serif font-bold text-gray-900 mb-2">
+                      Test Complete
+                    </h2>
+                    <p className="text-gray-600">Glare tolerance — home check only</p>
+                  </div>
+
+                  <div className="bg-amber-50 rounded-2xl p-8 mb-6">
+                    <div className="text-center">
+                      <div className="text-6xl font-bold text-accent-700 mb-2">{score}</div>
+                      <div className="text-sm text-gray-600 mb-1">Glare Tolerance Score</div>
+                      <p className="text-xs text-gray-500 mb-4 max-w-md mx-auto">
+                        {resultSummary.scoreMeaning}
+                      </p>
+                      <div className={`inline-block px-4 py-2 rounded-full font-semibold ${tone.badge}`}>
+                        {resultSummary.status}
                       </div>
                     </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
+                  </div>
 
-        {/* Results */}
-        {testState === 'results' && (
-          <div className="card p-8">
-            <div className="text-center mb-8">
-              <div className={`w-20 h-20 bg-${getRiskInterpretation().color}-100 rounded-full flex items-center justify-center mx-auto mb-4`}>
-                <span className="text-4xl">{getRiskInterpretation().icon}</span>
-              </div>
-              <h2 className="text-3xl font-serif font-bold text-gray-900 mb-2">
-                Test Complete!
-              </h2>
-              <p className="text-gray-600">Glare Sensitivity Results</p>
-            </div>
+                  <div className={`border rounded-xl p-6 mb-6 ${tone.panel}`}>
+                    <h3 className={`font-semibold mb-2 ${tone.title}`}>What this means</h3>
+                    <p className={`text-sm font-medium mb-2 ${tone.body}`}>{resultSummary.headline}</p>
+                    <p className={`text-sm ${tone.body}`}>{resultSummary.detail}</p>
+                  </div>
 
-            {/* Score Display */}
-            <div className="bg-amber-50 rounded-2xl p-8 mb-8">
-              <div className="text-center">
-                <div className="text-6xl font-bold text-accent-700 mb-2">
-                  {score}
-                </div>
-                <div className="text-sm text-gray-600 mb-4">Glare Recovery Score</div>
-                <div className={`inline-block px-4 py-2 bg-${getRiskInterpretation().color}-100 text-${getRiskInterpretation().color}-800 rounded-full font-semibold`}>
-                  {getRiskInterpretation().status}
-                </div>
-              </div>
-            </div>
+                  <div className="grid sm:grid-cols-3 gap-4 mb-6">
+                    <div className="bg-gray-50 rounded-xl p-5 border border-gray-100">
+                      <div className="text-sm text-gray-600 mb-1">Without glare</div>
+                      <div className="text-3xl font-bold text-gray-900">{resultSummary.noGlarePct}%</div>
+                      <div className="text-xs text-gray-500 mt-1">
+                        {resultSummary.noGlareCorrect}/{resultSummary.noGlareTotal} correct
+                        {resultSummary.avgNoGlareResponseMs != null && (
+                          <> · ~{Math.round(resultSummary.avgNoGlareResponseMs / 100) / 10}s avg</>
+                        )}
+                      </div>
+                    </div>
+                    <div className="bg-gray-50 rounded-xl p-5 border border-gray-100">
+                      <div className="text-sm text-gray-600 mb-1">With glare</div>
+                      <div className="text-3xl font-bold text-accent-700">{resultSummary.glarePct}%</div>
+                      <div className="text-xs text-gray-500 mt-1">
+                        {resultSummary.glareCorrect}/{resultSummary.glareTotal} correct
+                        {resultSummary.avgGlareResponseMs != null && (
+                          <> · ~{Math.round(resultSummary.avgGlareResponseMs / 100) / 10}s avg</>
+                        )}
+                      </div>
+                    </div>
+                    <div className="bg-gray-50 rounded-xl p-5 border border-gray-100">
+                      <div className="text-sm text-gray-600 mb-1">Drop under glare</div>
+                      <div
+                        className={`text-3xl font-bold ${
+                          resultSummary.dropPts >= 40
+                            ? 'text-red-600'
+                            : resultSummary.dropPts >= 25
+                              ? 'text-amber-600'
+                              : 'text-green-600'
+                        }`}
+                      >
+                        {resultSummary.dropPts}
+                        <span className="text-lg font-semibold"> pts</span>
+                      </div>
+                      <div className="text-xs text-gray-500 mt-1">
+                        Without − with glare accuracy
+                      </div>
+                    </div>
+                  </div>
 
-            {/* Risk Interpretation */}
-            <div className={`bg-${getRiskInterpretation().color}-50 border border-${getRiskInterpretation().color}-200 rounded-xl p-6 mb-8`}>
-              <h3 className={`font-semibold text-${getRiskInterpretation().color}-900 mb-2`}>
-                What This Means
-              </h3>
-              <p className={`text-sm text-${getRiskInterpretation().color}-800`}>
-                {getRiskInterpretation().message}
-              </p>
-            </div>
+                  <div className="mb-6">
+                    <h3 className="font-semibold text-gray-900 mb-3">
+                      Overall: {resultSummary.totalCorrect}/{resultSummary.totalTrials} correct (
+                      {resultSummary.overallPct}%)
+                    </h3>
+                    <div className="space-y-2">
+                      {Object.entries(resultSummary.freqPerformance || {}).map(([cpd, perf]) => (
+                        <div
+                          key={cpd}
+                          className="flex items-center justify-between gap-3 rounded-xl border border-gray-100 bg-white px-4 py-3 text-sm"
+                        >
+                          <div className="min-w-0">
+                            <div className="font-medium text-gray-900 truncate">{perf.label}</div>
+                            <div className="text-xs text-gray-500">
+                              {perf.correct}/{perf.total} correct
+                              {perf.noGlareAccuracy != null && perf.glareAccuracy != null && (
+                                <>
+                                  {' '}
+                                  · no glare {Math.round(perf.noGlareAccuracy * 100)}% · glare{' '}
+                                  {Math.round(perf.glareAccuracy * 100)}%
+                                </>
+                              )}
+                            </div>
+                          </div>
+                          <div className="font-bold text-gray-800 shrink-0">
+                            {Math.round((perf.accuracy || 0) * 100)}%
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
 
-            {/* Performance Analysis */}
-            <div className="grid grid-cols-2 gap-4 mb-8">
-              <div className="bg-gray-50 rounded-xl p-6">
-                <div className="text-sm text-gray-600 mb-1">Without Glare</div>
-                <div className="text-3xl font-bold text-gray-900">
-                  {Math.round((responses.filter(r => !r.withGlare && r.correct).length / 
-                    responses.filter(r => !r.withGlare).length) * 100)}%
-                </div>
-              </div>
-              <div className="bg-gray-50 rounded-xl p-6">
-                <div className="text-sm text-gray-600 mb-1">With Glare</div>
-                <div className="text-3xl font-bold text-accent-700">
-                  {Math.round((responses.filter(r => r.withGlare && r.correct).length / 
-                    responses.filter(r => r.withGlare).length) * 100)}%
-                </div>
-              </div>
-            </div>
+                  <div className="bg-blue-50 border border-blue-200 rounded-xl p-6 mb-8">
+                    <h3 className="font-semibold text-blue-900 mb-3">About glare (education only)</h3>
+                    <div className="text-sm text-blue-800 space-y-2">
+                      <p>
+                        Night glare can come from many things — uncorrected prescription, dry eye,
+                        dirty lenses, or a cloudy crystalline lens. Only an eye doctor can sort those
+                        out.
+                      </p>
+                      <p>
+                        If this home check flags glare trouble: book a full eye exam, mention night
+                        driving or halos, and do not treat these scores as a cataract diagnosis.
+                      </p>
+                    </div>
+                  </div>
 
-            {/* Educational Info */}
-            <div className="bg-blue-50 border border-blue-200 rounded-xl p-6 mb-8">
-              <h3 className="font-semibold text-blue-900 mb-3">About glare (education only)</h3>
-              <div className="text-sm text-blue-800 space-y-2">
-                <p>
-                  Night glare can come from many things, including uncorrected refractive error, dry eye, dirty lenses, or a cloudy crystalline lens. Only an eye doctor can sort those out.
-                </p>
-                <p>
-                  If this home check flags glare trouble: book a full eye exam, mention night driving or halos, and do not treat these scores as a cataract diagnosis.
-                </p>
-              </div>
-            </div>
+                  <SamdDisclaimer testType="cataract_glare" className="mb-8" />
 
-            <SamdDisclaimer testType="cataract_glare" className="mb-8" />
-
-            {/* Action Buttons */}
-            <div className="flex gap-4">
-              <button
-                onClick={() => navigate('/vision-tests')}
-                className="flex-1 px-6 py-3 border-2 border-gray-300 rounded-full font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
-              >
-                Back to Tests
-              </button>
-              <button
-                onClick={() => {
-                  setTestState('instructions')
-                  setResponses([])
-                  setCurrentTrial(0)
-                  setScore(0)
-                }}
-                className="flex-1 px-6 py-3 bg-accent-600 hover:bg-accent-700 text-white rounded-full font-semibold transition-colors"
-              >
-                Take Again
-              </button>
-            </div>
+                  <div className="flex gap-4">
+                    <button
+                      onClick={() => navigate('/vision-tests')}
+                      className="flex-1 px-6 py-3 border-2 border-gray-300 rounded-full font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+                    >
+                      Back to Tests
+                    </button>
+                    <button
+                      onClick={() => {
+                        setTestState('instructions')
+                        setResponses([])
+                        setCurrentTrial(0)
+                        setScore(0)
+                        setResultSummary(null)
+                      }}
+                      className="flex-1 px-6 py-3 bg-accent-600 hover:bg-accent-700 text-white rounded-full font-semibold transition-colors"
+                    >
+                      Take Again
+                    </button>
+                  </div>
+                </>
+              )
+            })()}
           </div>
         )}
       </div>

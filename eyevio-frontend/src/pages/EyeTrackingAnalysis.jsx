@@ -11,22 +11,56 @@ import SamdDisclaimer from '../components/SamdDisclaimer'
 import { clampScore } from '../utils/visionTestScoring'
 
 /**
- * Enhanced Eye Tracking Analysis Component
- * 5-minute session with real-time blink detection and fatigue scoring
+ * Eye Tracking Analysis — blink & fatigue monitoring.
+ * Quick (~90s) screening or extended (~5 min) interactive session.
  */
+const SESSION_MODES = {
+  quick: {
+    id: 'quick',
+    durationSec: 90,
+    title: 'Quick screen',
+    durationLabel: '~90 seconds',
+    blurb: 'Fast blink-rate snapshot — enough for a home screening check.',
+    bestFor: 'Busy days, first check, or a quick re-check',
+  },
+  extended: {
+    id: 'extended',
+    durationSec: 300,
+    title: 'Extended session',
+    durationLabel: '~5 minutes',
+    blurb: 'Longer sample with coaching prompts — closer to research-style blink sampling.',
+    bestFor: 'Deeper fatigue read when you can stay engaged',
+  },
+}
+
+const EXTENDED_COACHING = [
+  { afterElapsedSec: 30, text: 'Settle in — blink naturally, no forced blinking.' },
+  { afterElapsedSec: 75, text: 'Soft full blink: gently close both lids, then open.' },
+  { afterElapsedSec: 120, text: 'Glance at something across the room for 5 seconds, then look back.' },
+  { afterElapsedSec: 180, text: 'Check your posture — sit tall, screen at eye level if you can.' },
+  { afterElapsedSec: 240, text: 'Last minute — keep blinking naturally; almost done.' },
+]
+
 export default function EyeTrackingAnalysis() {
   const navigate = useNavigate()
   const { user } = useAuthStore()
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
   const trackerRef = useRef(null)
+  const timerIntervalRef = useRef(null)
+  const sessionDurationRef = useRef(SESSION_MODES.quick.durationSec)
+  const sessionModeRef = useRef('quick')
 
   // Session state
   const [sessionState, setSessionState] = useState('instruction') // instruction, calibration, tracking, results
+  const [sessionMode, setSessionMode] = useState('quick') // quick | extended
   const [isTracking, setIsTracking] = useState(false)
   const [faceDetected, setFaceDetected] = useState(false)
   const [sessionProgress, setSessionProgress] = useState(0)
-  const [timeRemaining, setTimeRemaining] = useState(300) // 5 minutes in seconds
+  const [timeRemaining, setTimeRemaining] = useState(SESSION_MODES.quick.durationSec)
+  const [coachingPrompt, setCoachingPrompt] = useState(null)
+  const [underBlinkNudge, setUnderBlinkNudge] = useState(false)
+  const [coachDismissedAt, setCoachDismissedAt] = useState(-1)
 
   // Real-time metrics
   const [metrics, setMetrics] = useState({
@@ -43,8 +77,9 @@ export default function EyeTrackingAnalysis() {
   const [personalizedFeedback, setPersonalizedFeedback] = useState(null)
   const [userProfile, setUserProfile] = useState(null)
   const [isCalibrated, setIsCalibrated] = useState(null) // null = checking, true/false = result
+  const [completedMode, setCompletedMode] = useState(null)
 
-  const SESSION_DURATION = 300 // 5 minutes
+  const selectedMode = SESSION_MODES[sessionMode] || SESSION_MODES.quick
 
   // Load user profile and check calibration on mount
   useEffect(() => {
@@ -86,44 +121,69 @@ export default function EyeTrackingAnalysis() {
   // Initialize camera and tracker
   useEffect(() => {
     return () => {
-      // Cleanup on unmount
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current)
+        timerIntervalRef.current = null
+      }
       if (trackerRef.current) {
         trackerRef.current.stop()
       }
     }
   }, [])
 
+  const selectSessionMode = (modeId) => {
+    if (!SESSION_MODES[modeId]) return
+    setSessionMode(modeId)
+    setTimeRemaining(SESSION_MODES[modeId].durationSec)
+  }
+
   /**
    * Start the tracking session
    */
   const startSession = async () => {
     try {
-      console.log('[camera] Starting camera session...')
-      
+      const mode = SESSION_MODES[sessionMode] || SESSION_MODES.quick
+      sessionModeRef.current = mode.id
+      sessionDurationRef.current = mode.durationSec
+      setTimeRemaining(mode.durationSec)
+      setSessionProgress(0)
+      setCoachingPrompt(null)
+      setUnderBlinkNudge(false)
+      setCoachDismissedAt(-1)
+      setCompletedMode(null)
+
+      console.log('[camera] Starting camera session...', mode.id)
+
       // Ensure we're in tracking state first (to mount video element)
       setSessionState('tracking')
-      
+
       // Wait for next tick to ensure DOM is updated
       await new Promise(resolve => setTimeout(resolve, 100))
-      
+
       // Check if video element exists
       if (!videoRef.current) {
         throw new Error('Video element not found. Please try again.')
       }
-      
-      console.log(' Video element ready:', videoRef.current)
 
       // Initialize tracker (it will handle camera internally)
-      console.log(' Initializing MediaPipe tracker...')
       trackerRef.current = new MediaEyeTracker(videoRef.current, canvasRef.current)
 
-      // Set up callbacks
       trackerRef.current.onBlink = (blinkData) => {
         console.log(' Blink detected:', blinkData)
       }
 
       trackerRef.current.onMetricsUpdate = (newMetrics) => {
         setMetrics(newMetrics)
+        if (
+          sessionModeRef.current === 'extended' &&
+          !newMetrics.isCalibrating &&
+          Number(newMetrics.blinkRate) > 0 &&
+          Number(newMetrics.blinkRate) < 10
+        ) {
+          setUnderBlinkNudge(true)
+        } else if (Number(newMetrics.blinkRate) >= 12) {
+          setUnderBlinkNudge(false)
+        }
       }
 
       trackerRef.current.onFaceDetected = (detected) => {
@@ -133,18 +193,19 @@ export default function EyeTrackingAnalysis() {
         }
       }
 
-      // Start tracking (MediaPipe Camera class will handle the stream)
-      console.log(' Starting eye tracking...')
       await trackerRef.current.start()
       setIsTracking(true)
-      toast.success('Eye tracking started! Keep your face in view.')
+      toast.success(
+        mode.id === 'quick'
+          ? 'Quick screen started — blink naturally.'
+          : 'Extended session started — coaching prompts will appear as you go.'
+      )
 
-      // Start timer
       startTimer()
     } catch (error) {
       console.error(' Failed to start session:', error)
-      setSessionState('instruction') // Go back to instruction screen
-      
+      setSessionState('instruction')
+
       let errorMessage = 'Failed to start camera. '
       if (error.name === 'NotAllowedError') {
         errorMessage += 'Please allow camera permissions.'
@@ -155,28 +216,48 @@ export default function EyeTrackingAnalysis() {
       } else if (error.message) {
         errorMessage += error.message
       }
-      
+
       toast.error(errorMessage, { duration: 5000 })
     }
   }
 
   /**
-   * Timer for session duration
+   * Timer for session duration (+ extended coaching milestones)
    */
   const startTimer = () => {
-    const startTime = Date.now()
-    const endTime = startTime + SESSION_DURATION * 1000
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current)
+    }
 
-    const timerInterval = setInterval(() => {
+    const duration = sessionDurationRef.current
+    const modeId = sessionModeRef.current
+    const startTime = Date.now()
+    const endTime = startTime + duration * 1000
+    let lastCoachIdx = -1
+
+    timerIntervalRef.current = setInterval(() => {
       const now = Date.now()
       const remaining = Math.max(0, Math.floor((endTime - now) / 1000))
-      const progress = ((SESSION_DURATION - remaining) / SESSION_DURATION) * 100
+      const elapsed = duration - remaining
+      const progress = ((duration - remaining) / duration) * 100
 
       setTimeRemaining(remaining)
       setSessionProgress(progress)
 
+      if (modeId === 'extended') {
+        const nextIdx = EXTENDED_COACHING.findIndex(
+          (p, i) => elapsed >= p.afterElapsedSec && i > lastCoachIdx
+        )
+        if (nextIdx >= 0) {
+          lastCoachIdx = nextIdx
+          setCoachingPrompt(EXTENDED_COACHING[nextIdx].text)
+          setCoachDismissedAt(-1)
+        }
+      }
+
       if (remaining === 0) {
-        clearInterval(timerInterval)
+        clearInterval(timerIntervalRef.current)
+        timerIntervalRef.current = null
         completeSession()
       }
     }, 1000)
@@ -187,6 +268,17 @@ export default function EyeTrackingAnalysis() {
    */
   const completeSession = async () => {
     if (!trackerRef.current) return
+
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current)
+      timerIntervalRef.current = null
+    }
+
+    const modeId = sessionModeRef.current
+    const mode = SESSION_MODES[modeId] || SESSION_MODES.quick
+    setCompletedMode(modeId)
+    setCoachingPrompt(null)
+    setUnderBlinkNudge(false)
 
     const sessionSummary = trackerRef.current.stop()
     setIsTracking(false)
@@ -204,6 +296,8 @@ export default function EyeTrackingAnalysis() {
           blinkRate: sessionSummary.blinkRate,
           totalBlinks: sessionSummary.totalBlinks,
           avgBlinkDuration: sessionSummary.avgBlinkDuration,
+          sessionMode: modeId,
+          plannedDurationSec: mode.durationSec,
         },
       }
 
@@ -217,15 +311,14 @@ export default function EyeTrackingAnalysis() {
       })
 
       setPersonalizedFeedback(feedback)
-      console.log(' AI Feedback generated:', feedback)
     }
 
     // Save to backend
     try {
-      const response = await visionTestAPI.submit({
+      await visionTestAPI.submit({
         test_type: 'eye_tracking',
         score: clampScore(100 - sessionSummary.fatigueScore),
-        notes: `Eye Tracking Analysis - Blink Rate: ${sessionSummary.blinkRate}/min, Fatigue Score: ${sessionSummary.fatigueScore}`,
+        notes: `Eye Tracking (${mode.title}) - Blink Rate: ${sessionSummary.blinkRate}/min, Fatigue Score: ${sessionSummary.fatigueScore}`,
         test_details: {
           blinkRate: sessionSummary.blinkRate,
           totalBlinks: sessionSummary.totalBlinks,
@@ -233,20 +326,43 @@ export default function EyeTrackingAnalysis() {
           fatigueScore: sessionSummary.fatigueScore,
           status: sessionSummary.status,
           recommendation: sessionSummary.recommendation,
+          sessionMode: modeId,
+          plannedDurationSec: mode.durationSec,
+          plannedDurationLabel: mode.durationLabel,
         },
       })
 
-      console.log(' Session saved:', response.data)
       toast.success('Session saved successfully!')
-      
-      // Transition to results screen
       setSessionState('results')
     } catch (error) {
       console.error('Failed to save session:', error)
       toast.error('Failed to save session data')
-      // Still show results even if save fails
       setSessionState('results')
     }
+  }
+
+  const resetToInstructions = () => {
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current)
+      timerIntervalRef.current = null
+    }
+    if (trackerRef.current) {
+      try {
+        trackerRef.current.stop()
+      } catch {
+        /* ignore */
+      }
+      trackerRef.current = null
+    }
+    setIsTracking(false)
+    setResults(null)
+    setPersonalizedFeedback(null)
+    setSessionProgress(0)
+    setTimeRemaining(selectedMode.durationSec)
+    setCoachingPrompt(null)
+    setUnderBlinkNudge(false)
+    setCompletedMode(null)
+    setSessionState('instruction')
   }
 
   /**
@@ -278,6 +394,10 @@ export default function EyeTrackingAnalysis() {
 
   const exitSession = useCallback(() => {
     const leave = () => {
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current)
+        timerIntervalRef.current = null
+      }
       if (trackerRef.current) {
         try { trackerRef.current.stop() } catch { /* ignore */ }
       }
@@ -350,17 +470,50 @@ export default function EyeTrackingAnalysis() {
         {sessionState === 'instruction' && (
           <TestPrepLayout
             title="Eye Tracking Analysis"
-            subtitle="5-minute blink & fatigue monitoring (~5 min)"
+            subtitle="Choose a quick screen or an extended coaching session"
             steps={[
               'Sit 50–70 cm from the screen with good face lighting.',
               'Keep your head still and blink naturally.',
-              'Session ends automatically after 5 minutes.',
+              selectedMode.id === 'quick'
+                ? 'Quick screen ends automatically after about 90 seconds.'
+                : 'Extended session ends after 5 minutes, with short coaching prompts along the way.',
             ]}
             onBack={exitSession}
             onPrimary={startSession}
-            primaryLabel="Start session"
+            primaryLabel={`Start ${selectedMode.title} (${selectedMode.durationLabel})`}
             footerNote="Home blink-and-fatigue session — not a medical diagnosis."
           >
+            <div className="grid sm:grid-cols-2 gap-3">
+              {Object.values(SESSION_MODES).map((mode) => {
+                const selected = sessionMode === mode.id
+                return (
+                  <button
+                    key={mode.id}
+                    type="button"
+                    onClick={() => selectSessionMode(mode.id)}
+                    className={`text-left rounded-xl border-2 p-4 min-h-[44px] transition-colors ${
+                      selected
+                        ? 'border-accent-600 bg-accent-50 shadow-sm'
+                        : 'border-gray-200 bg-white hover:border-accent-300'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2 mb-1">
+                      <span className="font-semibold text-gray-900">{mode.title}</span>
+                      <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                        selected ? 'bg-accent-600 text-white' : 'bg-gray-100 text-gray-600'
+                      }`}>
+                        {mode.durationLabel}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-600 mb-2">{mode.blurb}</p>
+                    <p className="text-xs text-gray-500">
+                      <span className="font-medium text-gray-700">Best for:</span> {mode.bestFor}
+                    </p>
+                  </button>
+                )
+              })}
+            </div>
+
             <TestDetails summary="Calibration status">
               <p className="text-xs">
                 {isCalibrated === null ? (
@@ -394,6 +547,9 @@ export default function EyeTrackingAnalysis() {
                 <li>Blink duration (normal: 100–300 ms)</li>
                 <li>Eye movement patterns</li>
                 <li>Fatigue indicators</li>
+                {selectedMode.id === 'extended' && (
+                  <li>Coaching prompts to keep the longer session engaging</li>
+                )}
               </ul>
             </TestDetails>
           </TestPrepLayout>
@@ -402,8 +558,12 @@ export default function EyeTrackingAnalysis() {
         {/* Tracking State */}
         {sessionState === 'tracking' && (
           <VisionTestShell
-            title="Eye tracking session"
-            subtitle="Blink naturally — keep your face in view"
+            title={sessionMode === 'quick' ? 'Quick eye screen' : 'Extended eye session'}
+            subtitle={
+              sessionMode === 'quick'
+                ? 'Blink naturally — keep your face in view'
+                : 'Follow coaching prompts — blink naturally between them'
+            }
             statusBar={(
               <span className="text-sm font-mono font-semibold text-gray-700">
                 {Math.round(sessionProgress)}%
@@ -419,12 +579,34 @@ export default function EyeTrackingAnalysis() {
                   />
                 </div>
                 <p className="text-xs text-gray-500 text-center">
-                  {formatTime(timeRemaining)} remaining
+                  {formatTime(timeRemaining)} remaining · {selectedMode.durationLabel}
                 </p>
 
                 {metrics.isCalibrating && (
                   <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-center">
                     Calibrating blink detection — keep eyes open for a moment, then blink naturally.
+                  </p>
+                )}
+
+                {sessionMode === 'extended' && coachingPrompt && coachDismissedAt < 0 && (
+                  <div className="rounded-xl border border-accent-200 bg-accent-50 p-3 space-y-2">
+                    <p className="text-xs font-semibold text-accent-900 uppercase tracking-wide">
+                      Coaching moment
+                    </p>
+                    <p className="text-sm text-gray-800">{coachingPrompt}</p>
+                    <button
+                      type="button"
+                      onClick={() => setCoachDismissedAt(Date.now())}
+                      className="w-full px-3 py-2 bg-accent-600 hover:bg-accent-700 text-white rounded-lg text-xs font-semibold min-h-[40px]"
+                    >
+                      Got it
+                    </button>
+                  </div>
+                )}
+
+                {sessionMode === 'extended' && underBlinkNudge && !metrics.isCalibrating && (
+                  <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                    Blink rate looks low — try a few soft full blinks.
                   </p>
                 )}
 
@@ -442,7 +624,9 @@ export default function EyeTrackingAnalysis() {
                 </div>
 
                 <p className="text-xs text-gray-600 bg-brand-soft border border-accent-100 rounded-lg px-3 py-2 mt-auto">
-                  Keep your face centered. The session completes automatically when the timer ends.
+                  {sessionMode === 'quick'
+                    ? 'Keep your face centered. This quick screen finishes automatically.'
+                    : 'Keep your face centered. Coaching tips pop up so the 5-minute run stays active.'}
                 </p>
               </>
             )}
@@ -468,6 +652,11 @@ export default function EyeTrackingAnalysis() {
                 <p className={`text-xl font-semibold ${getFatigueColor(results.fatigueScore)}`}>
                   {results.status}
                 </p>
+                {completedMode && SESSION_MODES[completedMode] && (
+                  <p className="text-sm text-gray-500 mt-2">
+                    Completed: {SESSION_MODES[completedMode].title} ({SESSION_MODES[completedMode].durationLabel})
+                  </p>
+                )}
               </div>
 
               {/* Personalized Assessment */}
@@ -619,8 +808,14 @@ export default function EyeTrackingAnalysis() {
               {/* Actions */}
               <div className="flex flex-col sm:flex-row gap-4">
                 <button
-                  onClick={() => navigate('/dashboard')}
+                  onClick={resetToInstructions}
                   className="btn-primary flex-1 min-h-[44px]"
+                >
+                  Try another session
+                </button>
+                <button
+                  onClick={() => navigate('/dashboard')}
+                  className="btn-secondary flex-1 min-h-[44px]"
                 >
                   View Dashboard
                 </button>

@@ -351,7 +351,7 @@ function Dashboard() {
                 <span className="badge badge-brand">AI Powered</span>
               </div>
               <h3 className="text-2xl md:text-3xl font-serif font-bold mb-2 text-gray-900">Eye Tracking Analysis</h3>
-              <p className="text-gray-500 mb-8 leading-relaxed">Advanced eye tracking with AI feedback, fatigue detection, and real-time monitoring</p>
+              <p className="text-gray-500 mb-8 leading-relaxed">Quick 90-second blink screen or extended 5-minute coaching session with AI fatigue feedback</p>
               <div className="inline-flex items-center font-semibold text-accent-700 group-hover:translate-x-1.5 transition-transform duration-300">
                 <span>Launch Camera</span>
                 <svg className="w-5 h-5 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">

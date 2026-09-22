@@ -643,14 +643,13 @@ const AmslerGridTest = () => {
   )
   
   const renderEyeCoverageSetup = () => (
-    <div className="max-w-4xl mx-auto">
-      <EyeCoverageVerification
-        expectedEye={currentEye === 'left' ? 'right' : 'left'}
-        onVerified={() => setTestState('testing')}
-        onSkip={() => setTestState('testing')}
-        testName="Amsler Grid Test"
-      />
-    </div>
+    <EyeCoverageVerification
+      expectedEye={currentEye === 'left' ? 'right' : 'left'}
+      onVerified={() => setTestState('testing')}
+      onSkip={() => setTestState('testing')}
+      splitLayout
+      testName="Amsler Grid Test"
+    />
   )
   
   const renderGridCanvas = (interactive = false) => (

@@ -51,7 +51,7 @@ export const TEST_INFO = {
   },
   eye_tracking: {
     title: 'Eye Tracking Analysis',
-    description: 'Blink patterns and eye fatigue monitoring',
+    description: 'Quick 90s blink screen or extended 5-min coaching session',
   },
   accommodative_lag: {
     title: 'Eye Tiredness Meter',

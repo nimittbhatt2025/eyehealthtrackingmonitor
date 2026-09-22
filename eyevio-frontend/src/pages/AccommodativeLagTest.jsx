@@ -29,6 +29,7 @@ const AccommodativeLagTest = () => {
 
   const [testState, setTestState] = useState('instructions') // instructions, setup, testing, analyzing, results
   const [cameraReady, setCameraReady] = useState(false)
+  const [cameraError, setCameraError] = useState(null)
   const [eyesLocated, setEyesLocated] = useState(false)
   const [trackingQuality, setTrackingQuality] = useState(null)
   const [currentBlurLevel, setCurrentBlurLevel] = useState(0) // 0-10
@@ -70,33 +71,63 @@ const AccommodativeLagTest = () => {
     return Math.max(0, Math.min(BLUR_STEPS, Math.round((px / MAX_BLUR_PX) * BLUR_STEPS)))
   }
 
-  // Initialize camera
+  // Initialize camera (must run after <video> is mounted — see setup effect)
   const initializeCamera = useCallback(async () => {
+    setCameraError(null)
+    setCameraReady(false)
     try {
       const stream = await cameraManager.acquire({
         video: {
           facingMode: 'user',
           width: { ideal: 1280 },
-          height: { ideal: 720 }
-        }
+          height: { ideal: 720 },
+        },
       })
 
       streamRef.current = stream
 
       if (!pupilTrackerRef.current) {
         pupilTrackerRef.current = new PupilRegionTracker()
-        pupilTrackerRef.current.init()
+      }
+      await pupilTrackerRef.current.init()
+
+      let video = videoRef.current
+      for (let attempt = 0; attempt < 40 && !video; attempt++) {
+        await new Promise((r) => setTimeout(r, 50))
+        video = videoRef.current
+      }
+      if (!video) {
+        const msg = 'Camera preview did not start. Please refresh and try again.'
+        setCameraError(msg)
+        toast.error(msg)
+        return
       }
 
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream
-        videoRef.current.onloadedmetadata = () => {
-          videoRef.current.play()
-          setCameraReady(true)
+      video.srcObject = stream
+      await new Promise((resolve, reject) => {
+        const onReady = () => {
+          video
+            .play()
+            .then(() => {
+              setCameraReady(true)
+              resolve()
+            })
+            .catch(reject)
         }
-      }
+        if (video.readyState >= 2 && video.videoWidth) {
+          onReady()
+        } else {
+          video.onloadedmetadata = onReady
+        }
+      })
     } catch (err) {
-      console.error('Camera access denied:', err)
+      console.error('Camera initialization failed:', err)
+      const msg =
+        err?.name === 'NotAllowedError'
+          ? 'Camera access denied. Allow camera in your browser, then tap Retry.'
+          : 'Could not start the camera. Check permissions and try again.'
+      setCameraError(msg)
+      toast.error(msg)
     }
   }, [])
 
@@ -310,13 +341,16 @@ const AccommodativeLagTest = () => {
     let trackingCancelled = false
     const trackLoop = async () => {
       while (!trackingCancelled) {
-        if (!videoRef.current) break
+        if (!videoRef.current) {
+          await new Promise((r) => setTimeout(r, 200))
+          continue
+        }
         try {
           await pupilTrackerRef.current?.track(videoRef.current)
         } catch (err) {
           console.warn('Pupil tracking failed mid-test:', err)
-          break
         }
+        await new Promise((r) => setTimeout(r, 200))
       }
     }
     trackLoop()
@@ -414,6 +448,13 @@ const AccommodativeLagTest = () => {
       console.error('Failed to submit results:', err)
     }
   }
+
+  // Start camera after setup view mounts (video ref must exist first)
+  useEffect(() => {
+    if (testState !== 'setup') return undefined
+    initializeCamera()
+    return undefined
+  }, [testState, initializeCamera])
 
   // Cleanup on unmount
   useEffect(() => {
@@ -526,10 +567,7 @@ const AccommodativeLagTest = () => {
 
           <div className="text-center">
             <button
-              onClick={() => {
-                setTestState('setup')
-                initializeCamera()
-              }}
+              onClick={() => setTestState('setup')}
               className="btn-primary px-8 py-4 text-xl"
             >
               Start Eye Tiredness Test
@@ -547,35 +585,53 @@ const AccommodativeLagTest = () => {
         <h2 className="text-3xl font-bold mb-4">Position Your Face</h2>
         <p className="text-gray-400 mb-6">Make sure your eyes are clearly visible</p>
 
+        {cameraError && (
+          <p className="mb-4 text-sm text-red-300 bg-red-950/50 border border-red-700 rounded-lg px-4 py-3">
+            {cameraError}
+          </p>
+        )}
+
         {cameraReady && (
           <p className={`mb-6 text-sm ${eyesLocated ? 'text-green-400' : 'text-gray-400'}`}>
             {eyesLocated
               ? 'Both pupils located — the test will track how they respond.'
-              : 'Looking for your eyes… keep your whole face in frame.'}
+              : 'Looking for your eyes… keep your whole face in frame. You can begin even if detection is slow.'}
           </p>
         )}
 
-        <div className="flex gap-4 justify-center">
+        <div className="flex flex-wrap gap-4 justify-center">
           <button
             onClick={() => {
               stopCamera()
+              setCameraError(null)
               setTestState('instructions')
             }}
-            className="px-6 py-3 bg-gray-700 hover:bg-gray-600 rounded-full font-semibold"
+            className="px-6 py-3 bg-gray-700 hover:bg-gray-600 rounded-full font-semibold min-h-[44px]"
           >
             Cancel
           </button>
-          
+
+          {cameraError && (
+            <button
+              type="button"
+              onClick={() => initializeCamera()}
+              className="px-6 py-3 bg-amber-600 hover:bg-amber-700 rounded-full font-semibold min-h-[44px]"
+            >
+              Retry camera
+            </button>
+          )}
+
           <button
+            type="button"
             onClick={startTest}
             disabled={!cameraReady}
-            className={`px-8 py-3 rounded-full font-semibold ${
+            className={`px-8 py-3 rounded-full font-semibold min-h-[44px] ${
               cameraReady
                 ? 'bg-purple-600 hover:bg-purple-700'
                 : 'bg-gray-600 cursor-not-allowed opacity-50'
             }`}
           >
-            {cameraReady ? 'Begin Test' : 'Initializing Camera...'}
+            {cameraReady ? 'Begin Test' : cameraError ? 'Camera required' : 'Initializing camera…'}
           </button>
         </div>
       </div>
@@ -826,9 +882,11 @@ const AccommodativeLagTest = () => {
       className={
         testState === 'testing'
           ? 'fixed top-0 left-0 w-[640px] h-[480px] opacity-0 pointer-events-none z-0'
-          : 'relative mb-6 max-w-2xl mx-auto'
+          : testState === 'setup'
+            ? 'relative mb-6 max-w-2xl mx-auto'
+            : 'fixed top-0 left-0 w-px h-px opacity-0 overflow-hidden pointer-events-none -z-10'
       }
-      aria-hidden={testState === 'testing'}
+      aria-hidden={testState !== 'setup'}
     >
       <video
         ref={videoRef}
@@ -841,20 +899,19 @@ const AccommodativeLagTest = () => {
     </div>
   )
 
-  // Main render
-  if (testState === 'instructions') return renderInstructions()
-  if (testState === 'setup' || testState === 'testing') {
-    return (
-      <div className={testState === 'setup' ? '' : 'relative'}>
-        {renderPersistentCamera()}
-        {testState === 'setup' ? renderSetup() : renderTesting()}
-      </div>
-    )
-  }
-  if (testState === 'analyzing') return renderAnalyzing()
-  if (testState === 'results') return renderResults()
+  // Main render — keep <video> mounted before setup so camera init can attach the stream
+  const showCamera = testState === 'instructions' || testState === 'setup' || testState === 'testing'
 
-  return null
+  return (
+    <>
+      {showCamera && renderPersistentCamera()}
+      {testState === 'instructions' && renderInstructions()}
+      {testState === 'setup' && renderSetup()}
+      {testState === 'testing' && renderTesting()}
+      {testState === 'analyzing' && renderAnalyzing()}
+      {testState === 'results' && renderResults()}
+    </>
+  )
 }
 
 export default AccommodativeLagTest
