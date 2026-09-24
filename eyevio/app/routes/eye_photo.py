@@ -24,7 +24,10 @@ from app.utils.eye_photo_comparison import (
 )
 
 import base64
+from typing import Optional
+
 import cv2
+import numpy as np
 
 eye_photo_bp = Blueprint('eye_photo', __name__)
 
@@ -47,6 +50,68 @@ def _create_thumbnail_data_url(image_data: str, max_width: int = 360) -> str:
 
     encoded = base64.b64encode(buffer).decode('ascii')
     return f'data:image/jpeg;base64,{encoded}'
+
+
+def _decode_data_url_bgr(data_url: Optional[str]):
+    if not data_url or ',' not in str(data_url):
+        return None
+    try:
+        raw = base64.b64decode(str(data_url).split(',', 1)[1])
+        arr = np.frombuffer(raw, dtype=np.uint8)
+        return cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    except Exception:
+        return None
+
+
+def _create_eye_pair_thumbnail(left_data_url, right_data_url, tile: int = 320, gap: int = 8) -> Optional[str]:
+    """Side-by-side left/right pupil close-ups for cataract timeline thumbnails."""
+    left = _decode_data_url_bgr(left_data_url)
+    right = _decode_data_url_bgr(right_data_url)
+    tiles = []
+    labels = []
+
+    def _fit(img):
+        h, w = img.shape[:2]
+        if h == tile and w == tile:
+            return img
+        interp = cv2.INTER_AREA if min(h, w) > tile else cv2.INTER_CUBIC
+        return cv2.resize(img, (tile, tile), interpolation=interp)
+
+    if left is not None:
+        tiles.append(_fit(left))
+        labels.append('Left')
+    if right is not None:
+        tiles.append(_fit(right))
+        labels.append('Right')
+    if not tiles:
+        return None
+
+    label_h = 28
+    width = tile * len(tiles) + gap * (len(tiles) - 1)
+    height = tile + label_h
+    canvas = np.zeros((height, width, 3), dtype=np.uint8)
+    canvas[:] = (17, 24, 39)
+
+    x = 0
+    for img, label in zip(tiles, labels):
+        canvas[0:tile, x : x + tile] = img
+        cv2.rectangle(canvas, (x, tile), (x + tile, height), (0, 0, 0), thickness=-1)
+        cv2.putText(
+            canvas,
+            f'{label} eye',
+            (x + 12, tile + 20),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.55,
+            (249, 250, 251),
+            1,
+            cv2.LINE_AA,
+        )
+        x += tile + gap
+
+    ok, buffer = cv2.imencode('.jpg', canvas, [cv2.IMWRITE_JPEG_QUALITY, 90])
+    if not ok:
+        return None
+    return f'data:image/jpeg;base64,{base64.b64encode(buffer).decode("ascii")}'
 
 
 def _serialize_photo(photo: EyePhoto, include_thumbnail: bool = True):
@@ -132,10 +197,42 @@ def capture_eye_photo():
         left = analysis.get('left_eye') or {}
         right = analysis.get('right_eye') or {}
 
+        # Prefer tight pupil close-ups for cataract timeline thumbnails
+        thumbnail = _create_thumbnail_data_url(image_data)
+        if condition_type == 'cataract':
+            client_crops = data.get('eye_crops') if isinstance(data.get('eye_crops'), dict) else {}
+            pupil_crops = analysis.get('pupil_crops') if isinstance(analysis.get('pupil_crops'), dict) else {}
+            aligned = analysis.get('aligned_crops') if isinstance(analysis.get('aligned_crops'), dict) else {}
+            left_crop = (
+                client_crops.get('left')
+                or pupil_crops.get('left')
+                or aligned.get('left')
+            )
+            right_crop = (
+                client_crops.get('right')
+                or pupil_crops.get('right')
+                or aligned.get('right')
+            )
+            pair = _create_eye_pair_thumbnail(left_crop, right_crop)
+            if pair:
+                thumbnail = pair
+            # Prefer client iris-centered zooms in analysis_details for the UI
+            if client_crops.get('left') or client_crops.get('right'):
+                analysis = {
+                    **analysis,
+                    'pupil_crops': {
+                        'left': client_crops.get('left') or pupil_crops.get('left'),
+                        'right': client_crops.get('right') or pupil_crops.get('right'),
+                        'size': client_crops.get('size') or [256, 256],
+                        'source': 'client_iris_zoom',
+                        'version': 1,
+                    },
+                }
+
         photo = EyePhoto(
             user_id=user_id,
             condition_type=condition_type,
-            image_thumbnail=_create_thumbnail_data_url(image_data),
+            image_thumbnail=thumbnail,
             health_score=float(analysis.get('score', 0)),
             sclera_redness=float(metrics.get('avg_sclera_redness') or 0),
             tear_film_quality=float(metrics.get('avg_tear_film_quality', 0)),

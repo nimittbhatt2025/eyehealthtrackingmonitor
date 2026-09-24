@@ -18,9 +18,30 @@ import StableLightingPreview from '../utils/stableLightingPreview'
 import PhotoLightingBanner from '../components/PhotoLightingBanner'
 import SamdDisclaimer from '../components/SamdDisclaimer'
 import PathologyTriagePanel from '../components/PathologyTriagePanel'
+import { PupilRegionTracker } from '../utils/pupilRegionDetector'
+import {
+  cropEyeDataUrl,
+  drawEyeZoom,
+  regionsSharpEnough,
+} from '../utils/eyeCropFromRegions'
 
 const CONDITION_TYPE = 'cataract'
 const DOCTOR_INTERVAL_KEY = 'cataract_monitor_doctor_months'
+
+function getPupilCrops(source) {
+  const details =
+    source?.analysis_details ||
+    source?.analysis ||
+    source?.photo?.analysis_details ||
+    source ||
+    {}
+  const pupil = details.pupil_crops || {}
+  const aligned = details.aligned_crops || {}
+  return {
+    left: pupil.left || aligned.left || null,
+    right: pupil.right || aligned.right || null,
+  }
+}
 
 const GRADE_COLORS = {
   clear: 'bg-emerald-100 text-emerald-800 border-emerald-200',
@@ -75,6 +96,9 @@ export default function CataractOpacityMonitor() {
   const lightingCanvasRef = useRef(null)
   const lightingPreviewRef = useRef(null)
   const streamRef = useRef(null)
+  const pupilTrackerRef = useRef(null)
+  const leftZoomRef = useRef(null)
+  const rightZoomRef = useRef(null)
 
   const [doctorMonths, setDoctorMonths] = useState(() => {
     const stored = localStorage.getItem(DOCTOR_INTERVAL_KEY)
@@ -91,6 +115,8 @@ export default function CataractOpacityMonitor() {
   const [liveLighting, setLiveLighting] = useState(null)
   const [lightingError, setLightingError] = useState(null)
   const [deletingId, setDeletingId] = useState(null)
+  const [pupilsLocked, setPupilsLocked] = useState(false)
+  const [zoomSharp, setZoomSharp] = useState(false)
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -130,16 +156,34 @@ export default function CataractOpacityMonitor() {
       }
       streamRef.current = null
     }
+    if (pupilTrackerRef.current) {
+      try {
+        pupilTrackerRef.current.stop?.()
+      } catch {
+        /* ignore */
+      }
+      pupilTrackerRef.current = null
+    }
     setCameraReady(false)
+    setPupilsLocked(false)
+    setZoomSharp(false)
   }, [])
 
   const initializeCamera = useCallback(async () => {
     try {
       setError(null)
       const stream = await cameraManager.acquire({
-        video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+        video: {
+          facingMode: 'user',
+          width: { ideal: 1920, min: 1280 },
+          height: { ideal: 1080, min: 720 },
+        },
       })
       streamRef.current = stream
+      if (!pupilTrackerRef.current) {
+        pupilTrackerRef.current = new PupilRegionTracker()
+      }
+      await pupilTrackerRef.current.init()
       if (videoRef.current) {
         videoRef.current.srcObject = stream
         videoRef.current.onloadedmetadata = () => {
@@ -148,7 +192,26 @@ export default function CataractOpacityMonitor() {
         }
       }
     } catch {
-      setError('Camera access is required. Please allow camera permissions.')
+      // Fallback if 1080p is rejected by the device
+      try {
+        const stream = await cameraManager.acquire({
+          video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+        })
+        streamRef.current = stream
+        if (!pupilTrackerRef.current) {
+          pupilTrackerRef.current = new PupilRegionTracker()
+        }
+        await pupilTrackerRef.current.init()
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream
+          videoRef.current.onloadedmetadata = () => {
+            videoRef.current.play()
+            setCameraReady(true)
+          }
+        }
+      } catch {
+        setError('Camera access is required. Please allow camera permissions.')
+      }
     }
   }, [])
 
@@ -162,6 +225,8 @@ export default function CataractOpacityMonitor() {
   useEffect(() => {
     if (view !== 'capture' || !cameraReady) {
       setLiveLighting(null)
+      setPupilsLocked(false)
+      setZoomSharp(false)
       return undefined
     }
 
@@ -183,19 +248,56 @@ export default function CataractOpacityMonitor() {
       } catch (err) {
         console.warn('Cataract monitor lighting preview failed:', err)
       }
+
+      try {
+        const regions = await pupilTrackerRef.current?.track(videoRef.current)
+        if (cancelled) return
+        if (regions?.anatomicalLeft && regions?.anatomicalRight) {
+          const leftDraw = drawEyeZoom(
+            videoRef.current,
+            leftZoomRef.current,
+            regions.anatomicalLeft,
+            { mirror: true }
+          )
+          const rightDraw = drawEyeZoom(
+            videoRef.current,
+            rightZoomRef.current,
+            regions.anatomicalRight,
+            { mirror: true }
+          )
+          setPupilsLocked(Boolean(leftDraw && rightDraw))
+          setZoomSharp(
+            regionsSharpEnough(
+              regions,
+              videoRef.current.videoWidth,
+              videoRef.current.videoHeight
+            )
+          )
+        } else {
+          setPupilsLocked(false)
+          setZoomSharp(false)
+        }
+      } catch (err) {
+        console.warn('Pupil zoom preview failed:', err)
+        if (!cancelled) {
+          setPupilsLocked(false)
+          setZoomSharp(false)
+        }
+      }
     }
 
     tick()
-    const intervalId = setInterval(tick, 300)
+    const intervalId = setInterval(tick, 200)
     return () => {
       cancelled = true
       clearInterval(intervalId)
     }
   }, [view, cameraReady])
 
-  const submitCapture = async (dataUrl, acknowledgePoorLighting = false) => {
+  const submitCapture = async (dataUrl, eyeCrops, acknowledgePoorLighting = false) => {
     const response = await eyePhotoAPI.capture({
       image: dataUrl,
+      eye_crops: eyeCrops || undefined,
       condition_type: CONDITION_TYPE,
       doctor_visit_interval_months: doctorMonths,
       acknowledge_poor_lighting: acknowledgePoorLighting,
@@ -210,8 +312,31 @@ export default function CataractOpacityMonitor() {
 
     canvas.width = video.videoWidth
     canvas.height = video.videoHeight
-    canvas.getContext('2d').drawImage(video, 0, 0)
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.9)
+    const ctx = canvas.getContext('2d')
+    if (ctx) {
+      ctx.imageSmoothingEnabled = true
+      if ('imageSmoothingQuality' in ctx) ctx.imageSmoothingQuality = 'high'
+      ctx.drawImage(video, 0, 0)
+    }
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.95)
+
+    // Fresh landmark pass on the captured frame for sharper pupil crops
+    let eyeCrops = null
+    try {
+      const regions =
+        (await pupilTrackerRef.current?.track(video)) ||
+        pupilTrackerRef.current?.getRegions(canvas.width, canvas.height)
+      if (regions?.anatomicalLeft || regions?.anatomicalRight) {
+        eyeCrops = {
+          left: cropEyeDataUrl(canvas, regions.anatomicalLeft),
+          right: cropEyeDataUrl(canvas, regions.anatomicalRight),
+          size: [320, 320],
+          source: 'client_iris_zoom_v2',
+        }
+      }
+    } catch (err) {
+      console.warn('Could not crop pupil close-ups at capture:', err)
+    }
 
     setView('analyzing')
     stopCamera()
@@ -219,7 +344,7 @@ export default function CataractOpacityMonitor() {
     setLightingError(null)
 
     try {
-      const data = await submitCapture(dataUrl, acknowledgePoorLighting)
+      const data = await submitCapture(dataUrl, eyeCrops, acknowledgePoorLighting)
       setLastResult(data)
       setView('results')
 
@@ -298,7 +423,7 @@ export default function CataractOpacityMonitor() {
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Lens photo timeline</h1>
         <p className="text-gray-600 mt-1 text-sm max-w-2xl">
-          Capture an anterior eye photo each month to track a home cloudiness grade over time.
+          Capture zoomed left and right pupil photos each month to track a home cloudiness grade over time.
           This estimates appearance — not cataract size in millimeters, and not LOCS III diagnosis.
         </p>
         <SamdDisclaimer testType="cataract" className="mt-3 max-w-2xl" />
@@ -361,7 +486,7 @@ export default function CataractOpacityMonitor() {
               </div>
               <button type="button" onClick={() => setView('capture')} className="btn-primary min-h-[44px]">
                 <Camera className="w-4 h-4 mr-2 inline" />
-                {status?.check_due ? 'Take monthly photo' : 'Take photo now'}
+                {status?.check_due ? 'Capture pupil close-ups' : 'Capture pupils now'}
               </button>
             </div>
           </div>
@@ -417,17 +542,51 @@ export default function CataractOpacityMonitor() {
 
           {photos.length > 0 ? (
             <div className="card p-5">
-              <h2 className="font-semibold text-gray-900 mb-4">Saved opacity photos ({photos.length})</h2>
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+              <h2 className="font-semibold text-gray-900 mb-4">Saved pupil close-ups ({photos.length})</h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                 {photos.map((photo) => {
                   const details = photo.analysis_details || {}
+                  const crops = getPupilCrops(photo)
                   return (
                     <div key={photo.id} className="rounded-lg border border-gray-200 overflow-hidden bg-gray-50">
-                      <img
-                        src={photo.image_thumbnail}
-                        alt={`Cataract screening ${new Date(photo.captured_at).toLocaleDateString()}`}
-                        className="w-full aspect-[4/3] object-cover"
-                      />
+                      {crops.left || crops.right ? (
+                        <div className="grid grid-cols-2 gap-px bg-gray-200">
+                          <div className="bg-black">
+                            {crops.left ? (
+                              <img
+                                src={crops.left}
+                                alt="Left pupil"
+                                className="w-full aspect-square object-cover"
+                              />
+                            ) : (
+                              <div className="aspect-square flex items-center justify-center text-xs text-gray-400">
+                                L —
+                              </div>
+                            )}
+                            <div className="text-[10px] text-center text-white bg-black/80 py-0.5">Left</div>
+                          </div>
+                          <div className="bg-black">
+                            {crops.right ? (
+                              <img
+                                src={crops.right}
+                                alt="Right pupil"
+                                className="w-full aspect-square object-cover"
+                              />
+                            ) : (
+                              <div className="aspect-square flex items-center justify-center text-xs text-gray-400">
+                                R —
+                              </div>
+                            )}
+                            <div className="text-[10px] text-center text-white bg-black/80 py-0.5">Right</div>
+                          </div>
+                        </div>
+                      ) : (
+                        <img
+                          src={photo.image_thumbnail}
+                          alt={`Cataract screening ${new Date(photo.captured_at).toLocaleDateString()}`}
+                          className="w-full aspect-[2/1] object-cover"
+                        />
+                      )}
                       <div className="p-2 text-xs space-y-1">
                         <GradeBadge grade={details.opacity_grade} label={details.grade_label || details.opacity_grade} />
                         <div className="font-semibold text-gray-900">
@@ -453,7 +612,7 @@ export default function CataractOpacityMonitor() {
             <div className="card p-5 text-center text-sm text-gray-600">
               <Eye className="w-8 h-8 text-gray-400 mx-auto mb-2" />
               <p className="font-medium text-gray-900 mb-1">No cataract screening photos yet</p>
-              <p>Take your first anterior-eye photo to start the opacity grade timeline.</p>
+              <p>Take your first pupil close-up to start the opacity grade timeline.</p>
             </div>
           )}
         </>
@@ -461,11 +620,11 @@ export default function CataractOpacityMonitor() {
 
       {view === 'capture' && (
         <div className="card p-5 space-y-4">
-          <h2 className="font-semibold text-gray-900">Capture anterior eye photo</h2>
+          <h2 className="font-semibold text-gray-900">Capture pupil close-ups</h2>
           <ul className="text-sm text-gray-600 list-disc pl-5 space-y-1">
             <li>Even front light aimed at your face (avoid strong backlight)</li>
             <li>Remove glasses; look straight ahead with both eyes open</li>
-            <li>Move close enough that both eyes fill most of the frame</li>
+            <li>Move close until both pupil zooms lock onto the dark center of each eye</li>
             <li>
               Wait for the green lighting indicator — or use Capture anyway if you must
               (saved but less reliable for month-over-month comparison)
@@ -475,15 +634,48 @@ export default function CataractOpacityMonitor() {
           <PhotoLightingBanner lighting={liveLighting} />
           <canvas ref={lightingCanvasRef} className="hidden" aria-hidden />
 
-          <div className="relative rounded-xl overflow-hidden bg-gray-900 aspect-video max-w-lg mx-auto">
-            <video
-              ref={videoRef}
-              autoPlay
-              playsInline
-              muted
-              className="w-full h-full object-cover"
-              style={{ transform: 'scaleX(-1)' }}
-            />
+          <div className="grid md:grid-cols-[minmax(0,1fr)_minmax(220px,280px)] gap-4 items-start max-w-4xl mx-auto">
+            <div className="relative rounded-xl overflow-hidden bg-gray-900 aspect-video">
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                className="w-full h-full object-cover"
+                style={{ transform: 'scaleX(-1)' }}
+              />
+              <div className="absolute bottom-2 left-2 right-2 flex justify-between gap-2 text-[11px]">
+                <span
+                  className={`px-2 py-1 rounded-full font-medium ${
+                    pupilsLocked && zoomSharp
+                      ? 'bg-emerald-500/90 text-white'
+                      : pupilsLocked
+                        ? 'bg-amber-500/90 text-white'
+                        : 'bg-black/60 text-white'
+                  }`}
+                >
+                  {!pupilsLocked
+                    ? 'Looking for pupils…'
+                    : zoomSharp
+                      ? 'Sharp pupil lock — ready to capture'
+                      : 'Pupils found — move closer for a sharper zoom'}
+                </span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-1 gap-3">
+              <div className="rounded-xl overflow-hidden border border-gray-200 bg-gray-950">
+                <div className="px-2 py-1 text-xs font-semibold text-white bg-black/70">Your left eye</div>
+                <canvas ref={leftZoomRef} className="w-full aspect-square bg-black object-contain" />
+              </div>
+              <div className="rounded-xl overflow-hidden border border-gray-200 bg-gray-950">
+                <div className="px-2 py-1 text-xs font-semibold text-white bg-black/70">Your right eye</div>
+                <canvas ref={rightZoomRef} className="w-full aspect-square bg-black object-contain" />
+              </div>
+              <p className="text-xs text-gray-500 col-span-2 md:col-span-1">
+                Move closer until the zooms look sharp (not pixelated). We save these close-ups — not the whole face.
+              </p>
+            </div>
           </div>
           <canvas ref={canvasRef} className="hidden" />
 
@@ -503,7 +695,7 @@ export default function CataractOpacityMonitor() {
               disabled={!cameraReady || (liveLighting && !liveLighting.acceptable)}
               className="btn-primary min-h-[44px] disabled:opacity-50"
             >
-              Capture &amp; grade opacity
+              Capture pupil close-ups &amp; grade
             </button>
             {liveLighting && !liveLighting.acceptable && (
               <button
@@ -628,16 +820,46 @@ export default function CataractOpacityMonitor() {
             </div>
           </div>
 
-          {lastResult.photo?.image_thumbnail && (
+          {(lastResult.photo?.image_thumbnail ||
+            getPupilCrops(lastResult).left ||
+            getPupilCrops(lastResult).right) && (
             <div className="card p-5">
-              <h3 className="font-semibold text-gray-900 mb-3">Your saved photo</h3>
-              <div className="grid sm:grid-cols-[200px_1fr] gap-4 items-start">
-                <img
-                  src={lastResult.photo.image_thumbnail}
-                  alt="Saved cataract screening"
-                  className="w-full rounded-lg border border-gray-200"
-                />
-                <div className="text-sm text-gray-600 space-y-2">
+              <h3 className="font-semibold text-gray-900 mb-3">Saved pupil close-ups</h3>
+              <div className="grid sm:grid-cols-[1fr_1fr] gap-4 items-start">
+                {(() => {
+                  const crops = getPupilCrops(lastResult)
+                  if (crops.left || crops.right) {
+                    return (
+                      <>
+                        <div className="rounded-lg overflow-hidden border border-gray-200 bg-black">
+                          {crops.left ? (
+                            <img src={crops.left} alt="Left pupil close-up" className="w-full aspect-square object-cover" />
+                          ) : (
+                            <div className="aspect-square flex items-center justify-center text-sm text-gray-400">Left unavailable</div>
+                          )}
+                          <div className="text-xs text-center text-white bg-black/80 py-1.5 font-medium">Left eye</div>
+                        </div>
+                        <div className="rounded-lg overflow-hidden border border-gray-200 bg-black">
+                          {crops.right ? (
+                            <img src={crops.right} alt="Right pupil close-up" className="w-full aspect-square object-cover" />
+                          ) : (
+                            <div className="aspect-square flex items-center justify-center text-sm text-gray-400">Right unavailable</div>
+                          )}
+                          <div className="text-xs text-center text-white bg-black/80 py-1.5 font-medium">Right eye</div>
+                        </div>
+                      </>
+                    )
+                  }
+                  return (
+                    <img
+                      src={lastResult.photo.image_thumbnail}
+                      alt="Saved cataract screening"
+                      className="w-full rounded-lg border border-gray-200 sm:col-span-2"
+                    />
+                  )
+                })()}
+              </div>
+              <div className="text-sm text-gray-600 space-y-2 mt-4">
                   <p>
                     Method:{' '}
                     <strong className="text-gray-800">
@@ -684,16 +906,17 @@ export default function CataractOpacityMonitor() {
                     </p>
                   )}
                   <PathologyTriagePanel triage={analysis.pathology_triage} />
-                  <button
-                    type="button"
-                    onClick={() => handleDeletePhoto(lastResult.photo.id, { fromResults: true })}
-                    disabled={deletingId === lastResult.photo.id}
-                    className="inline-flex items-center gap-1 text-red-600 hover:text-red-700 font-medium min-h-[36px] disabled:opacity-50"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    Delete this photo
-                  </button>
-                </div>
+                  {lastResult.photo?.id && (
+                    <button
+                      type="button"
+                      onClick={() => handleDeletePhoto(lastResult.photo.id, { fromResults: true })}
+                      disabled={deletingId === lastResult.photo.id}
+                      className="inline-flex items-center gap-1 text-red-600 hover:text-red-700 font-medium min-h-[36px] disabled:opacity-50"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      Delete this photo
+                    </button>
+                  )}
               </div>
             </div>
           )}

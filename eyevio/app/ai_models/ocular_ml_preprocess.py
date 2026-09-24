@@ -6,6 +6,7 @@ Webcam selfies must be cropped to the eye/sclera before ResNet — never the ful
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 import cv2
@@ -26,20 +27,31 @@ MAX_SCLERA_SATURATION = 85
 WEBCAM_ML_EYE_FRAME_RATIO_MAX = 0.15
 WEBCAM_ML_CALIB_FACTOR = 0.35
 
+# OpenCV 5 wheels ship an empty cv2.data.haarcascades dir — keep copies next to Face Landmarker.
+_BUNDLED_HAAR_DIR = Path(__file__).resolve().parent / 'models' / 'haarcascades'
+
 _haar_face_cascade = None
 _haar_eye_cascade = None
+_haar_cascades_ok = False
 
 
-def _get_haar_cascades() -> Tuple[cv2.CascadeClassifier, cv2.CascadeClassifier]:
+def _haar_xml_path(filename: str) -> str:
+    """Prefer bundled XMLs; fall back to cv2.data when the wheel includes them."""
+    bundled = _BUNDLED_HAAR_DIR / filename
+    if bundled.is_file():
+        return str(bundled)
+    return cv2.data.haarcascades + filename
+
+
+def _get_haar_cascades() -> Tuple[Optional[cv2.CascadeClassifier], Optional[cv2.CascadeClassifier]]:
     """Lazy-load OpenCV Haar cascades (fallback when MediaPipe misses a face)."""
-    global _haar_face_cascade, _haar_eye_cascade
+    global _haar_face_cascade, _haar_eye_cascade, _haar_cascades_ok
     if _haar_eye_cascade is None:
-        _haar_face_cascade = cv2.CascadeClassifier(
-            cv2.data.haarcascades + 'haarcascade_frontalface_default.xml',
-        )
-        _haar_eye_cascade = cv2.CascadeClassifier(
-            cv2.data.haarcascades + 'haarcascade_eye.xml',
-        )
+        face = cv2.CascadeClassifier(_haar_xml_path('haarcascade_frontalface_default.xml'))
+        eye = cv2.CascadeClassifier(_haar_xml_path('haarcascade_eye.xml'))
+        _haar_cascades_ok = (not face.empty()) and (not eye.empty())
+        _haar_face_cascade = face if _haar_cascades_ok else None
+        _haar_eye_cascade = eye if _haar_cascades_ok else None
     return _haar_face_cascade, _haar_eye_cascade
 
 
@@ -73,12 +85,16 @@ def crop_eyes_haar(frame_bgr: np.ndarray) -> Optional[Dict[str, np.ndarray]]:
     h, w = frame_bgr.shape[:2]
     gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
     face_cascade, eye_cascade = _get_haar_cascades()
+    if face_cascade is None or eye_cascade is None:
+        return None
 
     roi_y1 = h
     roi_x0, roi_y0 = 0, 0
     faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(80, 80))
     if len(faces) > 0:
-        fx, fy, fw, fh = max(faces, key=lambda f: f[2] * f[3])
+        # OpenCV 4/5: faces is (N, 4); pick largest by area without nested unpack issues.
+        areas = [int(f[2]) * int(f[3]) for f in faces]
+        fx, fy, fw, fh = (int(v) for v in faces[int(np.argmax(areas))])
         roi_x0 = fx
         roi_y0 = fy
         roi_y1 = min(h, fy + int(fh * 0.72))
@@ -99,7 +115,7 @@ def crop_eyes_haar(frame_bgr: np.ndarray) -> Optional[Dict[str, np.ndarray]]:
     if len(eyes) == 0:
         return None
 
-    eyes = sorted(eyes, key=lambda e: e[0])
+    eyes = sorted((tuple(int(v) for v in e) for e in eyes), key=lambda e: e[0])
     crops: Dict[str, np.ndarray] = {}
 
     if len(eyes) >= 2:

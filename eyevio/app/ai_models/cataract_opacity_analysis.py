@@ -24,7 +24,11 @@ from app.ai_models.dry_eye_analysis import (
     decode_base64_image,
 )
 from app.ai_models.eye_analysis import get_face_landmarker
-from app.ai_models.eye_crop_alignment import build_aligned_crops, eye_asymmetry_metrics
+from app.ai_models.eye_crop_alignment import (
+    build_aligned_crops,
+    encode_crop_data_url,
+    eye_asymmetry_metrics,
+)
 from app.ai_models.eyewear_detection import detect_eyewear
 
 # Grade thresholds on opacity_score 0–100 (higher = more opaque)
@@ -67,6 +71,55 @@ def _pupil_roi(eye_bgr: np.ndarray) -> Optional[np.ndarray]:
     x0, x1 = int(w * 0.28), int(w * 0.72)
     roi = eye_bgr[y0:y1, x0:x1]
     return roi if roi.size else None
+
+
+def _encode_pupil_zoom(eye_bgr: np.ndarray, out_size: int = 320) -> Optional[str]:
+    """
+    Encode a display close-up from the eye patch.
+
+    Prefer a wider central window (not the tiny grading ROI) and only upscale
+    mildly — heavy INTER_CUBIC upsampling is what made timeline crops look grainy.
+    """
+    if eye_bgr is None or eye_bgr.size == 0:
+        return None
+    h, w = eye_bgr.shape[:2]
+    # ~70% of the eye patch centered on the pupil / lens
+    y0, y1 = int(h * 0.12), int(h * 0.88)
+    x0, x1 = int(w * 0.12), int(w * 0.88)
+    roi = eye_bgr[y0:y1, x0:x1]
+    if roi is None or roi.size == 0:
+        roi = eye_bgr
+
+    rh, rw = roi.shape[:2]
+    side = min(rh, rw)
+    cy, cx = rh // 2, rw // 2
+    half = side // 2
+    square = roi[max(0, cy - half) : cy + half, max(0, cx - half) : cx + half]
+    if square.size == 0:
+        return None
+
+    sh, sw = square.shape[:2]
+    src = min(sh, sw)
+    if src >= out_size:
+        zoomed = cv2.resize(square, (out_size, out_size), interpolation=cv2.INTER_AREA)
+    elif src * 1.5 >= out_size:
+        zoomed = cv2.resize(square, (out_size, out_size), interpolation=cv2.INTER_CUBIC)
+    else:
+        # Keep near-native size instead of blowing up a tiny patch
+        native = max(src, min(out_size, int(src * 1.25)))
+        zoomed = cv2.resize(square, (native, native), interpolation=cv2.INTER_CUBIC)
+
+    return encode_crop_data_url(zoomed, quality=92)
+
+
+def build_pupil_crops(left_bgr: np.ndarray, right_bgr: np.ndarray) -> Dict[str, Any]:
+    """Left/right pupil close-ups for UI timelines (not the SSIM-aligned patches)."""
+    return {
+        'left': _encode_pupil_zoom(left_bgr),
+        'right': _encode_pupil_zoom(right_bgr),
+        'size': [320, 320],
+        'version': 2,
+    }
 
 
 def estimate_pupil_opacity(eye_bgr: np.ndarray) -> Dict[str, float]:
@@ -252,6 +305,7 @@ def analyze_cataract_frame(frame: np.ndarray) -> Dict[str, Any]:
     left = _analyze_eye(crops['left'])
     right = _analyze_eye(crops['right'])
     aligned = build_aligned_crops(crops['left'], crops['right'])
+    pupil_crops = build_pupil_crops(crops['left'], crops['right'])
     asymmetry = eye_asymmetry_metrics(
         {
             'health_score': left['health_score'],
@@ -323,6 +377,7 @@ def analyze_cataract_frame(frame: np.ndarray) -> Dict[str, Any]:
         'lighting': lighting,
         'eyewear': eyewear,
         'aligned_crops': aligned,
+        'pupil_crops': pupil_crops,
         'metrics': {
             'avg_opacity_score': avg_opacity,
             'avg_clarity_score': avg_health,

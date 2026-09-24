@@ -537,7 +537,7 @@ def _analyze_cropped_eyes(
         if landmarks is not None:
             try:
                 ml_patches, raw_shapes = ml_eye_patches_from_landmarks(frame, landmarks)
-            except ValueError:
+            except (ValueError, TypeError):
                 ml_patches = {
                     'left': prepare_ocular_patch(crops['left'], side='left'),
                     'right': prepare_ocular_patch(crops['right'], side='right'),

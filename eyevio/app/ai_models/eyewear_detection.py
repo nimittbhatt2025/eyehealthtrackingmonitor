@@ -110,7 +110,11 @@ def _horizontal_line_score(roi: np.ndarray) -> float:
     horizontal = 0
     upper_zone = int(rh * 0.55)
     for line in lines:
-        x1, y1, x2, y2 = line[0]
+        # OpenCV 4: shape (N, 1, 4); OpenCV 5+: shape (N, 4)
+        pts = np.asarray(line).reshape(-1)
+        if pts.size < 4:
+            continue
+        x1, y1, x2, y2 = (int(pts[0]), int(pts[1]), int(pts[2]), int(pts[3]))
         dx = abs(x2 - x1)
         dy = abs(y2 - y1)
         if dx < min_len * 0.85:
