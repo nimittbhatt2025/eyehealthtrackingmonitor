@@ -16,11 +16,13 @@ def submit_vision_test():
     
     Supported home-check types (not diagnostic / not FDA-cleared SaMD):
     - visual_acuity: Letter-chart home check (not a refraction)
-    - color_vision: Color-pattern home check (not occupational certification)
-    - contrast_sensitivity: Faint-shape home check (not a clinical Pelli-Robson exam)
-    - glaucoma_neural: Side-vision home exercise (not a visual-field test; does not screen for glaucoma)
-    - cataract_glare: Glare-tolerance home exercise (not cataract diagnosis / not LOCS)
-    - red_reflex: Camera pupil-glow check (not a clinical red-reflex exam)
+    - color_vision: Confusion-axis colour thresholds, u'v' x 1e-4 (not occupational certification)
+    - contrast_sensitivity: qCSF grating curve at 1 m (not a clinical CSF / Pelli-Robson exam)
+    - side_vision: Relative four-quadrant asymmetry with perimetry-style reliability
+      indices (not a visual-field test; does not screen for glaucoma).
+      glaucoma_neural is the legacy type for the earlier version.
+    - cataract_glare: Contrast loss under glare, Δ logCS (not cataract diagnosis / not LOCS)
+    - red_reflex: Phone rear camera + torch, inter-ocular glow symmetry only (not a clinical red-reflex exam)
     - accommodative_lag: Near-work comfort estimate
     - peripheral_awareness: Side-awareness game (not a visual-field test)
     - ocular_ergonomics: Posture and lighting comfort
@@ -62,7 +64,14 @@ def submit_vision_test():
             user_id=user_id,
             test_type=data['test_type']
         ).order_by(VisionTest.created_at).all()
-        
+
+        # Scores from different test methods are on different scales.
+        method_version = (data.get('test_details') or {}).get('method_version')
+        all_tests = [
+            t for t in all_tests
+            if (t.test_details or {}).get('method_version') == method_version
+        ]
+
         if len(all_tests) >= 5:
             decline_info = detect_vision_decline(all_tests)
             

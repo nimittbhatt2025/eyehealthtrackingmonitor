@@ -17,6 +17,12 @@ const IRIS_LEFT = [473, 474, 475, 476, 477]
 // Eye contours, used when iris refinement is unavailable
 const CONTOUR_RIGHT = [33, 133, 160, 159, 158, 157, 173, 144, 145, 153]
 const CONTOUR_LEFT = [362, 263, 387, 386, 385, 384, 398, 373, 374, 380]
+const RIGHT_OUTER_CANTHUS = 33
+const RIGHT_INNER_CANTHUS = 133
+const LEFT_INNER_CANTHUS = 362
+const LEFT_OUTER_CANTHUS = 263
+const FACE_OVAL_RIGHT = 234
+const FACE_OVAL_LEFT = 454
 
 // Pupil is smaller than the iris; in dim light it sits near this fraction of iris radius.
 const PUPIL_TO_IRIS_RATIO = 0.62
@@ -105,6 +111,24 @@ function regionsFromLandmarks(landmarks, width, height) {
   const anatomicalLeft = build(leftIndices)
   const [screenLeft, screenRight] = [anatomicalRight, anatomicalLeft].sort((a, b) => a.x - b.x)
 
+  const px = (i) => ({ x: landmarks[i].x * width, y: landmarks[i].y * height })
+  const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y)
+  // Outer canthi do not move when the eyes turn, so they give a vergence-free scale.
+  const rightOuter = px(RIGHT_OUTER_CANTHUS)
+  const leftOuter = px(LEFT_OUTER_CANTHUS)
+  const canthalSpanPx = dist(rightOuter, leftOuter)
+  // Face-oval width stays measurable when a palm covers one eye.
+  const faceWidthPx = dist(px(FACE_OVAL_RIGHT), px(FACE_OVAL_LEFT))
+
+  // 0 = iris at outer corner, 1 = at inner corner; rises as the eye turns inward.
+  const nasalPosition = (iris, outer, inner) => {
+    const vx = inner.x - outer.x
+    const vy = inner.y - outer.y
+    const len2 = vx * vx + vy * vy
+    if (!len2) return null
+    return ((iris.x - outer.x) * vx + (iris.y - outer.y) * vy) / len2
+  }
+
   return {
     source: hasIris ? 'iris-landmarks' : 'eye-contour-landmarks',
     anatomicalLeft,
@@ -113,6 +137,14 @@ function regionsFromLandmarks(landmarks, width, height) {
     screenRight,
     // Pixel distance between eye centres — a stable distance/scale cue.
     eyeSpanPx: Math.abs(anatomicalLeft.x - anatomicalRight.x),
+    canthalSpanPx,
+    faceWidthPx,
+    nasalPosition: hasIris
+      ? {
+          right: nasalPosition(anatomicalRight, rightOuter, px(RIGHT_INNER_CANTHUS)),
+          left: nasalPosition(anatomicalLeft, leftOuter, px(LEFT_INNER_CANTHUS)),
+        }
+      : null,
   }
 }
 
@@ -257,8 +289,11 @@ export class PupilRegionTracker {
     return this._initPromise
   }
 
-  async track(video) {
-    if (this._unavailable || !video?.videoWidth) return null
+  /** Accepts a <video> or a <canvas>; regions come back in that source's pixel space. */
+  async track(source, { timeoutMs = RESULT_TIMEOUT_MS } = {}) {
+    const width = source?.videoWidth || source?.width
+    const height = source?.videoHeight || source?.height
+    if (this._unavailable || !width) return null
     if (!this.faceMesh) await this.init()
     if (!this.faceMesh) return null
 
@@ -269,11 +304,11 @@ export class PupilRegionTracker {
           this._pendingResolve = null
           resolve()
         }
-      }, RESULT_TIMEOUT_MS)
-      this.faceMesh.send({ image: video }).catch(resolve)
+      }, timeoutMs)
+      this.faceMesh.send({ image: source }).catch(resolve)
     })
 
-    return this.getRegions(video.videoWidth, video.videoHeight)
+    return this.getRegions(width, height)
   }
 
   /** Latest regions in pixel space, or null when no recent detection. */

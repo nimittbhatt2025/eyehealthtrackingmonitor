@@ -12,10 +12,12 @@ const TEST_ROUTES = {
   color_vision: '/vision-tests/color_vision',
   amsler_grid: '/vision-tests/amsler_grid',
   contrast_sensitivity: '/vision-tests/contrast_sensitivity',
-  glaucoma_neural: '/vision-tests/glaucoma_neural',
+  side_vision: '/vision-tests/side_vision',
+  glaucoma_neural: '/vision-tests/side_vision',
   cataract_glare: '/vision-tests/cataract_glare',
   red_reflex: '/vision-tests/red_reflex',
   accommodative_lag: '/vision-tests/accommodative_lag',
+  near_point_convergence: '/vision-tests/near_point_convergence',
   peripheral_awareness: '/vision-tests/peripheral_awareness',
   ocular_ergonomics: '/vision-tests/ocular_ergonomics',
   eye_tracking: '/eye-tracking-analysis',
@@ -27,47 +29,55 @@ const TEST_ROUTES = {
 export const TEST_INFO = {
   dry_eye: {
     title: 'Dry Eye Check',
-    description: 'Symptom check plus photo analysis — not a diagnosis',
+    description: 'OSDI-12, tear break-up proxy, and light-corrected photo — not a diagnosis',
   },
   visual_acuity: {
     title: 'Clear Vision Test',
-    description: 'Letter chart test for visual acuity',
+    description: 'ETDRS-style chart at 1 m (Sloan, HOTV or tumbling E)',
   },
   color_vision: {
     title: 'Color Vision Test',
-    description: 'Check how well you distinguish colors',
+    description: 'Color thresholds on red, green and blue–yellow axes',
   },
   amsler_grid: {
     title: 'Straight-Line Test',
-    description: 'Amsler grid for center vision changes',
+    description: 'Amsler grid (full + 5% contrast) and line-alignment hyperacuity',
   },
   contrast_sensitivity: {
     title: 'Faint Shapes Test',
-    description: 'Contrast sensitivity in dim conditions',
+    description: 'Contrast sensitivity curve (qCSF gratings at 1 m)',
   },
   cataract_glare: {
-    title: 'Glare Sensitivity Test',
-    description: 'How bright light affects you — not a cataract exam',
+    title: 'Glare Test',
+    description: 'Contrast loss under glare (Δ logCS) — not a cataract exam',
   },
   eye_tracking: {
     title: 'Eye Tracking Analysis',
     description: 'Quick 90s blink screen or extended 5-min coaching session',
   },
   accommodative_lag: {
-    title: 'Eye Tiredness Meter',
-    description: 'Screen strain and near-work fatigue',
+    title: 'Near Blur Tolerance',
+    description: 'Focusing fatigue index for near work',
+  },
+  near_point_convergence: {
+    title: 'Convergence Near Point',
+    description: 'Camera-assisted near point of convergence (cm)',
   },
   ocular_ergonomics: {
     title: 'Posture & Lighting Check',
-    description: 'Screen distance, glare, and posture',
+    description: 'Screen distance, glare, blink rate and 20-20-20 breaks',
+  },
+  side_vision: {
+    title: 'Side Vision Test',
+    description: 'Relative four-corner comparison with reliability checks — not a visual-field test',
   },
   glaucoma_neural: {
-    title: 'Side Vision Test',
-    description: 'Home side-vision exercise — not a glaucoma exam',
+    title: 'Side Vision Test (earlier version)',
+    description: 'Earlier side-vision exercise — not a visual-field test',
   },
   red_reflex: {
     title: 'Eye Glow Test',
-    description: 'Camera check of pupil glow — not a clinical red-reflex exam',
+    description: 'Phone-flashlight left/right glow comparison — not a clinical red-reflex exam',
   },
   peripheral_awareness: {
     title: 'Side Vision Game',

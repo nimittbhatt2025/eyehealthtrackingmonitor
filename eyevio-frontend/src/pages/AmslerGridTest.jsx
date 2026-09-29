@@ -6,24 +6,35 @@ import { VisionTestShell } from '../components/TestPrepLayout'
 import EyeCoverageVerification from '../components/EyeCoverageVerification'
 import { visionTestAPI } from '../services/api'
 import SamdDisclaimer from '../components/SamdDisclaimer'
-import { scoreAmslerGrid } from '../utils/visionTestScoring'
+import VernierTask from '../components/VernierTask'
+import { scoreAmslerEye, amslerMarkedAreaDeg2 } from '../utils/visionTestScoring'
+import { getScreenScale } from '../utils/screenScale'
+import { linearToSrgb } from '../utils/psychophysics'
 
 /**
- * Clinical-Grade Amsler Grid Test
- * 
- * CLINICAL STANDARDS IMPLEMENTED:
- * - Pure white background (#FFFFFF)
- * - Pure black grid lines (#000000), 2px thick, sharp edges
- * - 10×10 grid (clinical standard)
- * - Red center fixation dot (#FF0000), 8px diameter
- * - 500×500px fixed size
- * - 355mm (14") viewing distance (near vision/reading distance)
- * - No anti-aliasing, no blur, no gradients
- * - Brightness verification screen
- * - Distance calibration required
- * - Monocular testing with proper eye coverage
- * - Distortion marking capability
+ * Amsler grid (full + low contrast) with a vernier hyperacuity task.
+ *
+ * Per eye:
+ * 1. Standard chart: 20×20 black-on-white grid, 1° squares (20° total) at
+ *    355 mm, sized from the measured screen scale; red fixation dot.
+ * 2. Low-contrast chart: same grid at 5% Weber contrast, after 5 s of
+ *    fixation. Defects are several times larger at low contrast (Wall &
+ *    Sadun threshold Amsler), so this catches what the full-contrast grid misses.
+ * 3. Vernier alignment at the fovea and four spots at 2°, which picks up
+ *    metamorphopsia as a local shift in perceived alignment.
  */
+
+const TEST_DISTANCE_MM = 355
+const GRID_DEG = 20
+const GRID_CELLS = 20
+const LOW_CONTRAST = 0.05
+const PHASES = ['standard', 'low_contrast']
+
+function gridCssSize(pxPerMm) {
+  const mm = 2 * TEST_DISTANCE_MM * Math.tan(((GRID_DEG / 2) * Math.PI) / 180)
+  const fit = typeof window !== 'undefined' ? Math.min(window.innerWidth - 32, window.innerHeight - 160) : 600
+  return Math.round(Math.min(mm * pxPerMm, Math.max(320, fit)))
+}
 
 const AmslerGridTest = () => {
   const navigate = useNavigate()
@@ -34,12 +45,16 @@ const AmslerGridTest = () => {
   const [distanceValid, setDistanceValid] = useState(false)
   const [brightnessConfirmed, setBrightnessConfirmed] = useState(false)
   const [currentEye, setCurrentEye] = useState('left')
-  const [gridPhase, setGridPhase] = useState('standard') // standard | micro | fixation
+  const [gridPhase, setGridPhase] = useState('standard') // standard | low_contrast
   const [fixationCountdown, setFixationCountdown] = useState(0)
-  const [phaseResults, setPhaseResults] = useState({
-    left: { standard: null, micro: null, fixation: null },
-    right: { standard: null, micro: null, fixation: null },
+  const [vernierResults, setVernierResults] = useState({ left: null, right: null })
+  const [eyeScores, setEyeScores] = useState(null)
+  const phaseResultsRef = useRef({
+    left: { standard: null, low_contrast: null },
+    right: { standard: null, low_contrast: null },
   })
+  const vernierResultsRef = useRef(vernierResults)
+  const [screenScale] = useState(() => getScreenScale())
   
   // Test data
   const [distortions, setDistortions] = useState({
@@ -51,7 +66,11 @@ const AmslerGridTest = () => {
   const canvasRef = useRef(null)
   const overlayCanvasRef = useRef(null)
   const containerRef = useRef(null)
-  const [canvasSize] = useState({ width: 500, height: 500 }) // Fixed 500×500px
+  const [canvasSize] = useState(() => {
+    const s = gridCssSize(screenScale.pxPerMm)
+    return { width: s, height: s }
+  })
+  const gridTrueSize = canvasSize.width >= Math.round(2 * TEST_DISTANCE_MM * Math.tan((10 * Math.PI) / 180) * screenScale.pxPerMm)
   
   // Annotation state
   const [annotationMode, setAnnotationMode] = useState('wavy') // 'wavy' or 'blackout'
@@ -75,12 +94,12 @@ const AmslerGridTest = () => {
     ctx.fillStyle = '#FFFFFF'
     ctx.fillRect(0, 0, width, height)
 
-    // CLINICAL STANDARD: Pure black grid lines (#000000), 2px, sharp edges
-    ctx.strokeStyle = '#000000'
+    const lineValue = gridPhase === 'low_contrast' ? Math.round(255 * linearToSrgb(1 - LOW_CONTRAST)) : 0
+    ctx.strokeStyle = `rgb(${lineValue},${lineValue},${lineValue})`
     ctx.lineWidth = 2
-    ctx.imageSmoothingEnabled = false // Disable anti-aliasing
-    
-    const gridLines = gridPhase === 'micro' ? 14 : 10 // micro-grid stresses central field
+    ctx.imageSmoothingEnabled = false
+
+    const gridLines = GRID_CELLS
     const cellSize = width / gridLines
 
     // Draw vertical lines
@@ -195,7 +214,7 @@ const AmslerGridTest = () => {
   }, [testState, drawGrid, gridPhase])
   
   useEffect(() => {
-    if (testState !== 'testing' || gridPhase !== 'fixation') return undefined
+    if (testState !== 'testing' || gridPhase !== 'low_contrast') return undefined
     setFixationCountdown(5)
     const interval = setInterval(() => {
       setFixationCountdown((c) => {
@@ -210,33 +229,30 @@ const AmslerGridTest = () => {
   }, [testState, gridPhase, currentEye])
 
   const advanceAfterPhaseAnswer = (hasIssues) => {
-    setPhaseResults((prev) => ({
-      ...prev,
-      [currentEye]: {
-        ...prev[currentEye],
-        [gridPhase]: {
-          hasIssues,
-          marksCount: distortions[currentEye].marks.length,
-        },
-      },
-    }))
+    const marks = hasIssues ? distortions[currentEye].marks : []
+    const record = {
+      hasIssues,
+      marksCount: marks.length,
+      markedAreaDeg2: amslerMarkedAreaDeg2(marks, brushSize / canvasSize.width, GRID_DEG),
+      marks: marks.map((m) => ({ x: Number(m.x.toFixed(3)), y: Number(m.y.toFixed(3)), type: m.type })),
+    }
+    const next = { ...phaseResultsRef.current, [currentEye]: { ...phaseResultsRef.current[currentEye], [gridPhase]: record } }
+    phaseResultsRef.current = next
+    setDistortions((prev) => ({ ...prev, [currentEye]: { hasIssues: null, marks: [], notes: '' } }))
 
-    if (gridPhase === 'standard') {
-      setGridPhase('micro')
-      setDistortions((prev) => ({
-        ...prev,
-        [currentEye]: { hasIssues: null, marks: [], notes: '' },
-      }))
+    const phaseIndex = PHASES.indexOf(gridPhase)
+    if (phaseIndex < PHASES.length - 1) {
+      setGridPhase(PHASES[phaseIndex + 1])
+      setTestState('testing')
       return
     }
-    if (gridPhase === 'micro') {
-      setGridPhase('fixation')
-      setDistortions((prev) => ({
-        ...prev,
-        [currentEye]: { hasIssues: null, marks: [], notes: '' },
-      }))
-      return
-    }
+    setTestState('vernier')
+  }
+
+  const afterVernier = (result) => {
+    const next = { ...vernierResultsRef.current, [currentEye]: result }
+    vernierResultsRef.current = next
+    setVernierResults(next)
     if (currentEye === 'left') {
       setCurrentEye('right')
       setGridPhase('standard')
@@ -334,38 +350,71 @@ const AmslerGridTest = () => {
   }
   
   const submitTest = async () => {
+    const phases = phaseResultsRef.current
+    const vernier = vernierResultsRef.current
+    const eyeSummary = (eye) => {
+      const std = phases[eye].standard
+      const low = phases[eye].low_contrast
+      const v = vernier[eye]
+      return {
+        standard_issues: !!std?.hasIssues,
+        low_contrast_issues: !!low?.hasIssues,
+        standard_area_deg2: std?.markedAreaDeg2 ?? 0,
+        low_contrast_area_deg2: low?.markedAreaDeg2 ?? 0,
+        vernier_flags: v?.flags ?? null,
+        score: scoreAmslerEye({
+          standardIssues: !!std?.hasIssues,
+          lowIssues: !!low?.hasIssues,
+          standardAreaDeg2: std?.markedAreaDeg2 ?? 0,
+          lowAreaDeg2: low?.markedAreaDeg2 ?? 0,
+          vernierFlags: v?.flags?.filter((f) => f.kind === 'bias').length ?? 0,
+        }),
+      }
+    }
+    const left = eyeSummary('left')
+    const right = eyeSummary('right')
+    setEyeScores({ left, right })
     try {
-      const leftHasIssues = distortions.left.hasIssues === true
-      const rightHasIssues = distortions.right.hasIssues === true
-      const leftMarkCount = distortions.left.marks.length
-      const rightMarkCount = distortions.right.marks.length
-      const score = scoreAmslerGrid(leftHasIssues, rightHasIssues, leftMarkCount, rightMarkCount)
-
       const payload = {
         test_type: 'amsler_grid',
-        score,
+        score: Math.min(left.score, right.score),
+        left_eye_score: left.score,
+        right_eye_score: right.score,
         test_details: {
-          left_eye_issues: leftHasIssues,
-          right_eye_issues: rightHasIssues,
-          left_marks_count: leftMarkCount,
-          right_marks_count: rightMarkCount,
-          scoring_breakdown: {
-            left_score: leftHasIssues ? 50 : (leftMarkCount > 0 ? Math.max(60, 100 - Math.min(40, leftMarkCount * 2)) : 100),
-            right_score: rightHasIssues ? 50 : (rightMarkCount > 0 ? Math.max(60, 100 - Math.min(40, rightMarkCount * 2)) : 100),
-          },
-          phase_results: phaseResults,
-          grid_phases_per_eye: ['standard', 'micro', 'fixation'],
-          test_distance: '355mm',
+          method: 'amsler_multicontrast_vernier',
+          method_version: 2,
+          left_eye_issues: left.standard_issues || left.low_contrast_issues,
+          right_eye_issues: right.standard_issues || right.low_contrast_issues,
+          eyes: { left, right },
+          phase_results: phases,
+          vernier: Object.fromEntries(
+            Object.entries(vernier).map(([eye, v]) => [
+              eye,
+              v && {
+                locations_arcsec: v.locations,
+                flags: v.flags,
+                center_threshold_arcsec: v.centerThreshold,
+                parafoveal_median_threshold_arcsec: v.parafovealMedianThreshold,
+                arcsec_per_device_px: v.arcsecPerDevicePx,
+                responses: v.responses,
+              },
+            ])
+          ),
+          grid_phases_per_eye: PHASES,
+          grid_deg: GRID_DEG,
+          grid_cells: GRID_CELLS,
+          low_contrast_weber: LOW_CONTRAST,
+          grid_true_size: gridTrueSize,
+          screen_scale_source: screenScale.source,
+          test_distance_mm: TEST_DISTANCE_MM,
+          scoring_note:
+            'Per eye: 100 clean; distortion on the full-contrast grid → 50 minus marked area/4 (min 20); only on the 5% grid → 80 minus area/4 (min 50); a vernier bias flag caps a clean eye at 85. Test score = worse eye.',
           completed: true,
           timestamp: new Date().toISOString()
         }
       }
-      
-      console.log('Submitting Amsler Grid test:', payload)
-      const response = await visionTestAPI.submit(payload)
-      console.log('Submission successful:', response.data)
-      
-      // Navigate to results after successful submission
+
+      await visionTestAPI.submit(payload)
       setTestState('results')
     } catch (error) {
       console.error('Failed to submit test:', error)
@@ -480,7 +529,8 @@ const AmslerGridTest = () => {
           <ol className="space-y-2 text-white/90">
             <li><span className="font-bold">1.</span> Cover one eye and stare at the dot in the center.</li>
             <li><span className="font-bold">2.</span> Tell us if any lines look wavy, blurry, or missing.</li>
-            <li><span className="font-bold">3.</span> Switch eyes and repeat. Takes about 2 minutes.</li>
+            <li><span className="font-bold">3.</span> Look again at a faint version of the grid, then do a short line-alignment task.</li>
+            <li><span className="font-bold">4.</span> Switch eyes and repeat. About 6 minutes in total.</li>
           </ol>
           <p className="text-sm text-white/80 mt-3">Want more detail and examples? Keep reading below.</p>
         </div>
@@ -510,11 +560,12 @@ const AmslerGridTest = () => {
           <div className="bg-brand-soft border border-accent-100 rounded-xl p-6">
             <h3 className="font-bold text-accent-800 mb-3 text-lg"> How It Works:</h3>
             <ol className="space-y-3 text-gray-700">
-              <li><span className="font-bold">1. View the Grid:</span> You'll see a 10×10 white grid with black lines and a red center dot</li>
+              <li><span className="font-bold">1. View the Grid:</span> You'll see a white grid of small squares with a red center dot — first dark lines, then very faint ones</li>
               <li><span className="font-bold">2. Fixate on Center:</span> Stare at the red dot without moving your eyes</li>
               <li><span className="font-bold">3. Check Periphery:</span> While fixating, notice if any grid lines appear wavy, blurred, broken, or missing</li>
               <li><span className="font-bold">4. Mark Issues:</span> If you see distortions, you'll mark them on the grid</li>
-              <li><span className="font-bold">5. Switch Eyes:</span> Repeat for other eye</li>
+              <li><span className="font-bold">5. Line Alignment:</span> Two short lines flash; say whether the lower one is shifted left or right</li>
+              <li><span className="font-bold">6. Switch Eyes:</span> Repeat for other eye</li>
             </ol>
           </div>
 
@@ -682,11 +733,8 @@ const AmslerGridTest = () => {
   )
 
   const renderTesting = () => {
-    const phaseLabel =
-      gridPhase === 'micro' ? 'Phase 2: finer central grid' :
-      gridPhase === 'fixation' ? 'Phase 3: sustained fixation' :
-      'Phase 1: standard grid'
-    const answersLocked = gridPhase === 'fixation' && fixationCountdown > 0
+    const phaseLabel = gridPhase === 'low_contrast' ? 'Step 2 of 3: faint grid' : 'Step 1 of 3: standard grid'
+    const answersLocked = gridPhase === 'low_contrast' && fixationCountdown > 0
 
     return (
     <VisionTestShell
@@ -695,7 +743,12 @@ const AmslerGridTest = () => {
       stimulus={renderGridCanvas(false)}
       controls={(
         <>
-          {gridPhase === 'fixation' && fixationCountdown > 0 && (
+          {gridPhase === 'low_contrast' && (
+            <p className="text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded-lg p-2">
+              This grid is deliberately faint (5% contrast). Missing or wavy areas show up here earlier than on the dark grid.
+            </p>
+          )}
+          {gridPhase === 'low_contrast' && fixationCountdown > 0 && (
             <p className="text-sm font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3 text-center">
               Keep fixating on the red dot… {fixationCountdown}s
             </p>
@@ -843,33 +896,45 @@ const AmslerGridTest = () => {
         </p>
         
         <div className="space-y-6">
-          {/* Left Eye Result */}
-          <div className="bg-blue-50 border-2 border-blue-200 rounded-xl p-6">
-            <h3 className="text-xl font-bold text-blue-900 mb-3">Left Eye</h3>
-            <p className="text-blue-800">
-              {distortions.left.hasIssues 
-                ? ` Distortions reported (${distortions.left.marks.length} marks)`
-                : ' No distortions reported'}
-            </p>
-          </div>
-          
-          {/* Right Eye Result */}
-          <div className="bg-purple-50 border-2 border-purple-200 rounded-xl p-6">
-            <h3 className="text-xl font-bold text-purple-900 mb-3">Right Eye</h3>
-            <p className="text-purple-800">
-              {distortions.right.hasIssues 
-                ? ` Distortions reported (${distortions.right.marks.length} marks)`
-                : ' No distortions reported'}
-            </p>
-          </div>
-          
-          {/* Clinical recommendations */}
-          {(distortions.left.hasIssues || distortions.right.hasIssues) && (
+          {['right', 'left'].map((eye) => {
+            const s = eyeScores?.[eye]
+            const v = vernierResults[eye]
+            if (!s) return null
+            const locLabel = { center: 'the centre', up: 'just above centre', down: 'just below centre', left: 'just left of centre', right: 'just right of centre' }
+            const biasFlags = v?.flags?.filter((f) => f.kind === 'bias') ?? []
+            const clean = !s.standard_issues && !s.low_contrast_issues && biasFlags.length === 0
+            return (
+              <div key={eye} className={`rounded-xl border-2 p-6 ${clean ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'}`}>
+                <h3 className="text-xl font-bold text-gray-900 mb-3 capitalize">{eye} eye</h3>
+                <ul className="text-sm text-gray-800 space-y-1">
+                  <li>
+                    Standard grid:{' '}
+                    {s.standard_issues ? `distortion reported (about ${s.standard_area_deg2} deg² marked)` : 'no distortion reported'}
+                  </li>
+                  <li>
+                    Faint (5%) grid:{' '}
+                    {s.low_contrast_issues ? `distortion reported (about ${s.low_contrast_area_deg2} deg² marked)` : 'no distortion reported'}
+                  </li>
+                  <li>
+                    Line alignment:{' '}
+                    {!v
+                      ? 'skipped'
+                      : biasFlags.length
+                        ? `lines looked shifted at ${biasFlags.map((f) => locLabel[f.location]).join(', ')}`
+                        : `no local shift found (centre threshold about ${v.centerThreshold}″)`}
+                  </li>
+                </ul>
+              </div>
+            )
+          })}
+
+          {eyeScores && ['left', 'right'].some((e) => eyeScores[e].standard_issues || eyeScores[e].low_contrast_issues || eyeScores[e].vernier_flags?.some((f) => f.kind === 'bias')) && (
             <div className="bg-red-50 border-2 border-red-200 rounded-xl p-6">
               <h3 className="text-xl font-bold text-red-900 mb-3"> Important</h3>
               <p className="text-red-800 mb-3">
-                You reported seeing distortions in the grid. Some retinal conditions can cause similar
-                changes — this home check cannot tell which, if any, apply. See an eye doctor for a dilated exam.
+                Part of this check suggested a distortion or shift in your central vision. Some retinal conditions
+                can cause similar changes — this home check cannot tell which, if any, apply. If it is new or
+                getting worse, see an eye doctor promptly for a dilated exam.
               </p>
             </div>
           )}
@@ -914,6 +979,16 @@ const AmslerGridTest = () => {
         {testState === 'eye-coverage-setup' && renderEyeCoverageSetup()}
         {testState === 'testing' && renderTesting()}
         {testState === 'marking' && renderMarking()}
+        {testState === 'vernier' && (
+          <VernierTask
+            key={currentEye}
+            eye={currentEye}
+            distanceMm={TEST_DISTANCE_MM}
+            pxPerMm={screenScale.pxPerMm}
+            onDone={afterVernier}
+            onSkip={() => afterVernier(null)}
+          />
+        )}
         {testState === 'switch-eyes' && renderSwitchEyes()}
         {testState === 'results' && renderResults()}
       </div>

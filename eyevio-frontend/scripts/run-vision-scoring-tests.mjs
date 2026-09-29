@@ -10,13 +10,59 @@ import {
   logCSToScore,
   computeEyeLogMAR,
   findThresholdLineIndex,
-  scoreColorVision,
-  scoreAmslerGrid,
-  scoreSideVision,
-  scoreGlareTolerance,
-  scoreRedReflex,
+  scoreAmslerEye,
+  amslerMarkedAreaDeg2,
+  etdrsNextLine,
+  etdrsScore,
+  ACUITY_CHART_RULES,
+  logMARToSnellen,
+  detectConvergenceBreak,
+  scoreNearPointConvergence,
+  quadrantAsymmetry,
+  scoreSideVisionAsymmetry,
+  sideVisionReliability,
+  glareDeltaLogCS,
+  scoreGlareDelta,
+  summarizePupilReflex,
+  medianPupilReflex,
+  redReflexSymmetry,
+  estimatePhoneCameraDistanceCm,
   scorePeripheralAwareness,
+  eccentricityDeg,
+  fitHitRateVsEccentricity,
+  fitReactionTimeVsEccentricity,
 } from '../src/utils/visionTestScoring.js'
+import { createQuest, weibullPCorrect } from '../src/utils/psychophysics.js'
+import { createVernierPsi, pRight, summarizeVernier } from '../src/utils/vernier.js'
+import { blinkBand, breakDue, rollingBlinkRate, summarizeBlinkSession } from '../src/utils/blinkCoach.js'
+import {
+  createQcsf,
+  csfLogSensitivity,
+  aulcsf,
+  aulcsfPercentOfReference,
+  maxRenderableFrequency,
+} from '../src/utils/qcsf.js'
+import {
+  COLOR_AXES,
+  WHITE_UV,
+  uvYToXyz,
+  xyzToLinearRgb,
+  linearRgbToXyz,
+  xyzToUv,
+  axisPlan,
+  axisScore,
+  displacedUv,
+  dotRgb,
+  summarizeColorThresholds,
+} from '../src/utils/colorThreshold.js'
+import {
+  OSDI_QUESTIONS,
+  NOT_APPLICABLE,
+  calculateOsdi,
+  osdiSeverity,
+  summarizeTearBreakup,
+  combineDryEyeScores,
+} from '../src/utils/dryEyeQuestionnaire.js'
 
 let passed = 0
 let failed = 0
@@ -48,25 +94,303 @@ const lineResponses = {
 }
 assert(findThresholdLineIndex(lineResponses, 5) === 2, 'threshold line is last passed line')
 
-const colorResponses = [
-  { category: 'demo', correct: true },
-  { category: 'screening', correct: true },
-  { category: 'screening', correct: false, userAnswer: '12' },
-  { category: 'control', correct: false, userAnswer: '57' },
-]
-const colorScore = scoreColorVision(colorResponses)
-assert(colorScore < 100, 'color score excludes demo and penalizes control false positive')
-assert(colorScore > 0, 'color score not zero with one diagnostic correct')
+{
+  const white = xyzToLinearRgb(uvYToXyz(WHITE_UV.u, WHITE_UV.v, 0.2))
+  assert(white.every((c) => Math.abs(c - 0.2) < 0.002), 'D65 white point maps to neutral grey')
+  const rgb = [0.3, 0.2, 0.1]
+  const xyz = linearRgbToXyz(rgb)
+  const uv = xyzToUv(xyz)
+  const back = xyzToLinearRgb(uvYToXyz(uv.u, uv.v, xyz.Y))
+  assert(back.every((c, i) => Math.abs(c - rgb[i]) < 0.002), "u'v'Y ↔ linear sRGB round trip")
 
-assert(scoreAmslerGrid(true, false, 0, 0) === 50, 'amsler issues caps at 50')
-assert(scoreAmslerGrid(false, false, 10, 0) === 80, 'amsler marks without issues penalize')
-assert(scoreAmslerGrid(false, false, 0, 0) === 100, 'amsler clear → 100')
+  const plan = axisPlan()
+  assert(COLOR_AXES.every((a) => plan[a].max > 0.05 && plan[a].max < 0.3), 'every axis has usable sRGB gamut room')
+  const target = displacedUv(plan.protan.dir, 0.02)
+  let mean = 0
+  let seed = 1
+  const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647)
+  for (let i = 0; i < 2000; i++) mean += dotRgb(target, 0.2, rand)[0] / 2000
+  const exact = 255 * (1.055 * xyzToLinearRgb(uvYToXyz(target.u, target.v, 0.2))[0] ** (1 / 2.4) - 0.055)
+  assert(Math.abs(mean - exact) < 0.1, 'stochastic rounding reproduces sub-code-value colour on average')
 
-assert(scoreSideVision(0.8, 0.1) > scoreSideVision(0.8, 0.4), 'side vision penalizes deficit')
-assert(scoreGlareTolerance(1, 0.5, 0.5) < scoreGlareTolerance(1, 1, 0), 'glare sensitivity lowers score')
-assert(scoreRedReflex(90, [{ type: 'leukocoria' }]) <= 30, 'leukocoria caps score')
+  assert(axisScore(0.008, 'protan', 0.15) === 100, 'colour threshold within typical limit → 100')
+  assert(axisScore(0.15, 'protan', 0.15) === 0, 'colour threshold at screen gamut limit → 0')
+  const mid = axisScore(0.04, 'protan', 0.15)
+  assert(mid > 20 && mid < 60, 'raised colour threshold scores in between')
+
+  const axes = (p, d, t) => ({
+    protan: { threshold: p, sd: 0.1, maxDistance: 0.15, beyondGamut: p >= 0.15 },
+    deutan: { threshold: d, sd: 0.1, maxDistance: 0.15, beyondGamut: d >= 0.15 },
+    tritan: { threshold: t, sd: 0.1, maxDistance: 0.13, beyondGamut: t >= 0.13 },
+  })
+  assert(summarizeColorThresholds(axes(0.006, 0.007, 0.01)).pattern === 'none', 'typical thresholds → no pattern')
+  const rg = summarizeColorThresholds(axes(0.15, 0.03, 0.01))
+  assert(rg.pattern === 'red_green' && rg.leadingAxis === 'protan', 'protan-led red–green pattern')
+  assert(summarizeColorThresholds(axes(0.006, 0.007, 0.05)).pattern === 'tritan', 'tritan-only pattern')
+  assert(summarizeColorThresholds(axes(0.03, 0.03, 0.05)).pattern === 'generalised', 'all axes raised → generalised')
+  assert(summarizeColorThresholds(axes(0.15, 0.15, 0.13)).pattern === 'unreliable', 'nothing seen on any axis → unreliable')
+  assert(rg.score === rg.perAxis.protan.score, 'colour test score is the worst axis')
+}
+
+{
+  assert(Math.abs(eccentricityDeg(508 * Math.tan(Math.PI / 12), 508) - 15) < 1e-6, 'eccentricity from offset and distance')
+  let seed = 11
+  const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647)
+  const trials = Array.from({ length: 200 }, () => {
+    const ecc = 3 + rand() * 30
+    const hit = rand() < 0.97 / (1 + Math.exp((ecc - 20) / 3))
+    return { ecc, hit, rt: hit ? 400 + 12 * ecc + (rand() - 0.5) * 80 : null }
+  })
+  const fit = fitHitRateVsEccentricity(trials)
+  assert(fit && Math.abs(fit.e50Deg - 20) < 2.5, 'hit-rate fit recovers e50 ≈ 20°')
+  assert(fit.slopePctPerDeg < -2, 'hit rate falls with eccentricity')
+  const rt = fitReactionTimeVsEccentricity(trials)
+  assert(rt && Math.abs(rt.slopeMsPerDeg - 12) < 4, 'reaction-time slope ≈ 12 ms/deg')
+  const allHit = fitHitRateVsEccentricity(Array.from({ length: 30 }, (_, i) => ({ ecc: 3 + i, hit: true })))
+  assert(allHit.e50Deg === null && Math.abs(allHit.slopePctPerDeg) < 0.5, 'all hits → no e50 inside range, flat slope')
+  assert(fitHitRateVsEccentricity([{ ecc: 5, hit: true }]) === null, 'too few trials → no fit')
+}
+
+assert(scoreAmslerEye({ standardIssues: false, lowIssues: false }) === 100, 'amsler clean eye → 100')
+assert(scoreAmslerEye({ standardIssues: true, lowIssues: true, standardAreaDeg2: 0 }) === 50, 'amsler full-contrast defect → 50')
+assert(scoreAmslerEye({ standardIssues: true, lowIssues: true, standardAreaDeg2: 400 }) === 20, 'amsler large full-contrast defect floors at 20')
+assert(scoreAmslerEye({ standardIssues: false, lowIssues: true, lowAreaDeg2: 20 }) === 75, 'amsler low-contrast-only defect is milder')
+assert(scoreAmslerEye({ standardIssues: false, lowIssues: false, vernierFlags: 1 }) === 85, 'vernier bias caps a clean eye at 85')
+assert(amslerMarkedAreaDeg2([], 0.05) === 0, 'no marks → no area')
+{
+  const area = amslerMarkedAreaDeg2([{ x: 0.5, y: 0.5 }], 0.1)
+  assert(Math.abs(area - Math.PI * 2 ** 2) < 1.5, 'one mark of radius 2° covers about 12.6 deg²')
+}
+{
+  let seed = 7
+  const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647)
+  const run = (bias, sigma) => {
+    const q = createVernierPsi({ random: rand })
+    for (let i = 0; i < 40; i++) {
+      const x = q.next()
+      q.update(x, rand() < pRight(x, bias, sigma))
+    }
+    return q.estimate()
+  }
+  const aligned = run(0, 15)
+  assert(Math.abs(aligned.bias) < 20, 'vernier psi: aligned observer has near-zero bias')
+  assert(aligned.threshold > 5 && aligned.threshold < 45, 'vernier psi recovers a 15″ threshold roughly')
+  const shifted = run(90, 20)
+  assert(Math.abs(shifted.bias - 90) < 30, 'vernier psi recovers a 90″ bias')
+  const s = summarizeVernier({
+    center: { bias: 0, biasSd: 5, threshold: 15 },
+    up: { bias: 100, biasSd: 15, threshold: 30 },
+    down: { bias: 5, biasSd: 15, threshold: 30 },
+    left: { bias: -5, biasSd: 15, threshold: 30 },
+    right: { bias: 0, biasSd: 15, threshold: 150 },
+  })
+  assert(s.flags.some((f) => f.location === 'up' && f.kind === 'bias'), 'vernier flags a shifted location')
+  assert(s.flags.some((f) => f.location === 'right' && f.kind === 'threshold'), 'vernier flags a raised parafoveal threshold')
+  assert(!s.flags.some((f) => f.location === 'center'), 'vernier does not flag an aligned centre')
+}
+
+{
+  // Perfect to 0.0, one letter on -0.1, none on -0.2 → -0.02
+  const tested = {}
+  const truth = (t) => (t >= 0 ? 5 : t === -1 ? 1 : 0)
+  let next = etdrsNextLine(tested)
+  const order = []
+  while (next != null) {
+    order.push(next)
+    tested[next] = truth(next)
+    next = etdrsNextLine(tested)
+  }
+  assert(order[0] === 6 && order[order.length - 1] === -1, `ETDRS sequence starts at 0.6 and stops after a ≤1-correct line (${order.join(',')})`)
+  assert(etdrsScore(tested).logMAR === -0.02, `ETDRS letter score -0.02 (got ${etdrsScore(tested).logMAR})`)
+
+  // Fails start line → steps up until a line is passed, then continues down
+  const weak = {}
+  const truthWeak = (t) => (t >= 8 ? 5 : t === 7 ? 3 : t === 6 ? 2 : 0)
+  next = etdrsNextLine(weak)
+  const orderWeak = []
+  while (next != null) {
+    orderWeak.push(next)
+    weak[next] = truthWeak(next)
+    next = etdrsNextLine(weak)
+  }
+  assert(orderWeak.join(',') === '6,7,8,5', `ETDRS steps up then down (${orderWeak.join(',')})`)
+  assert(etdrsScore(weak).logMAR === 0.7, `ETDRS weak eye logMAR 0.7 (got ${etdrsScore(weak).logMAR})`)
+  assert(logMARToSnellen(0) === '20/20' && logMARToSnellen(0.3) === '20/40', 'logMAR → Snellen')
+}
+
+{
+  const all = (v) => Object.fromEntries(OSDI_QUESTIONS.map((q) => [q.id, v]))
+  assert(calculateOsdi(all(0)).osdiScore === 0, 'OSDI all-zero = 0')
+  assert(calculateOsdi(all(4)).osdiScore === 100, 'OSDI all-four = 100')
+  const withNA = { ...all(2), night_driving: NOT_APPLICABLE, watching_tv: NOT_APPLICABLE }
+  const r = calculateOsdi(withNA)
+  assert(r.osdiScore === 50 && r.answeredCount === 10, 'OSDI N/A items are excluded from the denominator')
+  assert(calculateOsdi({ ...all(1), gritty: null }).osdiScore === null, 'OSDI needs all core symptom items')
+  assert(osdiSeverity(12).severity === 'normal' && osdiSeverity(13).severity === 'mild' && osdiSeverity(33).severity === 'severe', 'OSDI bands')
+  const tbu = summarizeTearBreakup([{ seconds: 4 }, { seconds: 12 }, { seconds: 7 }])
+  assert(tbu.medianSeconds === 7 && tbu.band === 'borderline', 'tear break-up proxy median + band')
+  assert(combineDryEyeScores(80, 80, 20).combinedScore === 68, 'dry eye blend with tear proxy (0.4/0.4/0.2)')
+  assert(combineDryEyeScores(80, 60).combinedScore === 70, 'dry eye blend without tear proxy (0.5/0.5)')
+}
+
+{
+  // Simulated approach from 50 cm → 8 cm; right eye gives up at 14 cm.
+  const samples = []
+  for (let d = 50; d >= 8; d -= 0.5) {
+    const conv = 0.7 - (1 / d) * 0.7
+    const broke = d < 14
+    const noise = (Math.random() - 0.5) * 0.004
+    samples.push({
+      distanceCm: d,
+      ratio: (broke ? 0.7 - (1 / 14) * 0.7 + 0.035 : conv) + noise,
+      right: broke ? 0.45 : 0.45 + 3 / d,
+      left: 0.45 + 3 / d,
+    })
+  }
+  const npc = detectConvergenceBreak(samples)
+  assert(npc.breakDetected && Math.abs(npc.breakDistanceCm - 14) <= 1.5, `NPC break detected near 14 cm (got ${npc.breakDistanceCm})`)
+  assert(npc.divergingEye === 'right', 'NPC identifies the diverging eye')
+
+  const smooth = samples.map((s) => ({ ...s, ratio: 0.7 - (1 / s.distanceCm) * 0.7, right: s.left }))
+  const none = detectConvergenceBreak(smooth)
+  assert(!none.breakDetected && none.closestDistanceCm === 8, 'no break when convergence is maintained')
+  assert(scoreNearPointConvergence(5) === 100 && scoreNearPointConvergence(20) === 0, 'NPC index bounds')
+}
+
+{
+  const asym = quadrantAsymmetry({ UL: 1.2, UR: 1.0, LL: 1.15, LR: 0.7 })
+  assert(asym.weakest === 'LR' && asym.maxAsymmetry === 0.5, 'quadrant asymmetry = best − worst')
+  assert(asym.relative.UL === 0, 'best quadrant is relative 0')
+  assert(scoreSideVisionAsymmetry(0) === 100 && scoreSideVisionAsymmetry(0.6) === 0, 'asymmetry index bounds')
+  const ok = sideVisionReliability({ fixationLosses: 2, totalTrials: 32, falsePositives: 1, falseNegatives: 0 })
+  assert(ok.reliable, 'reliable session passes')
+  const bad = sideVisionReliability({ fixationLosses: 10, totalTrials: 32, falsePositives: 2, falseNegatives: 2 })
+  assert(!bad.reliable && bad.reasons.length === 3, 'unreliable session reports all three reasons')
+}
+assert(glareDeltaLogCS(1.6, 1.3) === 0.3, 'glare Δ logCS = no-glare − glare')
+assert(scoreGlareDelta(0) === 100, 'no glare loss → 100')
+assert(scoreGlareDelta(0.5) === 0, 'Δ 0.5 logCS → 0')
+assert(scoreGlareDelta(-0.1) === 100, 'glare improvement capped at 100')
+assert(scoreGlareDelta(0.25) === 50, 'Δ 0.25 → 50')
+
+// QUEST should converge near a simulated observer's true threshold.
+{
+  const trueThreshold = 1.4
+  let seed = 42
+  const rand = () => {
+    seed = (seed * 16807) % 2147483647
+    return seed / 2147483647
+  }
+  const errors = []
+  for (let run = 0; run < 40; run++) {
+    const q = createQuest({ priorMean: 1.2, priorSd: 0.6 })
+    for (let t = 0; t < 30; t++) {
+      const s = q.next()
+      q.update(s, rand() < weibullPCorrect(s, trueThreshold))
+    }
+    errors.push(Math.abs(q.estimate().threshold - trueThreshold))
+  }
+  const meanErr = errors.reduce((a, b) => a + b, 0) / errors.length
+  assert(meanErr < 0.15, `QUEST converges near true threshold (mean error ${meanErr.toFixed(3)})`)
+}
+const fill = (n, px) => Array.from({ length: n }, () => ({ ...px }))
+const redPupil = summarizePupilReflex(fill(40, { r: 200, g: 60, b: 40 }))
+const glintPupil = summarizePupilReflex([...fill(36, { r: 200, g: 60, b: 40 }), ...fill(4, { r: 255, g: 255, b: 255 })])
+const whitePupil = summarizePupilReflex(fill(40, { r: 230, g: 220, b: 200 }))
+const dimPupil = summarizePupilReflex(fill(40, { r: 100, g: 30, b: 20 }))
+const darkPupil = summarizePupilReflex(fill(40, { r: 20, g: 10, b: 10 }))
+assert(summarizePupilReflex(fill(3, { r: 1, g: 1, b: 1 })) === null, 'too few pupil pixels → null')
+assert(glintPupil.whiteFraction === 0, 'corneal glint trimmed from reflex colour')
+assert(redReflexSymmetry(redPupil, redPupil).symmetryScore === 100, 'identical reflexes → 100')
+const leuko = redReflexSymmetry(redPupil, whitePupil)
+assert(leuko.symmetryScore <= 30 && leuko.flags.some((f) => f.type === 'white_reflex' && f.eye === 'left' && f.severity === 'critical'), 'one-sided white reflex flagged critical on that eye')
+const dull = redReflexSymmetry(dimPupil, redPupil)
+assert(dull.flags.some((f) => f.type === 'brightness' && f.eye === 'right'), 'dimmer eye flagged')
+assert(dull.symmetryScore === 0, 'half-brightness reflex → 0 symmetry')
+assert(redReflexSymmetry(darkPupil, darkPupil).reflexVisible === false, 'no reflex in either eye → not scored')
+assert(redReflexSymmetry(whitePupil, whitePupil).flags.some((f) => f.type === 'pale_both'), 'both pale reflexes flagged')
+const med = medianPupilReflex([redPupil, dimPupil, redPupil, null])
+assert(med.frames === 3 && med.luminance === redPupil.luminance, 'median reflex ignores null frames and outliers')
+assert(Math.abs(estimatePhoneCameraDistanceCm(90, 1920, 1080) - 97) < 1, '90 px IPD in 1080p ≈ 1 m')
 assert(scorePeripheralAwareness(80, 500) <= 100, 'peripheral score bounded')
 assert(scorePeripheralAwareness(80, 50) >= scorePeripheralAwareness(80, 500), 'faster reaction improves score')
+
+{
+  const truth = { peakGain: 2.0, peakFreq: Math.log10(3), bandwidth: 3, truncation: 0.5 }
+  assert(Math.abs(csfLogSensitivity(Math.log10(3), truth) - 2.0) < 1e-9, 'CSF peaks at peakGain')
+  const halfOct = 10 ** (Math.log10(3) + (3 * Math.log10(2)) / 2)
+  assert(Math.abs(csfLogSensitivity(Math.log10(halfOct), truth) - (2.0 - Math.log10(2))) < 1e-9, 'CSF halves at half-bandwidth above peak')
+  assert(Math.abs(csfLogSensitivity(Math.log10(0.1), truth) - 1.5) < 1e-9, 'low-frequency plateau at peak − truncation')
+  assert(Math.abs(maxRenderableFrequency(1000, 96 / 25.4, 1, 6) - 11) < 0.1, '96-dpi screen at 1 m renders up to ~11 cpd')
+  assert(aulcsfPercentOfReference(99, 0.5, 16) === 100, 'percent of reference capped at 100')
+
+  let seed = 7
+  const rng = () => {
+    seed = (seed * 16807) % 2147483647
+    return (seed - 1) / 2147483646
+  }
+  const freqs = [0.5, 1, 2, 4, 8, 16]
+  const q = createQcsf({ frequencies: freqs, random: rng })
+  for (let i = 0; i < 30; i++) {
+    const stim = q.next()
+    const thr = csfLogSensitivity(Math.log10(stim.frequency), truth)
+    q.update(stim, rng() < weibullPCorrect(stim.logCS, thr, { beta: 3, guessRate: 0.25, lapseRate: 0.04 }))
+  }
+  const est = q.estimate()
+  const trueArea = aulcsf(truth, Math.log10(0.5), Math.log10(16))
+  assert(Math.abs(est.aulcsf - trueArea) < 0.35, `qCSF recovers simulated AULCSF (${est.aulcsf.toFixed(2)} vs ${trueArea.toFixed(2)})`)
+  assert(est.trials === 30 && est.curve.length === freqs.length, 'qCSF estimate reports curve at tested frequencies')
+}
+
+{
+  const start = 0
+  const every3s = Array.from({ length: 40 }, (_, i) => (i + 1) * 3000) // 20/min
+  assert(rollingBlinkRate(every3s, 20000, { startedAt: start }) === null, 'blink rate withheld during warm-up')
+  assert(rollingBlinkRate(every3s, 60000, { startedAt: start }) === 20, 'blink rate over a full minute')
+  assert(rollingBlinkRate(every3s, 45000, { startedAt: start }) === 20, 'blink rate scales a partial window to per-minute')
+  assert(rollingBlinkRate(every3s, 120000, { startedAt: 90000 }) === 20, 'blink rate window starts at the last restart')
+  assert(rollingBlinkRate([], 60000, { startedAt: 0 }) === 0, 'no blinks is a rate of zero, not null')
+  assert(blinkBand(null) === 'warming_up' && blinkBand(5) === 'low' && blinkBand(10) === 'reduced' && blinkBand(16) === 'healthy', 'blink bands')
+  assert(!breakDue(19 * 60000, 20 * 60000) && breakDue(20 * 60000, 20 * 60000), '20-20-20 break due at the interval')
+  const s = summarizeBlinkSession(
+    [{ rate: null }, { rate: 6 }, { rate: 6 }, { rate: 14 }, { rate: 14 }],
+    30,
+    120000
+  )
+  assert(s.meanRatePerMin === 15 && s.lowRateFraction === 0.5 && s.ratedSeconds === 4, 'blink session summary')
+  assert(summarizeBlinkSession([], 3, 10000).meanRatePerMin === null, 'blink session mean withheld when too short')
+}
+
+{
+  const sloan = ACUITY_CHART_RULES.sloan
+  const four = ACUITY_CHART_RULES.tumbling_e
+  // Perfect from 0.6 to 0.3, then 2/5 at 0.2 and 1/5 at 0.1.
+  const tested = { 6: 5, 5: 5, 4: 5, 3: 5, 2: 2, 1: 1 }
+  assert(etdrsScore(tested, sloan).logMAR === 0.24, 'Sloan scoring unchanged without guess correction')
+  const e = etdrsScore(tested, four)
+  assert(e.logMAR === 0.28 && e.lettersCorrect === 23 && e.lettersCredited === 21, `4-choice scoring removes chance hits (${e.logMAR})`)
+  assert(etdrsScore({ 3: 5 }, four).logMAR === 0.3, 'a perfect 4-choice line still earns full credit')
+  assert(etdrsNextLine({ 6: 5, 5: 2 }, { stopCorrect: sloan.stopCorrect }) === 4, 'Sloan continues after 2/5')
+  assert(etdrsNextLine({ 6: 5, 5: 2 }, { stopCorrect: four.stopCorrect }) === null, '4-choice chart stops at 2/5')
+
+  // Pure guessing on a 4-choice chart should score near the top of the chart, not climb down it.
+  let seed = 11
+  const rng = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646 }
+  let total = 0
+  const runs = 400
+  for (let r = 0; r < runs; r++) {
+    const t = {}
+    let next = 6
+    while (next != null) {
+      let c = 0
+      for (let i = 0; i < 5; i++) if (rng() < 0.25) c++
+      t[next] = c
+      next = etdrsNextLine(t, { startTenths: 6, passCorrect: four.passCorrect, stopCorrect: four.stopCorrect })
+    }
+    total += etdrsScore(t, four).logMAR
+  }
+  assert(total / runs > 0.95, `guessing on a 4-choice chart scores ≈ chart top (${(total / runs).toFixed(2)})`)
+}
 
 console.log(`Vision scoring tests: ${passed} passed, ${failed} failed`)
 if (failed > 0) process.exit(1)

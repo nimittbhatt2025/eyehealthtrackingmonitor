@@ -3,22 +3,32 @@ import cameraManager from '../utils/cameraManager.js'
 import { useNavigate } from 'react-router-dom'
 import { visionTestAPI } from '../services/api'
 import {
-  OSDI_LITE_QUESTIONS,
+  OSDI_SECTIONS,
   FREQUENCY_OPTIONS,
-  calculateOsdiLite,
+  NOT_APPLICABLE,
+  calculateOsdi,
+  emptyOsdiAnswers,
+  osdiComplete,
   combineDryEyeScores,
 } from '../utils/dryEyeQuestionnaire'
 import StableLightingPreview from '../utils/stableLightingPreview'
 import PhotoLightingBanner from '../components/PhotoLightingBanner'
 import SamdDisclaimer from '../components/SamdDisclaimer'
 import PathologyTriagePanel from '../components/PathologyTriagePanel'
+import TearStabilityCheck from '../components/TearStabilityCheck'
+import { lockCameraColour } from '../utils/cameraControls'
 
 /**
- * Dry Eye Screening Test (Option B + OSDI-lite)
+ * Dry Eye Check
  *
- * Symptom questionnaire → photo capture → CV analysis → combined results.
- * Screening only — not a clinical diagnosis.
+ * OSDI-12 questionnaire → tear stability (blink interval + break-up proxy) →
+ * photo (white-balance-normalised redness) → combined result.
+ * Home check only — not a clinical diagnosis.
  */
+
+// Ask the browser to freeze auto white balance / exposure once they have settled,
+// so the photo's colour doesn't drift between frames. Not supported everywhere.
+const COLOUR_LOCK_SETTLE_MS = 1500
 
 const CROP_SOURCE_LABELS = {
   mediapipe_face_landmarker: 'MediaPipe eye landmarks',
@@ -51,13 +61,11 @@ const DryEyeTest = () => {
   const [submitting, setSubmitting] = useState(false)
   const [liveLighting, setLiveLighting] = useState(null)
   const [lightingError, setLightingError] = useState(null)
-  const [answers, setAnswers] = useState(() =>
-    Object.fromEntries(OSDI_LITE_QUESTIONS.map((q) => [q.id, null]))
-  )
+  const [answers, setAnswers] = useState(emptyOsdiAnswers)
+  const [tearResult, setTearResult] = useState(null)
+  const colourLockRef = useRef({ locked: false, reason: 'not_attempted' })
 
-  const allQuestionsAnswered = OSDI_LITE_QUESTIONS.every(
-    (q) => answers[q.id] !== null && answers[q.id] !== undefined
-  )
+  const allQuestionsAnswered = osdiComplete(answers)
 
   const initializeCamera = useCallback(async () => {
     try {
@@ -70,11 +78,15 @@ const DryEyeTest = () => {
         },
       })
       streamRef.current = stream
+      colourLockRef.current = { locked: false, reason: 'pending' }
       if (videoRef.current) {
         videoRef.current.srcObject = stream
         videoRef.current.onloadedmetadata = () => {
           videoRef.current.play()
           setCameraReady(true)
+          setTimeout(async () => {
+            if (streamRef.current === stream) colourLockRef.current = await lockCameraColour(stream)
+          }, COLOUR_LOCK_SETTLE_MS)
         }
       }
     } catch (err) {
@@ -153,16 +165,18 @@ const DryEyeTest = () => {
     return dataUrl
   }, [cameraReady])
 
-  const analyzePhoto = useCallback(async (dataUrl, symptoms) => {
+  const analyzePhoto = useCallback(async (dataUrl, symptoms, tear) => {
     setTestState('analyzing')
     setError(null)
     setLightingError(null)
+    const colourLock = colourLockRef.current
     stopCamera()
 
     try {
       const response = await visionTestAPI.analyzeDryEye({ image: dataUrl, capture_mode: 'camera' })
       const cvData = response.data
-      const blended = combineDryEyeScores(cvData.score, symptoms.symptomHealthScore)
+      const tearScore = tear?.breakup?.score ?? null
+      const blended = combineDryEyeScores(cvData.score, symptoms.symptomHealthScore, tearScore)
 
       const cvRiskLabel = cvData.risk_level === 'similar' ? 'low'
         : cvData.risk_level === 'some_variation' ? 'moderate' : 'elevated'
@@ -179,6 +193,8 @@ const DryEyeTest = () => {
         symptom_severity: symptoms.severity,
         symptom_severity_label: symptoms.severityLabel,
         symptom_responses: symptoms.responses,
+        osdi_subscales: symptoms.subscales,
+        tear: tear ?? null,
       }
 
       setResults(finalResults)
@@ -190,11 +206,20 @@ const DryEyeTest = () => {
         left_eye_score: cvData.left_eye?.health_score,
         right_eye_score: cvData.right_eye?.health_score,
         test_details: {
+          method: 'osdi12_tear_proxy_wb_photo',
+          method_version: 2,
           risk_level: finalResults.risk_level,
           risk_message: finalResults.risk_message,
           cv_score: cvData.score,
           symptom_score: symptoms.symptomHealthScore,
           osdi_score: symptoms.osdiScore,
+          osdi_items: 12,
+          osdi_subscales: symptoms.subscales,
+          tear_breakup_proxy: tear?.breakup ?? null,
+          blink_interval: tear?.natural ?? null,
+          tear_score: tearScore,
+          camera_colour_lock: colourLock,
+          white_balance: cvData.white_balance,
           symptom_severity: symptoms.severity,
           symptom_severity_label: symptoms.severityLabel,
           symptom_responses: symptoms.responses,
@@ -208,7 +233,7 @@ const DryEyeTest = () => {
           lighting: cvData.lighting,
           disclaimer: cvData.disclaimer,
         },
-        notes: 'Dry eye screening (OSDI-lite + photo CV)',
+        notes: 'Dry eye check (OSDI-12 + tear break-up proxy + photo)',
       })
       setTestState('results')
     } catch (err) {
@@ -231,24 +256,30 @@ const DryEyeTest = () => {
   }, [stopCamera, initializeCamera])
 
   const handleQuestionnaireSubmit = () => {
-    const symptoms = calculateOsdiLite(answers)
+    const symptoms = calculateOsdi(answers)
     setSymptomResults(symptoms)
-    setTestState('capture')
+    setTestState('tear')
   }
+
+  const handleTearComplete = useCallback((result) => {
+    setTearResult(result)
+    setTestState('capture')
+  }, [])
 
   const handleCapture = () => {
     if (!symptomResults) return
     const dataUrl = capturePhoto()
-    if (dataUrl) analyzePhoto(dataUrl, symptomResults)
+    if (dataUrl) analyzePhoto(dataUrl, symptomResults, tearResult)
   }
 
   const handleRetake = () => {
     setPreviewUrl(null)
     setResults(null)
     setSymptomResults(null)
+    setTearResult(null)
     setError(null)
     setLightingError(null)
-    setAnswers(Object.fromEntries(OSDI_LITE_QUESTIONS.map((q) => [q.id, null])))
+    setAnswers(emptyOsdiAnswers())
     setTestState('questionnaire')
   }
 
@@ -274,27 +305,28 @@ const DryEyeTest = () => {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                 </svg>
               </div>
-              <h1 className="page-title mb-2">Dry Eye Screening</h1>
+              <h1 className="page-title mb-2">Dry Eye Check</h1>
               <p className="text-sm text-accent-600 font-medium">
-                Symptom check + photo analysis for dryness signs
+                OSDI questionnaire, tear stability, and a photo
               </p>
             </div>
 
             <div className="bg-brand-gradient text-white rounded-2xl p-6 mb-6">
-              <h3 className="font-bold text-lg mb-3">In short</h3>
+              <h3 className="font-bold text-lg mb-3">In short (about 5 minutes)</h3>
               <ol className="space-y-2 text-white/90 text-sm">
-                <li><span className="font-bold">1.</span> Answer 6 quick questions about eye comfort (past week).</li>
-                <li><span className="font-bold">2.</span> Take a photo in bright, even room light.</li>
-                <li><span className="font-bold">3.</span> We combine symptoms and photo signals for your result.</li>
+                <li><span className="font-bold">1.</span> Answer the 12-question OSDI about the past week.</li>
+                <li><span className="font-bold">2.</span> Tear stability: read for 30 s, then hold your eyes open until the text blurs (3 times).</li>
+                <li><span className="font-bold">3.</span> Take a photo in bright, even room light.</li>
               </ol>
             </div>
 
             <div className="bg-accent-50 border-l-4 border-accent-500 rounded-r-xl p-5 mb-6">
               <h3 className="font-semibold text-accent-900 mb-2">What we look for</h3>
               <ul className="text-sm text-accent-800 space-y-1.5">
-                <li>• Symptom frequency (gritty, burning, blurry vision)</li>
-                <li>• Redness in the white of the eye</li>
-                <li>• Uneven reflections on the eye surface (tear film proxy)</li>
+                <li>• OSDI symptom score (0–100) with its three subscales</li>
+                <li>• Blink rate and gaps between blinks while reading</li>
+                <li>• Seconds until your vision first blurs after a blink (a tear break-up proxy)</li>
+                <li>• Redness in the white of the eye, corrected for room light colour</li>
               </ul>
             </div>
 
@@ -316,42 +348,56 @@ const DryEyeTest = () => {
         {/* Questionnaire */}
         {testState === 'questionnaire' && (
           <div className="test-panel">
-            <h2 className="section-title text-xl mb-1">Symptom questionnaire</h2>
+            <h2 className="section-title text-xl mb-1">Ocular Surface Disease Index (OSDI)</h2>
             <p className="text-gray-500 mb-6 text-sm">
-              During the <strong>past week</strong>, how often did you experience the following?
+              12 questions about the <strong>past week</strong>. Choose N/A for activities you didn&apos;t do.
             </p>
 
-            <div className="space-y-6 mb-8">
-              {OSDI_LITE_QUESTIONS.map((question, index) => (
-                <fieldset key={question.id} className="border border-gray-100 rounded-xl p-4">
-                  <legend className="text-sm font-medium text-gray-900 px-1 mb-3">
-                    {index + 1}. {question.text}
-                  </legend>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {FREQUENCY_OPTIONS.map((option) => (
-                      <label
-                        key={option.value}
-                        className={`flex items-center gap-2 rounded-lg border px-3 py-2.5 text-sm cursor-pointer transition-colors ${
-                          answers[question.id] === option.value
-                            ? 'border-accent-500 bg-accent-50 text-accent-900'
-                            : 'border-gray-200 hover:border-gray-300 text-gray-700'
-                        }`}
-                      >
-                        <input
-                          type="radio"
-                          name={question.id}
-                          value={option.value}
-                          checked={answers[question.id] === option.value}
-                          onChange={() => setAnswers((prev) => ({ ...prev, [question.id]: option.value }))}
-                          className="text-accent-600 focus:ring-accent-500"
-                        />
-                        {option.label}
-                      </label>
-                    ))}
+            {(() => {
+              let number = 0
+              return OSDI_SECTIONS.map((section) => (
+                <div key={section.id} className="mb-8">
+                  <h3 className="text-sm font-semibold text-accent-800 mb-3">{section.title}</h3>
+                  <div className="space-y-4">
+                    {section.questions.map((question) => {
+                      number += 1
+                      const options = section.allowNA
+                        ? [...FREQUENCY_OPTIONS, { value: NOT_APPLICABLE, label: 'N/A' }]
+                        : FREQUENCY_OPTIONS
+                      return (
+                        <fieldset key={question.id} className="border border-gray-100 rounded-xl p-4">
+                          <legend className="text-sm font-medium text-gray-900 px-1 mb-3">
+                            {number}. {question.text}
+                          </legend>
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                            {options.map((option) => (
+                              <label
+                                key={option.value}
+                                className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm cursor-pointer transition-colors ${
+                                  answers[question.id] === option.value
+                                    ? 'border-accent-500 bg-accent-50 text-accent-900'
+                                    : 'border-gray-200 hover:border-gray-300 text-gray-700'
+                                }`}
+                              >
+                                <input
+                                  type="radio"
+                                  name={question.id}
+                                  value={option.value}
+                                  checked={answers[question.id] === option.value}
+                                  onChange={() => setAnswers((prev) => ({ ...prev, [question.id]: option.value }))}
+                                  className="text-accent-600 focus:ring-accent-500"
+                                />
+                                {option.label}
+                              </label>
+                            ))}
+                          </div>
+                        </fieldset>
+                      )
+                    })}
                   </div>
-                </fieldset>
-              ))}
-            </div>
+                </div>
+              ))
+            })()}
 
             <div className="flex gap-4">
               <button type="button" onClick={() => setTestState('instructions')} className="test-btn-outline">
@@ -363,10 +409,14 @@ const DryEyeTest = () => {
                 disabled={!allQuestionsAnswered}
                 className="test-btn"
               >
-                Continue to Photo
+                Continue
               </button>
             </div>
           </div>
+        )}
+
+        {testState === 'tear' && (
+          <TearStabilityCheck onComplete={handleTearComplete} onSkip={() => handleTearComplete(null)} />
         )}
 
         {/* Capture */}
@@ -379,7 +429,8 @@ const DryEyeTest = () => {
 
             {symptomResults && (
               <div className="bg-accent-50 border border-accent-100 rounded-xl p-4 mb-4 text-sm text-accent-800">
-                Symptom check complete — {symptomResults.severityLabel} (OSDI-lite: {symptomResults.osdiScore}/100)
+                OSDI {symptomResults.osdiScore}/100 — {symptomResults.severityLabel}
+                {tearResult?.breakup && <> · blur after {tearResult.breakup.medianSeconds}s</>}
               </div>
             )}
 
@@ -413,7 +464,7 @@ const DryEyeTest = () => {
             </div>
 
             <div className="flex gap-4">
-              <button type="button" onClick={() => { stopCamera(); setTestState('questionnaire') }} className="test-btn-outline">
+              <button type="button" onClick={() => { stopCamera(); setTestState('tear') }} className="test-btn-outline">
                 Back
               </button>
               <button
@@ -463,13 +514,38 @@ const DryEyeTest = () => {
               </div>
             )}
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
               <div className="card text-center">
-                <h4 className="font-semibold text-gray-900 mb-2">Symptoms</h4>
-                <div className="text-3xl font-bold text-accent-700">{results.symptom_score}</div>
+                <h4 className="font-semibold text-gray-900 mb-2">OSDI</h4>
+                <div className="text-3xl font-bold text-accent-700">{results.osdi_score}</div>
                 <p className="text-xs text-gray-500 mt-1">
-                  {results.symptom_severity_label} · OSDI {results.osdi_score}/100
+                  /100 · {results.symptom_severity_label} (lower is better)
                 </p>
+                {results.osdi_subscales && (
+                  <p className="text-[11px] text-gray-400 mt-2">
+                    Symptoms {results.osdi_subscales.symptoms ?? '—'} · Activities {results.osdi_subscales.function ?? '—'} · Environment {results.osdi_subscales.environment ?? '—'}
+                  </p>
+                )}
+              </div>
+              <div className="card text-center">
+                <h4 className="font-semibold text-gray-900 mb-2">Tear stability</h4>
+                {results.tear?.breakup ? (
+                  <>
+                    <div className="text-3xl font-bold text-accent-700">{results.tear.breakup.medianSeconds}s</div>
+                    <p className="text-xs text-gray-500 mt-1">
+                      until first blur ·{' '}
+                      {results.tear.breakup.band === 'short' ? 'short' : results.tear.breakup.band === 'borderline' ? 'borderline' : 'typical'}
+                    </p>
+                    {results.tear.natural && (
+                      <p className="text-[11px] text-gray-400 mt-2">
+                        {results.tear.natural.blinkRatePerMin} blinks/min while reading
+                        {results.tear.natural.medianInterBlinkSec != null && ` · ${results.tear.natural.medianInterBlinkSec}s between blinks`}
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-sm text-gray-500">Skipped</p>
+                )}
               </div>
               <div className="card text-center">
                 <h4 className="font-semibold text-gray-900 mb-2">Photo analysis</h4>
@@ -526,6 +602,12 @@ const DryEyeTest = () => {
               </ul>
             </div>
 
+            <p className="text-xs text-gray-500 mb-4">
+              The break-up proxy is the time until <em>you</em> notice blur — not a fluorescein or keratograph
+              break-up time. Redness is corrected for room-light colour; the Efron-style grade is an approximate
+              mapping, not yet validated against graded reference photos.
+            </p>
+
             <SamdDisclaimer testType="dry_eye" className="mb-8" />
 
             <div className="flex gap-4">
@@ -551,9 +633,15 @@ function EyeResultCard({ title, data }) {
       <div className="text-3xl font-bold text-accent-700 mb-3">{data.health_score}</div>
       <dl className="space-y-1.5 text-sm">
         <div className="flex justify-between">
-          <dt className="text-gray-500">Redness</dt>
+          <dt className="text-gray-500">Redness (light-corrected)</dt>
           <dd className="font-medium">{data.sclera_redness}%</dd>
         </div>
+        {data.efron_style_grade != null && (
+          <div className="flex justify-between">
+            <dt className="text-gray-500">Efron-style grade (approx.)</dt>
+            <dd className="font-medium">{data.efron_style_grade} · {data.efron_style_label}</dd>
+          </div>
+        )}
         <div className="flex justify-between">
           <dt className="text-gray-500">Tear film smoothness</dt>
           <dd className="font-medium">{data.tear_film_quality}%</dd>

@@ -170,10 +170,82 @@ def _sclera_mask(bgr: np.ndarray, side: Optional[str] = None) -> np.ndarray:
     return candidate
 
 
-def measure_sclera_redness(eye_bgr: np.ndarray, side: Optional[str] = None) -> Dict[str, Any]:
+MAX_WB_CAST_RATIO = 1.8
+
+# Approximate Efron-style bulbar redness bins on the 0–100 heuristic scale.
+# Not yet validated against graded reference images.
+EFRON_STYLE_BINS = (
+    (20.0, 0, 'Normal'),
+    (32.0, 1, 'Very slight'),
+    (45.0, 2, 'Slight'),
+    (60.0, 3, 'Moderate'),
+    (float('inf'), 4, 'Severe'),
+)
+
+
+# Shades-of-Gray chromaticity (B, G, R; sums to 1) of a typical selfie frame
+# under neutral ~D65 light. Faces dominate the frame, so this is warm, not gray.
+REFERENCE_FRAME_CHROMA_BGR = np.array([0.30, 0.325, 0.375], dtype=np.float32)
+WB_GAIN_LIMITS = (0.7, 1.4)
+
+
+def estimate_white_balance(frame: np.ndarray) -> Dict[str, Any]:
+    """
+    Shades-of-Gray (Minkowski p=6) illuminant estimate over non-clipped pixels,
+    mapped to a reference face-frame chromaticity rather than to gray.
+
+    Under neutral light the gains are ≈ 1 (existing redness scale preserved);
+    warm or cool room light is pulled back toward the reference, so the same
+    person's redness is comparable across lighting. Not an absolute calibration.
+    """
+    if frame is None or frame.size == 0:
+        return {'available': False}
+    px = frame.reshape(-1, 3).astype(np.float32)
+    peak = px.max(axis=1)
+    px = px[(peak > 20) & (peak < 250)]
+    if px.shape[0] < 1000:
+        return {'available': False}
+    est = np.power(np.mean(np.power(px / 255.0, 6), axis=0), 1 / 6)
+    chroma = est / max(float(est.sum()), 1e-6)
+    gains = REFERENCE_FRAME_CHROMA_BGR / np.maximum(chroma, 1e-6)
+    gains = gains / gains[1]
+    cast_ratio = float(np.max(gains) / np.min(gains))
+    gains = np.clip(gains, *WB_GAIN_LIMITS)
+    return {
+        'available': True,
+        'frame_chroma_bgr': [round(float(v), 4) for v in chroma],
+        'gains_bgr': [round(float(v), 4) for v in gains],
+        'cast_ratio': round(cast_ratio, 3),
+        'strong_cast': cast_ratio > MAX_WB_CAST_RATIO,
+    }
+
+
+def apply_white_balance(bgr: np.ndarray, wb: Optional[Dict[str, Any]]) -> np.ndarray:
+    if bgr is None or not wb or not wb.get('available') or wb.get('strong_cast'):
+        return bgr
+    gains = np.asarray(wb['gains_bgr'], dtype=np.float32).reshape(1, 1, 3)
+    return np.clip(bgr.astype(np.float32) * gains, 0, 255).astype(np.uint8)
+
+
+def efron_style_grade(redness: Optional[float]) -> Dict[str, Any]:
+    if redness is None:
+        return {'grade': None, 'label': None}
+    for upper, grade, label in EFRON_STYLE_BINS:
+        if redness < upper:
+            return {'grade': grade, 'label': label}
+    return {'grade': None, 'label': None}
+
+
+def measure_sclera_redness(
+    eye_bgr: np.ndarray,
+    side: Optional[str] = None,
+    white_balance: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     """
     Sclera redness level 0–100 (higher = more red).
     Returns reliability metadata — do not treat failed segmentation as normal.
+    When white_balance is given, redness is measured on the corrected patch and
+    the uncorrected value is kept as sclera_redness_raw.
     """
     empty = {
         'sclera_redness': None,
@@ -185,24 +257,39 @@ def measure_sclera_redness(eye_bgr: np.ndarray, side: Optional[str] = None) -> D
     if eye_bgr is None or eye_bgr.size == 0:
         return empty
 
-    mask = _sclera_mask(eye_bgr, side=side)
+    wb_applied = bool(white_balance and white_balance.get('available') and not white_balance.get('strong_cast'))
+    corrected = apply_white_balance(eye_bgr, white_balance) if wb_applied else eye_bgr
+
+    mask = _sclera_mask(corrected, side=side)
     coverage = float(np.count_nonzero(mask)) / mask.size
     if coverage < MIN_SCLERA_MASK_COVERAGE:
         return {**empty, 'mask_coverage': round(coverage, 4)}
 
-    b, g, r = cv2.split(eye_bgr)
     sclera = mask > 0
-    r_vals = r[sclera].astype(np.float32)
-    g_vals = g[sclera].astype(np.float32)
-    red_dom = r_vals - g_vals
-    rgb_sum = r_vals + g_vals + b[sclera].astype(np.float32)
-    redness_rg = float(np.mean(red_dom))
-    redness_normalized = float(np.mean(red_dom / np.maximum(rgb_sum, 1.0)))
-    red_pixel_fraction = float(np.mean((r_vals > g_vals + 15).astype(np.float32)))
-    redness = float(np.clip(np.mean(red_dom) / 80.0 * 100, 0, 100))
+
+    def _redness(patch: np.ndarray) -> Tuple[float, float, float, float]:
+        b, g, r = cv2.split(patch)
+        r_vals = r[sclera].astype(np.float32)
+        g_vals = g[sclera].astype(np.float32)
+        red_dom = r_vals - g_vals
+        rgb_sum = r_vals + g_vals + b[sclera].astype(np.float32)
+        return (
+            float(np.clip(np.mean(red_dom) / 80.0 * 100, 0, 100)),
+            float(np.mean(red_dom)),
+            float(np.mean(red_dom / np.maximum(rgb_sum, 1.0))),
+            float(np.mean((r_vals > g_vals + 15).astype(np.float32))),
+        )
+
+    raw_redness, _, _, _ = _redness(eye_bgr)
+    redness, redness_rg, redness_normalized, red_pixel_fraction = _redness(corrected)
+    grade = efron_style_grade(redness)
 
     return {
         'sclera_redness': round(redness, 1),
+        'sclera_redness_raw': round(raw_redness, 1),
+        'white_balance_applied': wb_applied,
+        'efron_style_grade': grade['grade'],
+        'efron_style_label': grade['label'],
         'redness_rg': round(redness_rg, 2),
         'redness_normalized': round(redness_normalized, 4),
         'red_pixel_fraction': round(red_pixel_fraction, 3),
@@ -423,8 +510,12 @@ def assess_photo_lighting(frame: np.ndarray, face_landmarks: Any = None) -> Dict
     }
 
 
-def analyze_eye_patch(eye_bgr: np.ndarray, side: Optional[str] = None) -> Dict[str, Any]:
-    redness_data = measure_sclera_redness(eye_bgr, side=side)
+def analyze_eye_patch(
+    eye_bgr: np.ndarray,
+    side: Optional[str] = None,
+    white_balance: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    redness_data = measure_sclera_redness(eye_bgr, side=side, white_balance=white_balance)
     surface = analyze_tear_film_surface(eye_bgr)
     redness = redness_data.get('sclera_redness')
     appearance = _eye_appearance_score(
@@ -436,6 +527,9 @@ def analyze_eye_patch(eye_bgr: np.ndarray, side: Optional[str] = None) -> Dict[s
         'appearance_score': appearance,
         'health_score': appearance,
         'sclera_redness': redness,
+        'sclera_redness_raw': redness_data.get('sclera_redness_raw'),
+        'efron_style_grade': redness_data.get('efron_style_grade'),
+        'efron_style_label': redness_data.get('efron_style_label'),
         'redness_reliable': redness_data.get('redness_reliable', False),
         'redness_details': redness_data,
         'experimental_tear_proxy': surface['experimental_tear_proxy'],
@@ -514,8 +608,9 @@ def _analyze_cropped_eyes(
         eyewear = detect_eyewear(frame, landmarks)
         capture_quality = build_capture_quality_summary(lighting, eyewear)
 
-    left = analyze_eye_patch(crops['left'], side='left')
-    right = analyze_eye_patch(crops['right'], side='right')
+    white_balance = estimate_white_balance(frame) if not external_eye_only else {'available': False}
+    left = analyze_eye_patch(crops['left'], side='left', white_balance=white_balance)
+    right = analyze_eye_patch(crops['right'], side='right', white_balance=white_balance)
 
     if external_eye_only:
         macro = predict_eye_patch(frame, prepared=False)
@@ -621,8 +716,12 @@ def _analyze_cropped_eyes(
             if ml_redness.get('available')
             else 'heuristics_only'
         ),
+        'white_balance': white_balance,
         'metrics': {
             'avg_sclera_redness': round(avg_redness, 1) if avg_redness is not None else None,
+            'avg_efron_style_grade': efron_style_grade(avg_redness)['grade'],
+            'avg_efron_style_label': efron_style_grade(avg_redness)['label'],
+            'efron_style_note': 'Approximate Efron-style bins on white-balanced heuristic redness; not validated against graded reference images.',
             'ml_sclera_score': ml_redness.get('score'),
             'ml_sclera_grade': ml_redness.get('discretized_grade'),
             'ml_sclera_grade_label': ml_redness.get('grade_label'),

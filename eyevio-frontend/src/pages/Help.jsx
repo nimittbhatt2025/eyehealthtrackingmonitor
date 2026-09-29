@@ -15,7 +15,7 @@ function Help() {
     'getting-started': [
       {
         q: 'How do I take my first vision test?',
-        a: 'Navigate to Vision Tests from the sidebar, select a test type (Acuity, Contrast, or Color Blindness), and follow the on-screen instructions. Make sure you\'re in a well-lit environment and positioned about 2-3 feet from your screen.'
+        a: 'Navigate to Vision Tests from the sidebar, select a test type (for example Acuity, Contrast or Color), and follow the on-screen instructions. Make sure you\'re in a well-lit environment and positioned about 2-3 feet from your screen.'
       },
       {
         q: 'How often should I test my vision?',
@@ -29,11 +29,11 @@ function Help() {
     'vision-tests': [
       {
         q: 'What is the Visual Acuity Test?',
-        a: 'This test measures how clearly you can see letters at different sizes, similar to traditional eye charts. It helps identify potential nearsightedness or farsightedness.'
+        a: 'This test uses an ETDRS-style chart of Sloan letters (5 per row) at 1 metre, scored letter by letter in logMAR. For children there are HOTV and tumbling-E charts, where a helper taps the answer the child names or points to. Size your screen with a bank card first so the letters are the right physical size. Home results typically read about one line worse than a clinic chart, and the test is not a glasses prescription.'
       },
       {
         q: 'What does the Contrast Sensitivity Test measure?',
-        a: 'Contrast sensitivity tests your ability to distinguish between objects and their background, which is crucial for night driving and reading in low light.'
+        a: 'It measures how much contrast you need to see stripes of different sizes, giving a contrast sensitivity curve (qCSF method). Low contrast sensitivity makes night driving, fog and dim rooms harder, and it can change before letter-chart acuity does.'
       },
       {
         q: 'Are these tests FDA-approved diagnostic devices?',

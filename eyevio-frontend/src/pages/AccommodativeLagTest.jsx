@@ -11,12 +11,12 @@ import {
 } from '../utils/pupilRegionDetector'
 
 /**
- * Accommodative Lag Tracker - Near-Work Stress Test
- * 
- * Measures ciliary muscle fatigue from prolonged screen time
- * by tracking pupillary miosis response to changing blur
- * 
- * The "Burnout Meter" for your eyes
+ * Near Blur Tolerance (focusing fatigue index).
+ *
+ * Subjective blur-tolerance on a progressively blurred near target, with
+ * pupil response as a small secondary adjustment. A comfort index only — it
+ * does not measure accommodation. Test type id stays `accommodative_lag` so
+ * existing history keeps trending.
  */
 
 const AccommodativeLagTest = () => {
@@ -482,16 +482,20 @@ const AccommodativeLagTest = () => {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
               </svg>
             </div>
-            <h1 className="page-title mb-2">Eye Tiredness Meter</h1>
-            <p className="text-xl text-gray-600">Strain from screens and close-up work</p>
+            <h1 className="page-title mb-2">Near Blur Tolerance</h1>
+            <p className="text-xl text-gray-600">A focusing fatigue index for close-up work</p>
           </div>
 
           <div className="bg-purple-50 border-l-4 border-purple-600 p-6 mb-8 rounded-r-xl">
             <h2 className="text-lg font-bold text-purple-900 mb-2">What This Measures</h2>
             <p className="text-purple-800">
-              Tiny muscles inside your eyes do the work of focusing. After hours of screen time they can get tired and "stuck,"
-              which leads to headaches and blurry distance vision. This 30-second test checks how tired your focusing muscles are,
-              so you know when to take a break — before the aches start.
+              How much blur you tolerate on a near target before it stops looking clear, with pupil response as a
+              secondary cue. It&apos;s a comfort index you can track across a workday — it does not measure your eye&apos;s
+              focusing (accommodation) directly. For how well your eyes team up up-close, try the{' '}
+              <button type="button" onClick={() => navigate('/vision-tests/near_point_convergence')} className="underline font-semibold">
+                Convergence Near Point
+              </button>{' '}
+              test.
             </p>
           </div>
 
@@ -548,19 +552,19 @@ const AccommodativeLagTest = () => {
                 <svg className="w-5 h-5 text-indigo-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                 </svg>
-                <span><strong>Focusing Power %</strong> - How well your eyes are still focusing</span>
+                <span><strong>Blur tolerance index</strong> - How long a near target stayed clear for you</span>
               </li>
               <li className="flex items-start gap-2">
                 <svg className="w-5 h-5 text-indigo-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                 </svg>
-                <span><strong>Fatigue Prediction</strong> - Will you have a headache by 5 PM?</span>
+                <span><strong>Trend over the day</strong> - Compare morning vs afternoon runs</span>
               </li>
               <li className="flex items-start gap-2">
                 <svg className="w-5 h-5 text-indigo-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                 </svg>
-                <span><strong>Break Timer</strong> - Exact recommendation for how long to rest your eyes</span>
+                <span><strong>Break suggestion</strong> - A rest suggestion based on your result</span>
               </li>
             </ul>
           </div>
@@ -570,7 +574,7 @@ const AccommodativeLagTest = () => {
               onClick={() => setTestState('setup')}
               className="btn-primary px-8 py-4 text-xl"
             >
-              Start Eye Tiredness Test
+              Start Near Blur Test
             </button>
           </div>
         </div>
@@ -714,7 +718,7 @@ const AccommodativeLagTest = () => {
           </div>
         </div>
 
-        <h2 className="text-3xl font-bold mb-4">Checking How Tired Your Eyes Are</h2>
+        <h2 className="text-3xl font-bold mb-4">Working Out Your Blur Tolerance</h2>
         <p className="text-gray-400 mb-6">Looking at how your pupils responded...</p>
 
         <div className="space-y-2 text-sm text-gray-500">
@@ -763,8 +767,8 @@ const AccommodativeLagTest = () => {
           <div className="test-panel p-8 md:p-12">
             <div className="text-center mb-8">
               <div className="text-4xl font-bold mb-4 text-gray-700">{getFatigueIcon()}</div>
-              <h1 className="page-title mb-2">Eye Tiredness Results</h1>
-              <p className="text-gray-600">How tired your focusing muscles are</p>
+              <h1 className="page-title mb-2">Near Blur Tolerance Results</h1>
+              <p className="text-gray-600">Focusing fatigue index — a comfort measure, not a clinical test</p>
             </div>
 
             {trackingQuality && (
@@ -797,7 +801,7 @@ const AccommodativeLagTest = () => {
 
             {/* Main score */}
             <div className={`border-2 rounded-2xl p-8 mb-8 text-center ${getCapacityBg(focusingCapacity)}`}>
-              <h3 className="text-sm font-semibold text-gray-700 mb-2">FOCUSING POWER</h3>
+              <h3 className="text-sm font-semibold text-gray-700 mb-2">NEAR BLUR TOLERANCE INDEX</h3>
               <div className={`text-7xl font-bold ${getCapacityColor(focusingCapacity)} mb-4`}>
                 {focusingCapacity}%
               </div>
@@ -808,7 +812,7 @@ const AccommodativeLagTest = () => {
                  'Very tired - Take a longer break now'}
               </p>
               <p className="text-sm text-gray-600">
-                Eye tiredness: {accommodativeLag}%
+                Focusing fatigue index: {accommodativeLag}
               </p>
             </div>
 

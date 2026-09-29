@@ -4,16 +4,87 @@ import { useNavigate } from 'react-router-dom'
 import { visionTestAPI } from '../services/api'
 import EyeTracker from '../utils/eyeTracker'
 import SamdDisclaimer from '../components/SamdDisclaimer'
-import { scorePeripheralAwareness } from '../utils/visionTestScoring'
+import {
+  scorePeripheralAwareness,
+  eccentricityDeg,
+  fitHitRateVsEccentricity,
+  fitReactionTimeVsEccentricity,
+} from '../utils/visionTestScoring'
+import { getScreenScale } from '../utils/screenScale'
 
 /**
- * Peripheral Awareness Trainer - Gamified Visual Field Test
- * 
- * "Whack-a-Mole" style game that tests peripheral vision while 
- * ensuring eyes stay centered (glaucoma/field deficit detection)
- * 
- * Perfect for elderly (fall prevention) and athletes (reaction time)
+ * Side Vision Game — tap targets that appear away from the centre while
+ * looking at the centre dot.
+ *
+ * Targets appear at a continuous range of eccentricities (in degrees, from
+ * the screen scale and an assumed 50.8 cm viewing distance). Hit rate is fitted
+ * with a logistic psychometric function of eccentricity and reaction time with
+ * a robust line, and the slopes are reported. Not a visual-field test.
  */
+
+const VIEW_MM = 508
+const SAFE_RADIUS_PX = 110
+const DIRECTION_ANGLE = { right: 0, bottomRight: 45, bottom: 90, bottomLeft: 135, left: 180, topLeft: 225, top: 270, topRight: 315 }
+
+function EccentricityChart({ trials, hitFit, rtFit }) {
+  const W = 300
+  const H = 150
+  const pad = { l: 36, r: 36, t: 10, b: 26 }
+  const maxEcc = Math.max(10, Math.ceil(Math.max(...trials.map((t) => t.ecc)) / 5) * 5)
+  const x = (e) => pad.l + (e / maxEcc) * (W - pad.l - pad.r)
+  const yHit = (p) => pad.t + (1 - p) * (H - pad.t - pad.b)
+  const hits = trials.filter((t) => t.hit && t.rt)
+  const rtMax = Math.max(1000, Math.ceil(Math.max(0, ...hits.map((t) => t.rt)) / 500) * 500)
+  const yRt = (ms) => pad.t + (1 - ms / rtMax) * (H - pad.t - pad.b)
+  const bins = 5
+  const binned = Array.from({ length: bins }, (_, i) => {
+    const lo = (i * maxEcc) / bins
+    const hi = ((i + 1) * maxEcc) / bins
+    const inBin = trials.filter((t) => t.ecc >= lo && t.ecc < hi)
+    return inBin.length ? { e: (lo + hi) / 2, p: inBin.filter((t) => t.hit).length / inBin.length, n: inBin.length } : null
+  }).filter(Boolean)
+  const curve = hitFit
+    ? Array.from({ length: 40 }, (_, i) => {
+        const e = hitFit.rangeDeg[0] + (i / 39) * (hitFit.rangeDeg[1] - hitFit.rangeDeg[0])
+        const e50 = hitFit.e50Deg ?? 1000
+        const p = 0.97 / (1 + Math.exp((e - e50) / hitFit.spreadDeg))
+        return `${i ? 'L' : 'M'}${x(e).toFixed(1)},${yHit(p).toFixed(1)}`
+      }).join(' ')
+    : null
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label="Hit rate and reaction time by distance from centre">
+      {[0, 0.5, 1].map((p) => (
+        <g key={p}>
+          <line x1={pad.l} x2={W - pad.r} y1={yHit(p)} y2={yHit(p)} stroke="#e5e7eb" />
+          <text x={pad.l - 4} y={yHit(p) + 3} fontSize="8" textAnchor="end" fill="#059669">{p * 100}%</text>
+        </g>
+      ))}
+      <text x={W - pad.r + 4} y={yRt(rtMax) + 3} fontSize="8" fill="#6366f1">{rtMax} ms</text>
+      <text x={W - pad.r + 4} y={yRt(0) + 3} fontSize="8" fill="#6366f1">0</text>
+      {[0, maxEcc / 2, maxEcc].map((e) => (
+        <text key={e} x={x(e)} y={H - 12} fontSize="8" textAnchor="middle" fill="#6b7280">{e}°</text>
+      ))}
+      <text x={(W - pad.r + pad.l) / 2} y={H - 2} fontSize="8" textAnchor="middle" fill="#6b7280">distance from centre</text>
+      {hits.map((t, i) => (
+        <circle key={i} cx={x(t.ecc)} cy={yRt(t.rt)} r="1.8" fill="#6366f1" opacity="0.5" />
+      ))}
+      {rtFit && (
+        <line
+          x1={x(0)}
+          x2={x(maxEcc)}
+          y1={yRt(rtFit.interceptMs)}
+          y2={yRt(rtFit.interceptMs + rtFit.slopeMsPerDeg * maxEcc)}
+          stroke="#6366f1"
+          strokeDasharray="4 3"
+        />
+      )}
+      {curve && <path d={curve} fill="none" stroke="#059669" strokeWidth="2" />}
+      {binned.map((b) => (
+        <circle key={b.e} cx={x(b.e)} cy={yHit(b.p)} r={2 + Math.min(4, b.n / 3)} fill="#059669" />
+      ))}
+    </svg>
+  )
+}
 
 const PeripheralAwarenessTest = () => {
   const navigate = useNavigate()
@@ -29,8 +100,12 @@ const PeripheralAwarenessTest = () => {
     totalHits: 0,
     totalMisses: 0,
     reactionTime: 0,
-    missedTargets: []
+    missedTargets: [],
+    trials: []
   })
+  const screenScaleRef = useRef(getScreenScale())
+  const playAreaRef = useRef(null)
+  const [eccFit, setEccFit] = useState(null)
 
   const [testState, setTestState] = useState('instructions') // instructions, setup, calibrating, playing, results
   const [cameraReady, setCameraReady] = useState(false)
@@ -40,7 +115,13 @@ const PeripheralAwarenessTest = () => {
   const [level, setLevel] = useState(1)
   const [gameTime, setGameTime] = useState(60) // 60 seconds
   const [remainingTime, setRemainingTime] = useState(60)
-  const [targets, setTargets] = useState([])
+  const [targets, setTargetsState] = useState([])
+  // Hit/miss bookkeeping must not live inside state updaters: StrictMode runs them twice.
+  const targetsRef = useRef([])
+  const setTargets = useCallback((next) => {
+    targetsRef.current = next
+    setTargetsState(next)
+  }, [])
   const [missedTargets, setMissedTargets] = useState([])
   const [eyePosition, setEyePosition] = useState({ x: 0.5, y: 0.5 }) // 0-1 normalized
   const [centerDisplay, setCenterDisplay] = useState({ x: 0.5, y: 0.5 })
@@ -140,20 +221,33 @@ const PeripheralAwarenessTest = () => {
   const spawnTarget = useCallback(() => {
     const quadrantKeys = Object.keys(QUADRANTS)
     const randomQuadrant = quadrantKeys[Math.floor(Math.random() * quadrantKeys.length)]
-    const quadrant = QUADRANTS[randomQuadrant]
 
-    // Add some randomness to position
-    const jitter = 0.05
+    // Random distance along a jittered direction, so eccentricity covers a continuous range.
+    const W = playAreaRef.current?.clientWidth || window.innerWidth
+    const H = playAreaRef.current?.clientHeight || window.innerHeight
+    const cx = calibrationCenter.current.x * W
+    const cy = calibrationCenter.current.y * H
+    const a = ((DIRECTION_ANGLE[randomQuadrant] + (Math.random() - 0.5) * 30) * Math.PI) / 180
+    const margin = 48
+    const limits = []
+    if (Math.cos(a) > 1e-6) limits.push((W - margin - cx) / Math.cos(a))
+    if (Math.cos(a) < -1e-6) limits.push((margin - cx) / Math.cos(a))
+    if (Math.sin(a) > 1e-6) limits.push((H - margin - cy) / Math.sin(a))
+    if (Math.sin(a) < -1e-6) limits.push((margin + 72 - cy) / Math.sin(a))
+    const rMax = Math.max(0, Math.min(...limits))
+    const rMin = Math.min(rMax, SAFE_RADIUS_PX)
+    const r = rMin + Math.random() * (rMax - rMin)
     const target = {
       id: Date.now() + Math.random(),
-      x: quadrant.x + (Math.random() - 0.5) * jitter,
-      y: quadrant.y + (Math.random() - 0.5) * jitter,
+      x: (cx + r * Math.cos(a)) / W,
+      y: (cy + r * Math.sin(a)) / H,
+      ecc: eccentricityDeg(r / screenScaleRef.current.pxPerMm, VIEW_MM),
       quadrant: randomQuadrant,
       spawnTime: Date.now(),
       lifetime: Math.max(1000, 2000 - level * 100) // Faster at higher levels
     }
 
-    setTargets(prev => [...prev, target])
+    setTargets([...targetsRef.current, target])
 
     gameStateRef.current.totalSpawned += 1
     if (!gameStateRef.current.spawnedByQuadrant[randomQuadrant]) {
@@ -163,56 +257,53 @@ const PeripheralAwarenessTest = () => {
 
     // Auto-remove after lifetime
     setTimeout(() => {
-      setTargets(prev => {
-        const stillExists = prev.find(t => t.id === target.id)
-        if (stillExists) {
-          setMissedTargets(prev => [...prev, target])
-          setTotalMisses(prev => prev + 1)
-          
-          // Update ref for endGame
-          gameStateRef.current.totalMisses += 1
-          gameStateRef.current.missedTargets.push(target)
-        }
-        return prev.filter(t => t.id !== target.id)
-      })
+      if (!targetsRef.current.some(t => t.id === target.id)) return
+      setTargets(targetsRef.current.filter(t => t.id !== target.id))
+      setMissedTargets(prev => [...prev, target])
+      setTotalMisses(prev => prev + 1)
+
+      // Update ref for endGame
+      gameStateRef.current.totalMisses += 1
+      gameStateRef.current.missedTargets.push(target)
+      gameStateRef.current.trials.push({ ecc: target.ecc, direction: target.quadrant, hit: false, rt: null })
     }, target.lifetime)
-  }, [level])
+  }, [level, setTargets])
 
   // Handle target tap
   const handleTargetTap = useCallback((targetId) => {
-    setTargets(prev => {
-      const target = prev.find(t => t.id === targetId)
-      if (target) {
-        if (isLookingCenter) {
-          // Valid hit - eyes were on center
-          const reactionMs = Date.now() - target.spawnTime
-          setScore(s => s + (10 * level))
-          setTotalHits(h => h + 1)
-          setReactionTime(prev => prev + reactionMs)
-          
-          // Update ref for endGame
-          gameStateRef.current.totalHits += 1
-          gameStateRef.current.reactionTime += reactionMs
-          
-          // Level up every 10 hits
-          if ((totalHits + 1) % 10 === 0) {
-            setLevel(l => Math.min(l + 1, 10))
-          }
-        } else {
-          // Invalid hit - eyes were NOT on center (cheating detected)
-          // Count as miss and penalize score
-          setMissedTargets(prev => [...prev, target])
-          setTotalMisses(prev => prev + 1)
-          setScore(s => Math.max(0, s - 5)) // Penalty for looking away
-          
-          // Update ref for endGame
-          gameStateRef.current.totalMisses += 1
-          gameStateRef.current.missedTargets.push(target)
-        }
+    const target = targetsRef.current.find(t => t.id === targetId)
+    if (!target) return
+    setTargets(targetsRef.current.filter(t => t.id !== targetId))
+
+    if (isLookingCenter) {
+      // Valid hit - eyes were on center
+      const reactionMs = Date.now() - target.spawnTime
+      setScore(s => s + (10 * level))
+      setTotalHits(h => h + 1)
+      setReactionTime(prev => prev + reactionMs)
+
+      // Update ref for endGame
+      gameStateRef.current.totalHits += 1
+      gameStateRef.current.reactionTime += reactionMs
+      gameStateRef.current.trials.push({ ecc: target.ecc, direction: target.quadrant, hit: true, rt: reactionMs })
+
+      // Level up every 10 hits
+      if (gameStateRef.current.totalHits % 10 === 0) {
+        setLevel(l => Math.min(l + 1, 10))
       }
-      return prev.filter(t => t.id !== targetId)
-    })
-  }, [isLookingCenter, level, totalHits])
+    } else {
+      // Invalid hit - eyes were NOT on center (cheating detected)
+      // Count as miss and penalize score
+      setMissedTargets(prev => [...prev, target])
+      setTotalMisses(prev => prev + 1)
+      setScore(s => Math.max(0, s - 5)) // Penalty for looking away
+
+      // Update ref for endGame
+      gameStateRef.current.totalMisses += 1
+      gameStateRef.current.missedTargets.push(target)
+      gameStateRef.current.trials.push({ ecc: target.ecc, direction: target.quadrant, hit: false, rt: null, gazeOff: true })
+    }
+  }, [isLookingCenter, level, setTargets])
 
   const startCalibration = useCallback(() => {
     calibrationSamplesRef.current = []
@@ -263,8 +354,10 @@ const PeripheralAwarenessTest = () => {
       totalSpawned: 0,
       spawnedByQuadrant: {},
       reactionTime: 0,
-      missedTargets: []
+      missedTargets: [],
+      trials: []
     }
+    setEccFit(null)
 
     if (spawnIntervalRef.current) clearInterval(spawnIntervalRef.current)
     if (timerIntervalRef.current) clearInterval(timerIntervalRef.current)
@@ -286,7 +379,7 @@ const PeripheralAwarenessTest = () => {
         endGameRef.current?.()
       }
     }, 1000)
-  }, [gameTime, spawnTarget])
+  }, [gameTime, spawnTarget, setTargets])
 
   startGameRef.current = startGame
 
@@ -343,6 +436,11 @@ const PeripheralAwarenessTest = () => {
         const hitRate = totalTargets > 0 ? (totalHits / totalTargets) * 100 : 0
         const avgReactionTime = totalHits > 0 ? reactionTime / totalHits : 0
         const overallScore = scorePeripheralAwareness(hitRate, avgReactionTime)
+        const allTrials = gameStateRef.current.trials || []
+        const fitTrials = allTrials.filter((t) => !t.gazeOff)
+        const hitFit = fitHitRateVsEccentricity(fitTrials)
+        const rtFit = fitReactionTimeVsEccentricity(fitTrials)
+        setEccFit({ trials: fitTrials, hitFit, rtFit, fixationLosses: allTrials.length - fitTrials.length })
 
         setPeripheralDeficits(deficits)
         setFieldScore(overallScore)
@@ -356,7 +454,10 @@ const PeripheralAwarenessTest = () => {
           totalMisses,
           avgReactionTime: Math.round(avgReactionTime),
           deficits,
-          hitRate: Math.round(hitRate)
+          hitRate: Math.round(hitRate),
+          trials: allTrials,
+          hitFit,
+          rtFit,
         })
       } catch (err) {
         console.error('Failed to score peripheral test:', err)
@@ -368,7 +469,7 @@ const PeripheralAwarenessTest = () => {
     }
 
     window.setTimeout(finish, 600)
-  }, [stopCamera])
+  }, [stopCamera, setTargets])
 
   endGameRef.current = endGame
 
@@ -384,6 +485,22 @@ const PeripheralAwarenessTest = () => {
           hit_rate: results.hitRate,
           avg_reaction_time: results.avgReactionTime,
           peripheral_deficits: results.deficits,
+          method: 'eccentricity_psychometric',
+          method_version: 2,
+          hit_rate_fit: results.hitFit,
+          reaction_time_fit: results.rtFit,
+          trials: results.trials.map((t) => ({
+            ecc_deg: Number(t.ecc.toFixed(1)),
+            direction: t.direction,
+            hit: t.hit,
+            rt_ms: t.rt,
+            gaze_off: !!t.gazeOff,
+          })),
+          fixation_losses: results.trials.filter((t) => t.gazeOff).length,
+          viewing_distance_mm_assumed: VIEW_MM,
+          screen_scale_source: screenScaleRef.current.source,
+          scoring_note:
+            'Score = 0.7 × hit rate + 0.3 × reaction-time score (unchanged game score). Hit rate vs eccentricity is fitted with a logistic function (lapse 3%) and reaction time with a Theil–Sen line; slopes are reported, not scored.',
           timestamp: new Date().toISOString()
         }
       })
@@ -419,7 +536,7 @@ const PeripheralAwarenessTest = () => {
               </svg>
             </div>
             <h1 className="page-title mb-2">Peripheral Vision Trainer</h1>
-            <p className="text-xl text-gray-600">Gamified Visual Field Assessment</p>
+            <p className="text-xl text-gray-600">Side-awareness reaction game</p>
           </div>
 
           <div className="bg-green-50 border-l-4 border-green-600 p-6 mb-8 rounded-r-xl">
@@ -527,8 +644,9 @@ const PeripheralAwarenessTest = () => {
 
           <div className="bg-yellow-50 border-l-4 border-yellow-600 p-4 mb-8 rounded-r-xl">
             <p className="text-yellow-900">
-              <strong>Warning:</strong> If you consistently miss targets in one corner, it may indicate 
-              a visual field deficit that requires professional evaluation.
+              <strong>Note:</strong> Targets appear at different distances from the centre, and your results show how
+              catch rate and reaction time change with that distance. If you keep missing one side over several games,
+              mention it at your next eye exam — this game can&apos;t test your visual field.
             </p>
           </div>
 
@@ -599,7 +717,7 @@ const PeripheralAwarenessTest = () => {
 
   // Render game
   const renderPlaying = () => (
-    <div className="min-h-screen bg-gray-900 text-white relative overflow-hidden">
+    <div ref={playAreaRef} className="min-h-screen bg-gray-900 text-white relative overflow-hidden">
       {/* HUD */}
       <div className="absolute top-4 left-4 right-4 flex justify-between items-center z-20 pointer-events-none">
         <div className="bg-black/50 backdrop-blur-sm rounded-xl p-4 pointer-events-auto">
@@ -777,15 +895,15 @@ const PeripheralAwarenessTest = () => {
 
             {/* Main score */}
             <div className={`border-2 rounded-2xl p-8 mb-8 text-center ${getScoreBg(fieldScore)}`}>
-              <h3 className="text-sm font-semibold text-gray-700 mb-2">VISUAL FIELD SCORE</h3>
+              <h3 className="text-sm font-semibold text-gray-700 mb-2">SIDE AWARENESS SCORE</h3>
               <div className={`text-7xl font-bold ${getScoreColor(fieldScore)} mb-4`}>
                 {fieldScore}
               </div>
               <p className="text-lg font-semibold text-gray-700">
                 {fieldScore >= 80 ? 'Excellent Peripheral Awareness!' :
                  fieldScore >= 60 ? 'Good - Some room for improvement' :
-                 fieldScore >= 40 ? 'Moderate - Consider professional check' :
-                 'Concerning - Seek professional evaluation'}
+                 fieldScore >= 40 ? 'Moderate - try again when rested' :
+                 'Low this game - check your setup and try again'}
               </p>
             </div>
 
@@ -805,12 +923,50 @@ const PeripheralAwarenessTest = () => {
               </div>
             </div>
 
-            {/* Visual field deficits */}
+            {eccFit && eccFit.trials.length > 0 && (
+              <div className="rounded-2xl border border-gray-200 p-6 mb-8">
+                <h3 className="text-lg font-bold text-gray-900 mb-1">Side awareness vs distance from centre</h3>
+                <p className="text-xs text-gray-500 mb-3">
+                  Green: share of targets caught (dots = groups, line = fitted curve). Purple: reaction time of each catch
+                  (dashed = trend).
+                </p>
+                <EccentricityChart trials={eccFit.trials} hitFit={eccFit.hitFit} rtFit={eccFit.rtFit} />
+                <div className="grid sm:grid-cols-2 gap-3 mt-4 text-sm">
+                  <div className="rounded-xl bg-emerald-50 p-3">
+                    <div className="font-bold text-emerald-900">
+                      {eccFit.hitFit ? `${eccFit.hitFit.slopePctPerDeg > 0 ? '+' : ''}${eccFit.hitFit.slopePctPerDeg}% per degree` : 'Not enough targets'}
+                    </div>
+                    <div className="text-emerald-800 text-xs">
+                      {eccFit.hitFit
+                        ? eccFit.hitFit.e50Deg != null
+                          ? `Catch rate fell to 50% at about ${eccFit.hitFit.e50Deg}° from centre.`
+                          : `You caught most targets across the whole range (${eccFit.hitFit.rangeDeg[0]}–${eccFit.hitFit.rangeDeg[1]}°).`
+                        : 'Play the full 60 seconds for a fit.'}
+                    </div>
+                  </div>
+                  <div className="rounded-xl bg-indigo-50 p-3">
+                    <div className="font-bold text-indigo-900">
+                      {eccFit.rtFit ? `${eccFit.rtFit.slopeMsPerDeg > 0 ? '+' : ''}${eccFit.rtFit.slopeMsPerDeg} ms per degree` : 'Not enough catches'}
+                    </div>
+                    <div className="text-indigo-800 text-xs">
+                      {eccFit.rtFit ? `Reaction-time change with distance from centre (median ${eccFit.rtFit.medianRtMs} ms).` : 'Reaction-time trend needs at least 6 catches.'}
+                    </div>
+                  </div>
+                </div>
+                <p className="text-xs text-gray-500 mt-3">
+                  Degrees assume you sat about 50 cm from the screen
+                  {screenScaleRef.current.source === 'default' ? ' and a typical screen size' : ''}. Compare your slopes
+                  between sessions on the same setup.
+                  {eccFit.fixationLosses > 0 && ` ${eccFit.fixationLosses} tap${eccFit.fixationLosses === 1 ? '' : 's'} made while looking away were left out.`}
+                </p>
+              </div>
+            )}
+
             {peripheralDeficits.length > 0 && (
-              <div className="bg-red-50 border-l-4 border-red-600 p-6 mb-8 rounded-r-xl">
-                <h3 className="text-lg font-bold text-red-900 mb-3">WARNING: Potential Visual Field Deficits Detected</h3>
-                <p className="text-red-800 mb-4">
-                  You consistently missed targets in the following areas:
+              <div className="bg-amber-50 border-l-4 border-amber-500 p-6 mb-8 rounded-r-xl">
+                <h3 className="text-lg font-bold text-amber-900 mb-3">Directions with more misses</h3>
+                <p className="text-amber-800 mb-4">
+                  You missed more targets in these directions this time:
                 </p>
                 <ul className="space-y-2">
                   {peripheralDeficits.map((deficit, idx) => (
@@ -825,17 +981,19 @@ const PeripheralAwarenessTest = () => {
                     </li>
                   ))}
                 </ul>
-                <p className="mt-4 text-sm text-red-900 font-semibold">
-                  RECOMMENDATION: Consult an ophthalmologist for comprehensive visual field testing.
+                <p className="mt-4 text-sm text-amber-900">
+                  Misses can come from looking away, screen position or chance. If the same side keeps coming up over
+                  several games, mention it at your next eye exam — this game cannot test your visual field.
                 </p>
               </div>
             )}
 
             {peripheralDeficits.length === 0 && (
               <div className="bg-green-50 border-l-4 border-green-600 p-6 mb-8 rounded-r-xl">
-                <h3 className="text-lg font-bold text-green-900 mb-2">No Deficits Detected</h3>
+                <h3 className="text-lg font-bold text-green-900 mb-2">No direction stood out</h3>
                 <p className="text-green-800">
-                  Your peripheral vision appears healthy across all quadrants. Keep up the good work!
+                  Misses were spread evenly this game. This is a reaction game, not a visual-field test, so it
+                  can&apos;t rule out field loss.
                 </p>
               </div>
             )}

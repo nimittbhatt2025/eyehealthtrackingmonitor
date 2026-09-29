@@ -8,37 +8,115 @@ import EyeCoverageVerification from '../components/EyeCoverageVerification'
 import InlineDistanceCalibration from '../components/InlineDistanceCalibration'
 import { VisionTestShell } from '../components/TestPrepLayout'
 import SamdDisclaimer from '../components/SamdDisclaimer'
+import CalibrationBadge from '../components/CalibrationBadge'
+import ScreenSizeCalibration from '../components/ScreenSizeCalibration'
+import SloanLetter, { E_DIRECTIONS, HOTV_LETTERS, SLOAN_LETTERS, TumblingE } from '../components/SloanLetter'
+import useDistanceMonitor from '../hooks/useDistanceMonitor'
+import { getScreenScale, optotypeHeightPx, smallestRenderableLogMAR } from '../utils/screenScale'
+import { AVG_IPD_MM } from '../utils/distanceCalibration'
 import {
-  computeEyeLogMAR,
-  findThresholdLineIndex,
+  ACUITY_CHART_RULES,
+  ETDRS_LETTERS_PER_LINE,
+  ETDRS_LINES_TENTHS,
+  etdrsNextLine,
+  etdrsScore,
+  logMARToSnellen,
   logMARToScore,
 } from '../utils/visionTestScoring'
 
 /**
- * Visual Acuity Test (Snellen/LogMAR)
- * Professional-grade visual acuity assessment with:
- * - LogMAR scoring (clinical standard)
- * - Snellen conversion for familiarity
- * - Randomized optotypes (E, F, L, O, P, T, Z)
- * - Monocular testing (left eye then right eye)
- * - Adaptive progression (starts large, gets smaller)
- * - Distance validation (1000mm / 40" standard)
+ * Visual Acuity Test — ETDRS-style home chart.
+ * - Sloan letters (C D H K N O R S V Z), 5 per line, 0.1 logMAR steps
+ * - Children's charts: HOTV letters or tumbling E (4 choices, guess-corrected)
+ * - Letter-by-letter scoring (0.02 logMAR per letter), forced choice
+ * - Crowding bars around each line
+ * - Letters sized physically from a card-matched screen scale at 1 m
+ * - Continuous camera distance check; the chart pauses on > 10% drift
  */
+
+const TEST_DISTANCE_MM = 1000
+const DISTANCE_TOLERANCE = 0.1
+const START_TENTHS = 6
+
+const CHARTS = {
+  sloan: {
+    label: 'Letters',
+    audience: 'Adults and children who know the alphabet',
+    options: SLOAN_LETTERS,
+    method: 'etdrs_sloan_letter_by_letter',
+    symbol: 'letter',
+  },
+  hotv: {
+    label: 'HOTV',
+    audience: 'Children about 3–7 — name or point to H, O, T or V',
+    options: HOTV_LETTERS,
+    method: 'etdrs_hotv_letter_by_letter',
+    symbol: 'letter',
+  },
+  tumbling_e: {
+    label: 'Tumbling E',
+    audience: 'Young children or anyone who can’t read letters — show which way the E points',
+    options: E_DIRECTIONS,
+    method: 'etdrs_tumbling_e',
+    symbol: 'E',
+  },
+}
+
+// Median interpupillary distance by age (MacLachlan & Howland 2002; adults ≈ 63 mm).
+const CHILD_AGE_BANDS = [
+  { id: '3-5', label: '3–5 years', ipdMm: 50 },
+  { id: '6-8', label: '6–8 years', ipdMm: 53 },
+  { id: '9-12', label: '9–12 years', ipdMm: 56 },
+  { id: '13+', label: '13 or older', ipdMm: AVG_IPD_MM },
+]
+
+const DIRECTION_LABEL = { up: 'Up', right: 'Right', down: 'Down', left: 'Left' }
+
+function shuffled(items) {
+  const a = [...items]
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[a[i], a[j]] = [a[j], a[i]]
+  }
+  return a
+}
+
+/** 5 symbols per line; 4-choice charts must repeat one, never twice in a row. */
+function lineSymbols(options, count) {
+  if (options.length >= count) return shuffled(options).slice(0, count)
+  const out = []
+  while (out.length < count) {
+    for (const s of shuffled(options)) {
+      if (out.length < count && s !== out[out.length - 1]) out.push(s)
+    }
+  }
+  return out
+}
+
+const emptyEye = () => ({ tested: {}, responses: [], logMAR: null, snellen: null, lettersCorrect: 0, lettersCredited: null, atFloor: false })
 
 const VisualAcuityTest = () => {
   const navigate = useNavigate()
   const { isCalibrated, needsRecalibration, getConfidence } = useCalibration()
   
-  const [testState, setTestState] = useState('distance-gate') // distance-gate, instructions, voice-setup, glasses-check, eye-coverage-setup, testing, switch-eyes, results
+  // screen-size, distance-gate, instructions, voice-setup, glasses-check, eye-coverage-setup, testing, switch-eyes, results
+  const [testState, setTestState] = useState(() => (getScreenScale().source === 'default' ? 'screen-size' : 'distance-gate'))
   const [distanceValid, setDistanceValid] = useState(false)
   const [currentEye, setCurrentEye] = useState('left') // left, right
-  const [currentLine, setCurrentLine] = useState(0)
+  const [currentTenths, setCurrentTenths] = useState(START_TENTHS)
   const [currentLetter, setCurrentLetter] = useState(0)
   const [responses, setResponses] = useState([])
-  const [lineResults, setLineResults] = useState({
-    left: { correctLines: 0, smallestLine: 0, letters: [] },
-    right: { correctLines: 0, smallestLine: 0, letters: [] }
-  })
+  const [lineResults, setLineResults] = useState({ left: emptyEye(), right: emptyEye() })
+  const [screenScale, setScreenScale] = useState(getScreenScale)
+  const [pauseCount, setPauseCount] = useState(0)
+  const [chartType, setChartType] = useState('sloan')
+  const [childAge, setChildAge] = useState('13+')
+  const chart = CHARTS[chartType]
+  const chartRules = ACUITY_CHART_RULES[chartType]
+  const ipdMm = chartType === 'sloan' ? AVG_IPD_MM : CHILD_AGE_BANDS.find((b) => b.id === childAge).ipdMm
+  const floorTenths = Math.round(
+    smallestRenderableLogMAR(ETDRS_LINES_TENTHS.map((t) => t / 10), TEST_DISTANCE_MM, screenScale.pxPerMm) * 10
+  )
   
   // Voice recognition state — default on for far-distance testing
   const [voiceSupported] = useState(voiceRecognition.isSupported())
@@ -69,31 +147,18 @@ const VisualAcuityTest = () => {
   const videoRef = useRef(null)
   const eyeCheckIntervalRef = useRef(null)
   
-  // Optotypes (letters that are commonly used - avoid similar shapes)
-  const OPTOTYPES = ['E', 'F', 'L', 'O', 'P', 'T', 'Z']
-  
-  // Snellen lines (20/200 down to 20/10)
-  // Each line has a LogMAR value and Snellen equivalent
-  const SNELLEN_LINES = [
-    { snellen: '20/200', logMAR: 1.0, size: 200, letters: 1, label: '20/200 (1.0)' },
-    { snellen: '20/160', logMAR: 0.9, size: 160, letters: 2, label: '20/160 (0.9)' },
-    { snellen: '20/125', logMAR: 0.8, size: 125, letters: 2, label: '20/125 (0.8)' },
-    { snellen: '20/100', logMAR: 0.7, size: 100, letters: 3, label: '20/100 (0.7)' },
-    { snellen: '20/80', logMAR: 0.6, size: 80, letters: 3, label: '20/80 (0.6)' },
-    { snellen: '20/63', logMAR: 0.5, size: 63, letters: 4, label: '20/63 (0.5)' },
-    { snellen: '20/50', logMAR: 0.4, size: 50, letters: 4, label: '20/50 (0.4)' },
-    { snellen: '20/40', logMAR: 0.3, size: 40, letters: 5, label: '20/40 (0.3)' },
-    { snellen: '20/32', logMAR: 0.2, size: 32, letters: 5, label: '20/32 (0.2)' },
-    { snellen: '20/25', logMAR: 0.1, size: 25, letters: 5, label: '20/25 (0.1)' },
-    { snellen: '20/20', logMAR: 0.0, size: 20, letters: 5, label: '20/20 (0.0)' },
-    { snellen: '20/16', logMAR: -0.1, size: 16, letters: 5, label: '20/16 (-0.1)' },
-    { snellen: '20/12', logMAR: -0.2, size: 12, letters: 5, label: '20/12 (-0.2)' },
-    { snellen: '20/10', logMAR: -0.3, size: 10, letters: 5, label: '20/10 (-0.3)' }
-  ]
-
   const [currentLetters, setCurrentLetters] = useState([])
   const [selectedAnswer, setSelectedAnswer] = useState(null)
   const [showFeedback, setShowFeedback] = useState(false)
+
+  const monitorActive = ['glasses-check', 'eye-coverage-setup', 'testing', 'switch-eyes'].includes(testState)
+  const distanceMonitor = useDistanceMonitor({ active: monitorActive, targetMm: TEST_DISTANCE_MM, tolerance: DISTANCE_TOLERANCE, ipdMm })
+  const chartPaused = testState === 'testing' && distanceMonitor.paused
+  const chartPausedRef = useRef(false)
+  useEffect(() => {
+    if (chartPaused && !chartPausedRef.current) setPauseCount((n) => n + 1)
+    chartPausedRef.current = chartPaused
+  }, [chartPaused])
 
   useEffect(() => {
     showFeedbackRef.current = showFeedback
@@ -113,8 +178,11 @@ const VisualAcuityTest = () => {
   }
 
   const parseSpokenLetter = useCallback((transcripts) => {
-    return voiceRecognition.parseOptotypeLetter(transcripts, OPTOTYPES)
-  }, [])
+    return chartType === 'tumbling_e'
+      ? voiceRecognition.parseDirection(transcripts)
+      : voiceRecognition.parseOptotypeLetter(transcripts, CHARTS[chartType].options)
+  }, [chartType])
+  const voiceChoicesText = chartType === 'tumbling_e' ? 'up, down, left or right' : chart.options.join(', ')
 
   const stopSetupRecognition = useCallback(() => {
     try {
@@ -179,7 +247,7 @@ const VisualAcuityTest = () => {
         setVoiceNotice(`Heard: ${parsed}`)
         handleLetterSelectRef.current?.(parsed)
       } else {
-        setVoiceNotice(`Heard "${transcripts[0]}" — say one letter: ${OPTOTYPES.join(', ')}`)
+        setVoiceNotice(`Heard "${transcripts[0]}" — say one of: ${voiceChoicesText}`)
       }
     }
     recognition.onerror = (event) => {
@@ -193,7 +261,7 @@ const VisualAcuityTest = () => {
         window.setTimeout(() => safeStartRecognition(), 150)
       }
     }
-  }, [handleVoiceError, parseSpokenLetter, safeStartRecognition])
+  }, [handleVoiceError, parseSpokenLetter, safeStartRecognition, voiceChoicesText])
 
   const startVoiceSession = useCallback(async () => {
     if (!voiceEnabled || !voiceSupported || showFeedbackRef.current) return
@@ -239,7 +307,7 @@ const VisualAcuityTest = () => {
 
     recognition.onstart = () => {
       setIsListening(true)
-      setVoiceNotice('Listening — say one letter now (E, F, L, O, P, T, or Z)')
+      setVoiceNotice(`Listening — say one now (${voiceChoicesText})`)
     }
 
     recognition.onresult = (event) => {
@@ -256,7 +324,7 @@ const VisualAcuityTest = () => {
         voiceFatalErrorRef.current = false
         setVoiceNotice('')
       } else {
-        setVoiceNotice(`Heard "${transcripts[0]}" — try a single letter like E or P`)
+        setVoiceNotice(`Heard "${transcripts[0]}" — try one of: ${voiceChoicesText}`)
       }
     }
 
@@ -271,7 +339,7 @@ const VisualAcuityTest = () => {
     } catch {
       setVoiceNotice('Could not start microphone — tap the button to try again.')
     }
-  }, [handleVoiceError, parseSpokenLetter, stopSetupRecognition, voiceSupported])
+  }, [handleVoiceError, parseSpokenLetter, stopSetupRecognition, voiceSupported, voiceChoicesText])
 
   // Auto-start mic check when landing on voice-setup (e.g. after clicking distance confirm).
   useEffect(() => {
@@ -294,43 +362,27 @@ const VisualAcuityTest = () => {
   }, [testState, voiceSetupPassed, stopSetupRecognition])
 
   // Generate random letters for current line
-  const generateLetters = useCallback((numLetters) => {
-    const letters = []
-    const used = new Set()
-    
-    while (letters.length < numLetters) {
-      const letter = OPTOTYPES[Math.floor(Math.random() * OPTOTYPES.length)]
-      if (!used.has(letter)) {
-        letters.push(letter)
-        used.add(letter)
-      }
-    }
-    
-    return letters
-  }, [])
+  const generateLetters = useCallback((numLetters) => lineSymbols(CHARTS[chartType].options, numLetters), [chartType])
 
   // Start test for current eye
   const startEyeTest = useCallback(() => {
-    setCurrentLine(0)
+    setCurrentTenths(Math.max(START_TENTHS, floorTenths))
     setCurrentLetter(0)
-    const letters = generateLetters(SNELLEN_LINES[0].letters)
-    setCurrentLetters(letters)
+    setCurrentLetters(generateLetters(ETDRS_LETTERS_PER_LINE))
     setSelectedAnswer(null)
     setShowFeedback(false)
-  }, [generateLetters])
+  }, [generateLetters, floorTenths])
 
-  // Handle letter selection
+  // Handle letter selection (forced choice — no "can't see"; answers are not revealed)
   const handleLetterSelect = useCallback((letter) => {
-    if (showFeedback) return // Prevent double-selection
-    
+    if (showFeedback || chartPausedRef.current) return
+
     const correctLetter = currentLetters[currentLetter]
     const isCorrect = letter === correctLetter
-    
-    console.log(`Letter selected: ${letter}, Correct: ${correctLetter}, Match: ${isCorrect}`)
-    
+
     setSelectedAnswer(letter)
     setShowFeedback(true)
-    
+
     voiceSessionActiveRef.current = false
     try {
       recognitionRef.current?.stop()
@@ -338,43 +390,50 @@ const VisualAcuityTest = () => {
       // ignore
     }
     setIsListening(false)
-    
-    // Record response
+
     const response = {
       eye: currentEye,
-      line: currentLine,
-      snellen: SNELLEN_LINES[currentLine].snellen,
-      logMAR: SNELLEN_LINES[currentLine].logMAR,
+      lineTenths: currentTenths,
+      logMAR: currentTenths / 10,
+      position: currentLetter,
       letter: correctLetter,
       userAnswer: letter,
       correct: isCorrect,
+      distanceMm: distanceMonitor.distanceMm,
       timestamp: Date.now()
     }
-    
+
     setResponses(prev => [...prev, response])
-    
-    // Update line results
-    setLineResults(prev => {
-      const updated = { ...prev }
-      updated[currentEye].letters.push(response)
-      return updated
-    })
-    
-    // Move to next letter or line after short delay
+    setLineResults(prev => ({
+      ...prev,
+      [currentEye]: { ...prev[currentEye], responses: [...prev[currentEye].responses, response] },
+    }))
+
     setTimeout(() => {
       if (currentLetter < currentLetters.length - 1) {
-        // More letters in this line
         setCurrentLetter(prev => prev + 1)
         setSelectedAnswer(null)
         setShowFeedback(false)
       } else {
-        // Line complete - check if we should continue
-        advanceToNextLineRef.current?.(isCorrect)
+        advanceToNextLineRef.current?.(response)
       }
-    }, 800)
-  }, [showFeedback, currentLetters, currentLetter, currentEye, currentLine])
+    }, 350)
+  }, [showFeedback, currentLetters, currentLetter, currentEye, currentTenths, distanceMonitor.distanceMm])
 
   handleLetterSelectRef.current = handleLetterSelect
+
+  useEffect(() => {
+    if (testState !== 'testing' || chartType !== 'tumbling_e') return undefined
+    const keyDir = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' }
+    const onKey = (e) => {
+      const dir = keyDir[e.key]
+      if (!dir) return
+      e.preventDefault()
+      handleLetterSelectRef.current?.(dir)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [testState, chartType])
 
   // Keep voice listening during the test; pause only while feedback is shown
   useEffect(() => {
@@ -404,83 +463,61 @@ const VisualAcuityTest = () => {
     }
   }, [testState, voiceEnabled, showFeedback, startVoiceSession, stopVoiceSession])
 
-  // Advance to next line or finish eye
-  const advanceToNextLine = useCallback((lastLetterCorrect) => {
-    const line = SNELLEN_LINES[currentLine]
-    const eyeLetters = lineResults[currentEye].letters.filter(r => r.line === currentLine)
-    const correctCount = eyeLetters.filter(r => r.correct).length
-    const accuracy = correctCount / line.letters
-    
-    console.log(`Line ${currentLine} complete:`, {
-      correctCount,
-      totalLetters: line.letters,
-      accuracy: (accuracy * 100).toFixed(0) + '%',
-      threshold: '60%'
+  // Line finished: record letters correct and pick the next line (ETDRS stepping)
+  const advanceToNextLine = useCallback((lastResponse) => {
+    const lineResponses = [
+      ...lineResults[currentEye].responses.filter((r) => r.lineTenths === currentTenths),
+      lastResponse,
+    ].filter((r, i, arr) => arr.findIndex((x) => x.timestamp === r.timestamp) === i)
+    const correct = lineResponses.filter((r) => r.correct).length
+    const tested = { ...lineResults[currentEye].tested, [currentTenths]: correct }
+
+    setLineResults(prev => ({ ...prev, [currentEye]: { ...prev[currentEye], tested } }))
+
+    const next = etdrsNextLine(tested, {
+      startTenths: Math.max(START_TENTHS, floorTenths),
+      floorTenths,
+      passCorrect: chartRules.passCorrect,
+      stopCorrect: chartRules.stopCorrect,
     })
-    
-    // If got < 60% correct on this line, stop (threshold reached)
-    if (accuracy < 0.6) {
-      console.log('Accuracy below threshold - finishing eye test')
-      finishEyeTestRef.current?.()
+    if (next == null) {
+      finishEyeTestRef.current?.(tested)
       return
     }
-    
-    // If this was the last line, finish
-    if (currentLine >= SNELLEN_LINES.length - 1) {
-      console.log('Last line reached - finishing eye test')
-      finishEyeTestRef.current?.()
-      return
-    }
-    
-    // Move to next line
-    console.log(`Moving to line ${currentLine + 1}`)
-    setCurrentLine(prev => prev + 1)
+    setCurrentTenths(next)
     setCurrentLetter(0)
-    const letters = generateLetters(SNELLEN_LINES[currentLine + 1].letters)
-    setCurrentLetters(letters)
+    setCurrentLetters(generateLetters(ETDRS_LETTERS_PER_LINE))
     setSelectedAnswer(null)
     setShowFeedback(false)
-  }, [currentLine, lineResults, currentEye, generateLetters])
+  }, [currentTenths, lineResults, currentEye, generateLetters, floorTenths, chartRules])
 
   advanceToNextLineRef.current = advanceToNextLine
 
   // Finish testing current eye
-  const finishEyeTest = useCallback(() => {
-    const eyeData = lineResults[currentEye]
-
-    const lettersByLine = {}
-    eyeData.letters.forEach((r) => {
-      if (!lettersByLine[r.line]) lettersByLine[r.line] = []
-      lettersByLine[r.line].push(r)
-    })
-
-    const thresholdIdx = findThresholdLineIndex(lettersByLine, SNELLEN_LINES.length)
-    const thresholdLineData = SNELLEN_LINES[thresholdIdx]
-    const thresholdLineResponses = lettersByLine[thresholdIdx] || []
-    const lettersMissed = thresholdLineResponses.filter((r) => !r.correct).length
-    const finalLogMAR = computeEyeLogMAR(thresholdLineData.logMAR, lettersMissed)
+  const finishEyeTest = useCallback((tested) => {
+    const score = etdrsScore(tested, { passCorrect: chartRules.passCorrect, guessRate: chartRules.guessRate })
+    const atFloor = (tested[floorTenths] ?? 0) >= chartRules.passCorrect
 
     setLineResults(prev => ({
       ...prev,
       [currentEye]: {
         ...prev[currentEye],
-        smallestLine: thresholdIdx,
-        correctLines: thresholdIdx + 1,
-        finalLogMAR,
-        snellen: thresholdLineData.snellen,
-        lettersMissedOnThresholdLine: lettersMissed,
+        tested,
+        logMAR: score.logMAR,
+        snellen: logMARToSnellen(score.logMAR),
+        lettersCorrect: score.lettersCorrect,
+        lettersCredited: score.lettersCredited,
+        atFloor,
       }
     }))
-    
+
     if (currentEye === 'left') {
-      // Switch to right eye
       setCurrentEye('right')
       setTestState('switch-eyes')
     } else {
-      // Both eyes complete
       setTestState('results')
     }
-  }, [currentEye, lineResults])
+  }, [currentEye, floorTenths, chartRules])
 
   finishEyeTestRef.current = finishEyeTest
 
@@ -494,38 +531,51 @@ const VisualAcuityTest = () => {
     setVoiceMicFailed(false)
     voiceFatalErrorRef.current = false
     setLastHeardRaw('')
-    setVoiceNotice('Tap the button below, then say one letter out loud.')
+    setVoiceNotice(`Tap the button below, then say one ${chartType === 'tumbling_e' ? 'direction' : 'letter'} out loud.`)
 
     return () => {
       stopSetupRecognition()
     }
-  }, [testState, voiceSupported, stopSetupRecognition])
+  }, [testState, voiceSupported, stopSetupRecognition, chartType])
 
   // Submit results to backend
   const submitResults = async () => {
     try {
       const confidence = getConfidence()
       
+      const eyeDetails = (eye) => ({
+        snellen: lineResults[eye].snellen,
+        logMAR: lineResults[eye].logMAR,
+        letters_correct: lineResults[eye].lettersCorrect,
+        letters_credited: lineResults[eye].lettersCredited,
+        letters_correct_by_line: lineResults[eye].tested,
+        at_chart_floor: lineResults[eye].atFloor,
+        responses: lineResults[eye].responses,
+      })
       await visionTestAPI.submit({
         test_type: 'visual_acuity',
-        score: logMARToScore(lineResults.left.finalLogMAR, lineResults.right.finalLogMAR),
+        score: logMARToScore(lineResults.left.logMAR, lineResults.right.logMAR),
+        left_eye_score: lineResults.left.logMAR != null ? Math.round((1 - lineResults.left.logMAR) * 100) : null,
+        right_eye_score: lineResults.right.logMAR != null ? Math.round((1 - lineResults.right.logMAR) * 100) : null,
         test_details: {
-          left_eye: {
-            snellen: lineResults.left.snellen,
-            logMAR: lineResults.left.finalLogMAR,
-            lines_read: lineResults.left.correctLines,
-            threshold_line_index: lineResults.left.smallestLine,
-            letters_missed_on_threshold: lineResults.left.lettersMissedOnThresholdLine ?? 0,
-            responses: lineResults.left.letters
-          },
-          right_eye: {
-            snellen: lineResults.right.snellen,
-            logMAR: lineResults.right.finalLogMAR,
-            lines_read: lineResults.right.correctLines,
-            threshold_line_index: lineResults.right.smallestLine,
-            letters_missed_on_threshold: lineResults.right.lettersMissedOnThresholdLine ?? 0,
-            responses: lineResults.right.letters
-          },
+          method: chart.method,
+          method_version: 2,
+          chart_type: chartType,
+          chart_rules: chartRules,
+          child_age_band: chartType === 'sloan' ? null : childAge,
+          assumed_ipd_mm: ipdMm,
+          scoring_note: chartRules.guessRate > 0
+            ? 'Four-choice chart: each line’s correct count is guess-corrected, (c − 1.25) / 0.75, before the 0.02 logMAR per-symbol credit; eye stops at ≤ 2 of 5.'
+            : 'Ten-choice Sloan chart: 0.02 logMAR per letter read; eye stops at ≤ 1 of 5.',
+          left_eye: eyeDetails('left'),
+          right_eye: eyeDetails('right'),
+          test_distance_mm: TEST_DISTANCE_MM,
+          screen_px_per_mm: Number(screenScale.pxPerMm.toFixed(3)),
+          screen_scale_source: screenScale.source,
+          chart_floor_logmar: floorTenths / 10,
+          distance_pauses: pauseCount,
+          distance_baseline_source: distanceMonitor.baselineSource,
+          correction: correctionInfo,
           calibration_confidence: confidence,
           test_duration_seconds: Math.round((Date.now() - responses[0]?.timestamp) / 1000),
           timestamp: new Date().toISOString()
@@ -553,8 +603,58 @@ const VisualAcuityTest = () => {
           Visual Acuity Test
         </h1>
         <p className="page-subtitle">
-          Professional eye chart test to measure how clearly you can see
+          An ETDRS-style chart, read one symbol at a time from 1 metre
         </p>
+      </div>
+
+      <div className="card">
+        <h2 className="section-title mb-4">Choose a chart</h2>
+        <div className="grid sm:grid-cols-3 gap-3" role="radiogroup" aria-label="Chart type">
+          {Object.entries(CHARTS).map(([id, c]) => (
+            <button
+              key={id}
+              type="button"
+              role="radio"
+              aria-checked={chartType === id}
+              onClick={() => {
+                setChartType(id)
+                if (id !== 'sloan' && childAge === '13+') setChildAge('6-8')
+              }}
+              className={`text-left rounded-xl border-2 p-4 min-h-[44px] transition-colors ${
+                chartType === id ? 'border-accent-600 bg-accent-50' : 'border-gray-200 hover:border-gray-300 bg-white'
+              }`}
+            >
+              <div className="flex items-center gap-2 mb-2" aria-hidden="true">
+                {id === 'tumbling_e'
+                  ? ['right', 'up', 'left'].map((d) => <TumblingE key={d} direction={d} size={18} />)
+                  : c.options.slice(0, 4).map((l) => <SloanLetter key={l} letter={l} size={18} />)}
+              </div>
+              <div className="font-bold text-gray-900">{c.label}</div>
+              <div className="text-sm text-gray-600">{c.audience}</div>
+            </button>
+          ))}
+        </div>
+
+        {chartType !== 'sloan' && (
+          <div className="mt-4">
+            <label htmlFor="child-age" className="block text-sm font-semibold text-gray-900 mb-1">Age of the person being tested</label>
+            <select
+              id="child-age"
+              value={childAge}
+              onChange={(e) => setChildAge(e.target.value)}
+              className="w-full sm:w-64 border border-gray-300 rounded-lg px-3 py-2 min-h-[44px]"
+            >
+              {CHILD_AGE_BANDS.map((b) => (
+                <option key={b.id} value={b.id}>{b.label}</option>
+              ))}
+            </select>
+            <p className="text-sm text-gray-600 mt-2">
+              Children&apos;s eyes are closer together, so we use this to keep the camera&apos;s 1 m distance check accurate.
+              A helper should sit beside the screen, hold the child&apos;s hand over one eye, and tap the answer the child names or points to.
+              Practise the {chartType === 'hotv' ? 'four letters' : 'four directions'} together at close range first.
+            </p>
+          </div>
+        )}
       </div>
 
       <div className="card">
@@ -572,16 +672,19 @@ const VisualAcuityTest = () => {
           <div className="flex items-start gap-4">
             <span className="w-10 h-10 bg-accent-600 text-white rounded-full flex items-center justify-center font-bold flex-shrink-0">2</span>
             <div>
-              <h3 className="font-bold text-lg text-gray-900">Read the Letters</h3>
-              <p className="text-gray-700">Letters will appear on screen, getting progressively smaller. Select the letter you see.</p>
+              <h3 className="font-bold text-lg text-gray-900">Read Each Row of 5 {chartType === 'tumbling_e' ? 'E’s' : 'Letters'}</h3>
+              <p className="text-gray-700">
+                {chartType === 'tumbling_e'
+                  ? 'Each row shows 5 E’s inside a frame. Say or show which way the marked E’s bars point, left to right.'
+                  : 'Each row shows 5 letters inside a frame. Name the marked letter, left to right.'} If you are unsure, <strong>always guess</strong> — guesses make the score more accurate. We won&apos;t tell you which answers were right.</p>
             </div>
           </div>
 
           <div className="flex items-start gap-4">
             <span className="w-10 h-10 bg-accent-600 text-white rounded-full flex items-center justify-center font-bold flex-shrink-0">3</span>
             <div>
-              <h3 className="font-bold text-lg text-gray-900">Test Stops Automatically</h3>
-              <p className="text-gray-700">When letters become too small to read accurately, the test moves to your other eye.</p>
+              <h3 className="font-bold text-lg text-gray-900">Stay at 1 Metre</h3>
+              <p className="text-gray-700">The camera keeps checking your distance. If you drift more than 10% closer or farther, the chart pauses until you move back. Every letter you get right counts toward your score, and the test ends when a row becomes unreadable.</p>
             </div>
           </div>
 
@@ -589,7 +692,7 @@ const VisualAcuityTest = () => {
             <span className="w-10 h-10 bg-accent-600 text-white rounded-full flex items-center justify-center font-bold flex-shrink-0">4</span>
             <div>
               <h3 className="font-bold text-lg text-gray-900">Get Your Results</h3>
-              <p className="text-gray-700">See a simple score for each eye — like the familiar "20/20" from the eye doctor.</p>
+              <p className="text-gray-700">See a logMAR and Snellen (&quot;20/20&quot;) score for each eye. Home results usually read about one line worse than a clinic chart.</p>
             </div>
           </div>
         </div>
@@ -608,6 +711,12 @@ const VisualAcuityTest = () => {
               <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
             </svg>
             <span>Ensure good lighting (not too bright or too dark)</span>
+          </li>
+          <li className="flex items-start gap-2">
+            <svg className="w-5 h-5 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+            </svg>
+            <span>Keep the camera able to see your face so the distance check can work</span>
           </li>
           <li className="flex items-start gap-2">
             <svg className="w-5 h-5 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
@@ -654,7 +763,9 @@ const VisualAcuityTest = () => {
               <h3 className="font-bold text-gray-900 mb-2">Voice control required</h3>
               <p className="text-gray-600 text-sm mb-3">
                 This test is taken about <strong>1 meter (40″)</strong> from the screen. You will answer by
-                saying letters aloud — for example &quot;E&quot; or &quot;P&quot; — so you do not need to walk back to click.
+                {chartType === 'tumbling_e'
+                  ? <>saying the direction aloud — &quot;up&quot;, &quot;down&quot;, &quot;left&quot; or &quot;right&quot; — or a helper can tap for you.</>
+                  : <>saying letters aloud — for example &quot;{chart.options[0]}&quot; or &quot;{chart.options[1]}&quot; — so you do not need to walk back to click.</>}
               </p>
               <label className="flex items-center gap-3 cursor-pointer">
                 <input
@@ -726,12 +837,14 @@ const VisualAcuityTest = () => {
         </div>
         <h2 className="text-2xl font-bold text-gray-900">Enable your microphone</h2>
         <p className="text-gray-600 text-sm">
-          You will stand about 1 meter from the screen. Say one letter out loud to verify the mic.
+          You will stand about 1 meter from the screen. Say one {chartType === 'tumbling_e' ? 'direction' : 'letter'} out loud to verify the mic.
         </p>
 
         <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 text-left text-sm text-indigo-900">
           <p className="font-semibold mb-2">Try saying:</p>
-          <p className="text-lg font-mono font-bold">E · F · L · O · P · T · Z</p>
+          <p className="text-lg font-mono font-bold">
+            {chartType === 'tumbling_e' ? 'up · down · left · right' : chart.options.join(' · ')}
+          </p>
         </div>
 
         <button
@@ -740,7 +853,9 @@ const VisualAcuityTest = () => {
           disabled={isListening || voiceSetupPassed}
           className="w-full min-h-[48px] btn-primary disabled:opacity-50"
         >
-          {voiceSetupPassed ? 'Microphone verified' : isListening ? 'Listening… say a letter' : 'Tap — say a letter'}
+          {voiceSetupPassed
+            ? 'Microphone verified'
+            : `${isListening ? 'Listening… say' : 'Tap — say'} a ${chartType === 'tumbling_e' ? 'direction' : 'letter'}`}
         </button>
 
         {lastHeardRaw && !voiceSetupPassed && (
@@ -816,27 +931,54 @@ const VisualAcuityTest = () => {
   // Render Calibration Check
   // Render Testing Screen
   const renderTesting = () => {
-    const line = SNELLEN_LINES[currentLine]
-    const letter = currentLetters[currentLetter]
-    const fontSize = Math.min(line.size * 2, 180)
+    const logMAR = currentTenths / 10
+    const h = optotypeHeightPx(logMAR, TEST_DISTANCE_MM, screenScale.pxPerMm)
+    const bar = Math.max(1, h / 5)
+    const distanceCm = distanceMonitor.distanceMm != null ? Math.round(distanceMonitor.distanceMm / 10) : null
 
     return (
       <VisionTestShell
         title={`${currentEye === 'left' ? 'Left' : 'Right'} eye — cover the other eye`}
-        subtitle={`Line ${currentLine + 1}/${SNELLEN_LINES.length} · ${line.snellen}`}
+        subtitle={`${logMARToSnellen(logMAR)} line (logMAR ${logMAR.toFixed(1)})`}
         statusBar={(
           <span className="text-xs text-gray-500">
-            Letter {currentLetter + 1}/{line.letters}
+            {chartType === 'tumbling_e' ? 'E' : 'Letter'} {currentLetter + 1}/{ETDRS_LETTERS_PER_LINE}
+            {distanceCm != null && ` · ${distanceCm} cm`}
           </span>
         )}
         stimulus={(
-          <div className="flex items-center justify-center w-full h-full min-h-[200px] bg-white rounded-xl">
-            <div
-              className="font-mono font-bold text-gray-900 transition-all duration-300 select-none"
-              style={{ fontSize: `${fontSize}px`, lineHeight: 1 }}
-            >
-              {letter}
+          <div className="relative flex items-center justify-center w-full h-full min-h-[240px] bg-white rounded-xl overflow-hidden">
+            <div className={chartPaused ? 'invisible' : ''}>
+              {/* Crowding bars sit one letter-width outside the row; spacing between letters is one letter-width. */}
+              <div style={{ border: `${bar}px solid #111`, padding: h }}>
+                <div className="flex" style={{ gap: h }}>
+                  {currentLetters.map((l, i) => (
+                    chartType === 'tumbling_e'
+                      ? <TumblingE key={`${currentTenths}-${i}`} direction={l} size={h} />
+                      : <SloanLetter key={`${currentTenths}-${i}`} letter={l} size={h} />
+                  ))}
+                </div>
+              </div>
+              <div className="flex justify-start mt-3" style={{ paddingLeft: bar + h }}>
+                <div
+                  className="h-1.5 rounded-full bg-accent-500 transition-transform duration-200"
+                  style={{ width: h, transform: `translateX(${currentLetter * 2 * h}px)` }}
+                />
+              </div>
             </div>
+            {chartPaused && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-white text-center px-6">
+                <p className="text-xl font-bold text-gray-900 mb-1">Paused — check your distance</p>
+                <p className="text-gray-600">
+                  {distanceMonitor.reason === 'no_face'
+                    ? 'The camera can’t see your face. Face the screen from about 1 m.'
+                    : distanceMonitor.reason === 'too_close'
+                      ? `You’re at about ${distanceCm} cm — step back to 1 m.`
+                      : `You’re at about ${distanceCm} cm — come closer to 1 m.`}
+                </p>
+                <p className="text-xs text-gray-400 mt-2">The chart resumes automatically.</p>
+              </div>
+            )}
           </div>
         )}
         controls={(
@@ -848,7 +990,7 @@ const VisualAcuityTest = () => {
                 {isListening ? (
                   <span className="flex items-center gap-2">
                     <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-                    Listening — say the letter you see
+                    {chartType === 'tumbling_e' ? 'Listening — say which way the E points' : 'Listening — say the letter you see'}
                   </span>
                 ) : voiceNotice || 'Voice paused — tap Mic to listen'}
               </div>
@@ -874,44 +1016,46 @@ const VisualAcuityTest = () => {
             )}
 
             <p className="text-sm text-gray-600">
-              {voiceEnabled ? 'Say the letter, or tap below:' : 'Select the letter you see:'}
+              {chartType === 'tumbling_e'
+                ? (voiceEnabled
+                  ? 'Say which way the underlined E points (up, down, left, right), point, or tap it below.'
+                  : 'Tap the way the underlined E points — or the child points and a helper taps. Arrow keys work too.')
+                : chartType === 'hotv'
+                  ? (voiceEnabled
+                    ? 'Say the underlined letter, or point to it below and a helper taps it.'
+                    : 'Tap the underlined letter — a child can point to the matching letter and a helper taps it.')
+                  : (voiceEnabled ? 'Say the underlined letter, or tap it below.' : 'Tap the underlined letter.')}{' '}
+              <strong>Not sure? Take your best guess</strong> — guesses are part of how the score works.
             </p>
 
-            <div className="grid grid-cols-4 gap-2">
-              {OPTOTYPES.map((opt) => (
+            <div className={`grid gap-2 ${chart.options.length === 4 ? 'grid-cols-4' : 'grid-cols-5'}`}>
+              {chart.options.map((opt) => (
                 <button
                   key={opt}
                   type="button"
                   onClick={() => handleLetterSelect(opt)}
-                  disabled={showFeedback}
+                  disabled={showFeedback || chartPaused}
+                  aria-label={chartType === 'tumbling_e' ? `E points ${opt}` : opt}
                   className={`
-                    min-h-[44px] rounded-xl font-mono font-bold text-xl transition-all
-                    ${selectedAnswer === opt
-                      ? showFeedback && opt === letter
-                        ? 'bg-green-600 text-white'
-                        : showFeedback
-                          ? 'bg-red-600 text-white'
-                          : 'bg-accent-600 text-white'
-                      : 'bg-gray-100 hover:bg-gray-200 text-gray-900'}
-                    ${showFeedback ? 'cursor-not-allowed' : 'cursor-pointer'}
+                    rounded-xl font-mono font-bold transition-all flex flex-col items-center justify-center gap-1
+                    ${chart.options.length === 4 ? 'min-h-[72px] text-3xl' : 'min-h-[44px] text-xl'}
+                    ${selectedAnswer === opt ? 'bg-accent-600 text-white' : 'bg-gray-100 hover:bg-gray-200 text-gray-900'}
+                    ${showFeedback || chartPaused ? 'cursor-not-allowed' : 'cursor-pointer'}
                   `}
                 >
-                  {opt}
+                  {chartType === 'tumbling_e' ? (
+                    <>
+                      <TumblingE direction={opt} size={28} color={selectedAnswer === opt ? '#fff' : '#111'} />
+                      <span className="font-sans text-xs font-semibold">{DIRECTION_LABEL[opt]}</span>
+                    </>
+                  ) : opt}
                 </button>
               ))}
             </div>
 
-            {showFeedback && (
-              <div className={`text-center text-sm font-semibold py-2 rounded-lg ${
-                selectedAnswer === letter ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
-              }`}>
-                {selectedAnswer === letter ? 'Correct!' : `Incorrect — was ${letter}`}
-              </div>
+            {screenScale.source === 'default' && (
+              <p className="text-xs text-amber-700">Screen not measured — letter sizes are approximate.</p>
             )}
-
-            <p className="text-xs text-gray-500 text-center mt-auto">
-              {lineResults[currentEye].letters.filter((r) => r.correct).length} correct this eye
-            </p>
           </>
         )}
       />
@@ -936,7 +1080,7 @@ const VisualAcuityTest = () => {
         <div className="text-4xl font-bold text-accent-600 mb-2">
           {lineResults.left.snellen}
         </div>
-        <p className="text-gray-600">LogMAR: {lineResults.left.finalLogMAR?.toFixed(2)}</p>
+        <p className="text-gray-600">LogMAR: {lineResults.left.logMAR?.toFixed(2)}</p>
       </div>
 
       <div className="bg-amber-50 border-2 border-amber-200 rounded-xl p-6">
@@ -964,8 +1108,8 @@ const VisualAcuityTest = () => {
   const renderResults = () => {
     const leftSnellen = lineResults.left.snellen
     const rightSnellen = lineResults.right.snellen
-    const leftLogMAR = lineResults.left.finalLogMAR
-    const rightLogMAR = lineResults.right.finalLogMAR
+    const leftLogMAR = lineResults.left.logMAR
+    const rightLogMAR = lineResults.right.logMAR
     const asymmetry = Math.abs(leftLogMAR - rightLogMAR)
     
     const confidence = getConfidence()
@@ -1088,6 +1232,30 @@ const VisualAcuityTest = () => {
           </div>
         </div>
 
+        <div className="card bg-gray-50 text-sm text-gray-700 space-y-1">
+          <p>
+            {chartRules.guessRate > 0 ? (
+              <>
+                {chart.label} chart. {chartType === 'tumbling_e' ? 'E’s' : 'Letters'} read: left {lineResults.left.lettersCorrect}, right {lineResults.right.lettersCorrect}.
+                With only four choices some answers are lucky guesses, so each row is adjusted for chance before scoring.
+              </>
+            ) : (
+              <>Letters read: left {lineResults.left.lettersCorrect}, right {lineResults.right.lettersCorrect} (each letter = 0.02 logMAR).</>
+            )}
+            {(lineResults.left.atFloor || lineResults.right.atFloor) && (
+              <> Your screen can’t draw letters smaller than logMAR {(floorTenths / 10).toFixed(1)} at 1 m, so an eye marked at that limit may see even better.</>
+            )}
+          </p>
+          <p>
+            Home charts usually read about 0.05–0.1 logMAR (half to one line) <strong>worse</strong> than a clinic chart —
+            compare your results over time rather than with a clinic number.
+          </p>
+          {screenScale.source === 'default' && (
+            <p className="text-amber-800">Your screen size wasn’t measured, so these values may be off by about a line.</p>
+          )}
+          {pauseCount > 0 && <p>The chart paused {pauseCount} time{pauseCount > 1 ? 's' : ''} to correct your distance.</p>}
+        </div>
+
         {/* Asymmetry Alert */}
         {asymmetry > 0.2 && (
           <div className="bg-amber-50 border-2 border-amber-300 rounded-xl p-6">
@@ -1143,12 +1311,10 @@ const VisualAcuityTest = () => {
             onClick={() => {
               setTestState('instructions')
               setCurrentEye('left')
-              setCurrentLine(0)
+              setCurrentTenths(START_TENTHS)
               setResponses([])
-              setLineResults({
-                left: { correctLines: 0, smallestLine: 0, letters: [] },
-                right: { correctLines: 0, smallestLine: 0, letters: [] }
-              })
+              setPauseCount(0)
+              setLineResults({ left: emptyEye(), right: emptyEye() })
               setCorrectionInfo(null)
             }}
             className="flex-1 btn-secondary min-h-[44px]"
@@ -1181,20 +1347,33 @@ const VisualAcuityTest = () => {
             onDistanceValid={(_ok, meta = {}) => {
               setDistanceValid(true)
               setVoiceEnabled(true)
-              // Voice confirm already proved the mic works — skip click-heavy setup.
-              if (meta?.viaVoice) {
-                setVoiceSetupPassed(true)
-                setVoiceSetupHeard('ready')
-                voiceFatalErrorRef.current = false
-                setTestState('glasses-check')
-                return
-              }
-              // Clicked from screen: still skip long instructions; verify mic next.
-              setTestState(voiceSupported ? 'voice-setup' : 'glasses-check')
+              const nextState = (() => {
+                // Voice confirm already proved the mic works — skip click-heavy setup.
+                if (meta?.viaVoice) {
+                  setVoiceSetupPassed(true)
+                  setVoiceSetupHeard('ready')
+                  voiceFatalErrorRef.current = false
+                  return 'glasses-check'
+                }
+                return voiceSupported ? 'voice-setup' : 'glasses-check'
+              })()
+              setTestState(nextState)
             }}
             onDistanceInvalid={() => setDistanceValid(false)}
             testName="Visual Acuity Test"
           />
+        )}
+        {testState === 'screen-size' && (
+          <ScreenSizeCalibration
+            onDone={() => {
+              setScreenScale(getScreenScale())
+              setTestState('distance-gate')
+            }}
+            onSkip={() => setTestState('distance-gate')}
+          />
+        )}
+        {monitorActive && (
+          <video ref={distanceMonitor.videoRef} autoPlay playsInline muted className="fixed top-0 left-0 w-px h-px opacity-0 pointer-events-none" aria-hidden />
         )}
         {testState === 'instructions' && renderInstructions()}
         {testState === 'voice-setup' && renderVoiceSetup()}

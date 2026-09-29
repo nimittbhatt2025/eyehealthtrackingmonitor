@@ -197,8 +197,8 @@ function Home() {
               },
               { 
                 name: 'Color Vision Test', 
-                time: '2-3 minutes',
-                description: 'Find hidden numbers in colored dots',
+                time: '3-5 minutes',
+                description: 'Color thresholds on red, green and blue–yellow axes',
                 icon: 'M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01'
               },
               { 
@@ -209,8 +209,8 @@ function Home() {
               },
               { 
                 name: 'Faint Shapes Test', 
-                time: '3-4 minutes',
-                description: 'See how well you spot faint shapes in dim light',
+                time: '4-6 minutes',
+                description: 'Map your contrast sensitivity curve with faint stripes',
                 icon: 'M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z'
               },
               { 
@@ -228,13 +228,13 @@ function Home() {
               { 
                 name: 'Eye Glow Test', 
                 time: '3-4 minutes',
-                description: 'Camera check of the glow from the back of your eye',
+                description: 'Phone flashlight check comparing the glow in your two eyes',
                 icon: 'M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z'
               },
               { 
-                name: 'Eye Tiredness Meter', 
+                name: 'Near Blur Tolerance', 
                 time: '30 seconds',
-                description: 'Measure eye strain from screens and close-up work',
+                description: 'Focusing fatigue index for screens and close-up work',
                 icon: 'M13 10V3L4 14h7v7l9-11h-7z',
                 badge: 'Camera'
               },

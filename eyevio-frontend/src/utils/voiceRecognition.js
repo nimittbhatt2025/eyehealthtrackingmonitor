@@ -11,6 +11,22 @@ const ACUITY_LETTER_PHONETICS = {
   P: ['P', 'PEE', 'PEA', 'PI', 'PE'],
   T: ['T', 'TEE', 'TEA', 'TI', 'TE'],
   Z: ['Z', 'ZEE', 'ZED', 'ZED', 'ZED'],
+  // Sloan letters (C D H K N O R S V Z); only matched when in the allowed set.
+  C: ['C', 'SEE', 'SEA', 'CEE', 'SI'],
+  D: ['D', 'DEE', 'DI', 'DE'],
+  H: ['H', 'AITCH', 'HAITCH', 'ACHE', 'AGE'],
+  K: ['K', 'KAY', 'OKAY', 'CAY', 'KAYE'],
+  N: ['N', 'EN', 'AN', 'IN', 'END'],
+  R: ['R', 'ARE', 'AR', 'ARR', 'OUR'],
+  S: ['S', 'ES', 'ESS', 'YES', 'AS'],
+  V: ['V', 'VEE', 'VI', 'WE'],
+}
+
+const DIRECTION_WORDS = {
+  UP: 'up', UPWARD: 'up', UPWARDS: 'up', TOP: 'up', UPS: 'up',
+  DOWN: 'down', DOWNWARD: 'down', DOWNWARDS: 'down', BOTTOM: 'down',
+  LEFT: 'left', LEFTS: 'left', LIFT: 'left',
+  RIGHT: 'right', WRITE: 'right', RITE: 'right', RIGHTS: 'right', WRIGHT: 'right',
 }
 
 function normalizeSpokenText(raw) {
@@ -243,6 +259,18 @@ class VoiceRecognition {
       }
     }
 
+    return null
+  }
+
+  /** Tumbling E answers: 'up' | 'down' | 'left' | 'right', or null. */
+  parseDirection(transcript) {
+    const transcripts = Array.isArray(transcript) ? transcript : [transcript]
+    for (const raw of transcripts) {
+      for (const token of normalizeSpokenText(raw).split(' ')) {
+        const dir = DIRECTION_WORDS[token]
+        if (dir) return dir
+      }
+    }
     return null
   }
 

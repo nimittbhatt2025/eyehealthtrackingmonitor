@@ -7,6 +7,28 @@ import StableLightingPreview from '../utils/stableLightingPreview'
 import { getLightingUiCopy } from '../utils/photoLightingCheck'
 import { PupilRegionTracker } from '../utils/pupilRegionDetector'
 import { estimateDistanceCmFromPixelIpd } from '../utils/distanceCalibration'
+import useBlinkCounter from '../hooks/useBlinkCounter'
+import {
+  BLINK_BANDS,
+  BLINK_NUDGE_COOLDOWN_MS,
+  BLINK_WARMUP_MS,
+  BREAK_INTERVAL_OPTIONS,
+  BREAK_SECONDS,
+  SNOOZE_MS,
+  blinkBand,
+  breakDue,
+  rollingBlinkRate,
+  summarizeBlinkSession,
+} from '../utils/blinkCoach'
+
+const BLINK_BAND_UI = {
+  warming_up: { label: 'Measuring…', chip: 'bg-gray-600' },
+  low: { label: 'Low', chip: 'bg-orange-600' },
+  reduced: { label: 'A bit low', chip: 'bg-yellow-600' },
+  healthy: { label: 'Healthy', chip: 'bg-green-600' },
+}
+
+const notificationsSupported = () => typeof window !== 'undefined' && 'Notification' in window
 
 /**
  * Ocular Ergonomics AI - Ambient Monitor
@@ -63,6 +85,34 @@ const OcularErgonomicsMonitor = () => {
   const [sessionStart, setSessionStart] = useState(null)
   const [ergonomicsScore, setErgonomicsScore] = useState(100)
   const [recommendations, setRecommendations] = useState([])
+
+  // Blink biofeedback + 20-20-20 breaks
+  const blinkCounter = useBlinkCounter({ active: monitoringState === 'monitoring' })
+  const blinkRateStartRef = useRef(0)
+  const blinkSamplesRef = useRef([])
+  const countedMsRef = useRef(0)
+  const lastTickRef = useRef(0)
+  const lastBlinkNudgeRef = useRef(0)
+  const blinkNudgesRef = useRef(0)
+  const sinceBreakMsRef = useRef(0)
+  const breakStatsRef = useRef({ prompted: 0, taken: 0, snoozed: 0, notificationsSent: 0 })
+  const breakActiveRef = useRef(false)
+  const breakEndsAtRef = useRef(null)
+  const countedBlinksRef = useRef(0)
+  const [blinkRate, setBlinkRate] = useState(null)
+  const [blinkCounting, setBlinkCounting] = useState(false)
+  const [blinkCount, setBlinkCount] = useState(0)
+  const [blinkWarmupLeft, setBlinkWarmupLeft] = useState(BLINK_WARMUP_MS / 1000)
+  const [breakIntervalId, setBreakIntervalId] = useState('20')
+  const [breakPrompt, setBreakPrompt] = useState(false)
+  const [breakCountdown, setBreakCountdown] = useState(null)
+  const [nextBreakInSec, setNextBreakInSec] = useState(null)
+  const [notificationPermission, setNotificationPermission] = useState(
+    notificationsSupported() ? Notification.permission : 'unsupported'
+  )
+  const [blinkSummary, setBlinkSummary] = useState(null)
+  const [breakSummary, setBreakSummary] = useState(null)
+  const breakIntervalMs = (BREAK_INTERVAL_OPTIONS.find((o) => o.id === breakIntervalId) || BREAK_INTERVAL_OPTIONS[0]).ms
 
   // Thresholds
   const OPTIMAL_DISTANCE_MIN = 50 // cm
@@ -302,8 +352,9 @@ const OcularErgonomicsMonitor = () => {
   }, [])
 
   // Generate alert (throttled per type so the UI stays readable)
-  const generateAlert = useCallback((type, message, severity) => {
+  const generateAlert = useCallback((type, message, severity, { scored = true } = {}) => {
     const now = Date.now()
+    if (breakActiveRef.current) return
     if (now - (lastAlertAt.current[type] || 0) < 12000) return
     lastAlertAt.current[type] = now
 
@@ -316,10 +367,12 @@ const OcularErgonomicsMonitor = () => {
     }
 
     setAlerts(prev => [alert, ...prev].slice(0, 50)) // Keep last 50
-    setTotalAlerts(prev => prev + 1)
-    if (severity === 'critical') alertCountsRef.current.critical += 1
-    else if (severity === 'warning') alertCountsRef.current.warning += 1
-    else alertCountsRef.current.info += 1
+    if (scored) {
+      setTotalAlerts(prev => prev + 1)
+      if (severity === 'critical') alertCountsRef.current.critical += 1
+      else if (severity === 'warning') alertCountsRef.current.warning += 1
+      else alertCountsRef.current.info += 1
+    }
     setCurrentAlert(alert)
 
     // Auto-dismiss after 10 seconds
@@ -329,7 +382,9 @@ const OcularErgonomicsMonitor = () => {
     }, 10000)
 
     // Update ergonomics score
-    setErgonomicsScore(prev => Math.max(0, prev - (severity === 'critical' ? 5 : severity === 'warning' ? 2 : 1)))
+    if (scored) {
+      setErgonomicsScore(prev => Math.max(0, prev - (severity === 'critical' ? 5 : severity === 'warning' ? 2 : 1)))
+    }
   }, [])
 
   const takeSample = useCallback(async () => {
@@ -429,18 +484,154 @@ const OcularErgonomicsMonitor = () => {
     setLastSampleAt(null)
     setPostureStatus('unknown')
     setDistanceBandLabel(DISTANCE_BAND_LABELS.unknown)
+
+    const now = Date.now()
+    blinkCounter.blinkTimesRef.current = []
+    blinkRateStartRef.current = now
+    blinkSamplesRef.current = []
+    countedMsRef.current = 0
+    countedBlinksRef.current = 0
+    breakEndsAtRef.current = null
+    lastTickRef.current = now
+    lastBlinkNudgeRef.current = 0
+    blinkNudgesRef.current = 0
+    sinceBreakMsRef.current = 0
+    breakStatsRef.current = { prompted: 0, taken: 0, snoozed: 0, notificationsSent: 0 }
+    breakActiveRef.current = false
+    setBlinkRate(null)
+    setBlinkCount(0)
+    setBlinkWarmupLeft(BLINK_WARMUP_MS / 1000)
+    setBreakPrompt(false)
+    setBreakCountdown(null)
+    setBlinkSummary(null)
+    setBreakSummary(null)
+
     bindStreamToVideo()
     window.setTimeout(() => beginTimers(), 50)
-  }, [bindStreamToVideo, beginTimers])
+  }, [bindStreamToVideo, beginTimers, blinkCounter.blinkTimesRef])
+
+  const endBreakState = () => {
+    breakEndsAtRef.current = null
+    breakActiveRef.current = false
+    setBreakCountdown(null)
+  }
+
+  const startBreak = () => {
+    breakEndsAtRef.current = Date.now() + BREAK_SECONDS * 1000
+    breakActiveRef.current = true
+    setBreakPrompt(false)
+    setBreakCountdown(BREAK_SECONDS)
+  }
+
+  const finishBreak = () => {
+    endBreakState()
+    breakStatsRef.current.taken += 1
+    sinceBreakMsRef.current = 0
+    generateAlert('break', `Break done. Next reminder in ${Math.round(breakIntervalMs / 60000)} min.`, 'info', { scored: false })
+  }
+
+  const snoozeBreak = () => {
+    sinceBreakMsRef.current = Math.max(0, breakIntervalMs - SNOOZE_MS)
+    breakStatsRef.current.snoozed += 1
+    setBreakPrompt(false)
+  }
+
+  const requestNotifications = async () => {
+    if (!notificationsSupported()) return
+    try {
+      setNotificationPermission(await Notification.requestPermission())
+    } catch {
+      /* permission prompt unavailable */
+    }
+  }
+
+  const sendBreakNotification = () => {
+    if (!notificationsSupported() || Notification.permission !== 'granted' || !document.hidden) return
+    try {
+      new Notification('Time for a 20-second eye break', {
+        body: 'Look at something about 6 metres (20 feet) away for 20 seconds.',
+        tag: 'eyevio-20-20-20',
+      })
+      breakStatsRef.current.notificationsSent += 1
+    } catch {
+      /* some browsers only allow notifications from a service worker */
+    }
+  }
+
+  const coachTickRef = useRef(null)
+  coachTickRef.current = () => {
+    const now = Date.now()
+    const delta = Math.min(5000, Math.max(0, now - (lastTickRef.current || now)))
+    lastTickRef.current = now
+
+    if (breakEndsAtRef.current) {
+      const left = Math.ceil((breakEndsAtRef.current - now) / 1000)
+      if (left <= 0) finishBreak()
+      else setBreakCountdown(left)
+    }
+
+    // The tracker only sees frames while the tab is visible and a face is in view;
+    // restart the rate window after any gap so absences don't read as a low blink rate.
+    const times = blinkCounter.blinkTimesRef.current
+    const faceRecent = now - blinkCounter.lastFaceAtRef.current < 2000
+    const counting = blinkCounter.status === 'running' && faceRecent && !document.hidden && !breakActiveRef.current
+    let rate = null
+    if (counting) {
+      countedMsRef.current += delta
+      countedBlinksRef.current += times.filter((t) => t > now - delta && t <= now).length
+      rate = rollingBlinkRate(times, now, { startedAt: blinkRateStartRef.current })
+      setBlinkWarmupLeft(Math.max(0, Math.ceil((BLINK_WARMUP_MS - (now - blinkRateStartRef.current)) / 1000)))
+    } else {
+      blinkRateStartRef.current = now
+      setBlinkWarmupLeft(BLINK_WARMUP_MS / 1000)
+    }
+    blinkSamplesRef.current.push({ t: now, rate })
+    setBlinkCounting(counting)
+    setBlinkRate(rate)
+    setBlinkCount(countedBlinksRef.current)
+
+    if (blinkBand(rate) === 'low' && now - lastBlinkNudgeRef.current > BLINK_NUDGE_COOLDOWN_MS) {
+      lastBlinkNudgeRef.current = now
+      blinkNudgesRef.current += 1
+      generateAlert(
+        'blink',
+        `You've blinked about ${Math.round(rate)} times a minute recently. Try a few slow, complete blinks.`,
+        'info',
+        { scored: false }
+      )
+    }
+
+    if (!breakEndsAtRef.current && !breakPrompt) {
+      sinceBreakMsRef.current += delta
+      if (breakDue(sinceBreakMsRef.current, breakIntervalMs)) {
+        setBreakPrompt(true)
+        breakStatsRef.current.prompted += 1
+        sendBreakNotification()
+      }
+    }
+    setNextBreakInSec(Math.max(0, Math.ceil((breakIntervalMs - sinceBreakMsRef.current) / 1000)))
+  }
+
+  useEffect(() => {
+    if (monitoringState !== 'monitoring') return undefined
+    lastTickRef.current = Date.now()
+    const id = setInterval(() => coachTickRef.current?.(), 1000)
+    return () => clearInterval(id)
+  }, [monitoringState])
 
   // Pause monitoring
   const pauseMonitoring = useCallback(() => {
     clearTimers()
+    breakEndsAtRef.current = null
+    breakActiveRef.current = false
+    setBreakCountdown(null)
     setMonitoringState('paused')
   }, [clearTimers])
 
   // Resume monitoring
   const resumeMonitoring = useCallback(() => {
+    blinkRateStartRef.current = Date.now()
+    lastTickRef.current = Date.now()
     setMonitoringState('monitoring')
     bindStreamToVideo()
     window.setTimeout(() => beginTimers(), 50)
@@ -469,11 +660,32 @@ const OcularErgonomicsMonitor = () => {
       })
     }
 
-    if (totalAlerts > monitoringDuration / 30) { // >1 alert per minute
+    const blink = {
+      ...summarizeBlinkSession(blinkSamplesRef.current, countedBlinksRef.current, countedMsRef.current),
+      nudges: blinkNudgesRef.current,
+      counterStatus: blinkCounter.status,
+    }
+    const breaks = {
+      intervalMin: breakIntervalMs / 60000,
+      ...breakStatsRef.current,
+      notificationPermission,
+    }
+    setBlinkSummary(blink)
+    setBreakSummary(breaks)
+
+    if (blink.meanRatePerMin != null && blink.meanRatePerMin < BLINK_BANDS.healthy) {
+      recs.push({
+        type: 'blink',
+        title: 'Blink More Often',
+        description: `You averaged about ${Math.round(blink.meanRatePerMin)} blinks a minute. Relaxed blinking is around 15–20 a minute, and screen work often halves it, which can leave eyes dry and tired. Try a few slow, complete blinks whenever you finish a task, and set the screen slightly below eye level.`
+      })
+    }
+
+    if (totalAlerts > monitoringDuration / 30 || breaks.prompted > breaks.taken) {
       recs.push({
         type: 'breaks',
         title: 'Take More Breaks',
-        description: 'Follow the 20-20-20 rule: Every 20 minutes, look 20 feet away for 20 seconds.'
+        description: 'Follow the 20-20-20 rule: every 20 minutes, look at something 20 feet (about 6 metres) away for 20 seconds. Leave this monitor running in a background tab and it will remind you.'
       })
     }
 
@@ -503,6 +715,8 @@ const OcularErgonomicsMonitor = () => {
       alertCounts: { ...alertCountsRef.current },
       ergonomicsScore,
       recommendations: recs,
+      blink,
+      breaks,
       analysis_note:
         distanceConfidence === 'iris-landmarks'
           ? 'Viewing distance estimated from MediaPipe iris IPD (uses saved calibration when available).'
@@ -513,7 +727,7 @@ const OcularErgonomicsMonitor = () => {
 
     stopCamera()
     setMonitoringState('results')
-  }, [monitoringDuration, totalAlerts, ambientLight, glareLevel, viewingDistance, postureStatus, distanceBandLabel, distanceConfidence, lightingStatus, lightingMessage, ergonomicsScore, stopCamera, clearTimers])
+  }, [monitoringDuration, totalAlerts, ambientLight, glareLevel, viewingDistance, postureStatus, distanceBandLabel, distanceConfidence, lightingStatus, lightingMessage, ergonomicsScore, stopCamera, clearTimers, blinkCounter.status, breakIntervalMs, notificationPermission])
 
   // Submit session to backend
   const submitSession = async (session) => {
@@ -536,6 +750,26 @@ const OcularErgonomicsMonitor = () => {
           total_alerts: session.totalAlerts,
           alert_counts: session.alertCounts,
           recommendations: session.recommendations,
+          blink_rate: {
+            method: 'mediapipe_eye_aspect_ratio',
+            blink_count: session.blink.blinkCount,
+            mean_rate_per_min: session.blink.meanRatePerMin,
+            low_rate_fraction: session.blink.lowRateFraction,
+            rated_seconds: session.blink.ratedSeconds,
+            low_threshold_per_min: BLINK_BANDS.low,
+            healthy_threshold_per_min: BLINK_BANDS.healthy,
+            nudges: session.blink.nudges,
+            counter_status: session.blink.counterStatus,
+          },
+          breaks_20_20_20: {
+            interval_min: session.breaks.intervalMin,
+            prompted: session.breaks.prompted,
+            taken: session.breaks.taken,
+            snoozed: session.breaks.snoozed,
+            notifications_sent: session.breaks.notificationsSent,
+            notification_permission: session.breaks.notificationPermission,
+          },
+          scoring_note: 'Score reflects lighting and distance alerts only; blink nudges and break reminders do not lower it.',
           timestamp: new Date().toISOString()
         }
       })
@@ -621,6 +855,16 @@ const OcularErgonomicsMonitor = () => {
                 <div>
                   <h4 className="font-bold text-gray-900 mb-1">Posture Analysis</h4>
                   <p className="text-gray-600">Detects when you're slouching or getting too close to the screen</p>
+                </div>
+              </div>
+
+              <div className="flex gap-4">
+                <div className="flex-shrink-0 w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
+                  <span className="text-blue-600 font-bold">B</span>
+                </div>
+                <div>
+                  <h4 className="font-bold text-gray-900 mb-1">Blink Rate &amp; 20-20-20 Breaks</h4>
+                  <p className="text-gray-600">Counts your blinks and nudges you when they drop, and reminds you to look 20 feet away for 20 seconds every 20 minutes — even from a background tab if you allow notifications</p>
                 </div>
               </div>
 
@@ -753,9 +997,60 @@ const OcularErgonomicsMonitor = () => {
 
     const progressPct = Math.min(100, Math.round((monitoringDuration / SESSION_GOAL_SECONDS) * 100))
     const waitingForSample = sampleCount === 0 && !isPaused
+    const band = blinkBand(blinkRate)
+    const bandUi = BLINK_BAND_UI[band]
+    const blinkHint = (() => {
+      if (blinkCounter.status === 'error') return 'Blink counter could not start on this device.'
+      if (blinkCounter.status !== 'running') return 'Starting blink counter…'
+      if (breakCountdown != null) return 'Paused during your break.'
+      if (!blinkCounting) return 'Face not in view — blink rate paused.'
+      if (band === 'warming_up') return `Counting for ${blinkWarmupLeft}s more before showing a rate.`
+      if (band === 'low') return 'Well below the usual. Try a few slow, complete blinks.'
+      if (band === 'reduced') return 'Lower than when relaxed — common during screen work.'
+      return 'In the usual range for screen work.'
+    })()
 
     return (
       <div className="min-h-screen bg-gray-900 text-white p-4">
+        <video ref={blinkCounter.videoRef} className="hidden" playsInline muted aria-hidden="true" />
+
+        {!isPaused && (breakPrompt || breakCountdown != null) && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-950/90 p-6" role="dialog" aria-modal="true" aria-labelledby="break-title">
+            <div className="max-w-md w-full text-center">
+              {breakCountdown != null ? (
+                <>
+                  <p id="break-title" className="text-sm uppercase tracking-widest text-cyan-300 mb-4">20-20-20 break</p>
+                  <p className="font-mono text-8xl font-bold tabular-nums mb-6" aria-live="polite">{breakCountdown}</p>
+                  <p className="text-lg text-gray-200">
+                    Look at something about 6 metres (20 feet) away — out of a window if you can. Blink slowly.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <h2 id="break-title" className="text-3xl font-bold mb-3 !text-white">Time for a 20-second break</h2>
+                  <p className="text-gray-300 mb-8">
+                    Look at something about 20 feet (6 metres) away for 20 seconds to let your focusing muscles relax.
+                  </p>
+                  <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                    <button
+                      onClick={startBreak}
+                      className="px-6 py-3 bg-cyan-600 hover:bg-cyan-500 rounded-xl font-semibold min-h-[44px]"
+                    >
+                      Start 20-second break
+                    </button>
+                    <button
+                      onClick={snoozeBreak}
+                      className="px-6 py-3 bg-gray-700 hover:bg-gray-600 rounded-xl font-semibold min-h-[44px]"
+                    >
+                      Snooze 5 min
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
         <div className="max-w-6xl mx-auto">
           {/* Header */}
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
@@ -910,6 +1205,70 @@ const OcularErgonomicsMonitor = () => {
 
             {/* Metrics */}
             <div className="space-y-4">
+              {/* Blinks & breaks */}
+              <div className="bg-gray-800 rounded-xl p-6">
+                <h3 className="font-bold mb-4 flex items-center gap-2">
+                  <span className="text-cyan-400">BLINK</span> Blinks &amp; Breaks
+                </h3>
+                <div className="flex items-end justify-between gap-4">
+                  <div>
+                    <p className="text-sm text-gray-400">Blink rate (last minute)</p>
+                    <p className="font-mono text-4xl font-bold tabular-nums">
+                      {blinkRate != null ? Math.round(blinkRate) : '—'}
+                      <span className="text-base font-normal text-gray-400"> /min</span>
+                    </p>
+                  </div>
+                  <span className={`px-3 py-1 rounded-full text-sm font-bold text-white ${bandUi.chip}`}>{bandUi.label}</span>
+                </div>
+                <p className="text-sm text-gray-300 mt-2" aria-live="polite">{blinkHint}</p>
+                <p className="text-xs text-gray-500 mt-1">
+                  {blinkCount} blink{blinkCount === 1 ? '' : 's'} counted. Relaxed blinking is about 15–20 a minute; below {BLINK_BANDS.low} is low.
+                </p>
+
+                <div className="mt-4 pt-4 border-t border-gray-700 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-sm text-gray-400">Next 20-20-20 break</span>
+                    <span className="font-mono font-bold tabular-nums">
+                      {breakCountdown != null ? 'now' : nextBreakInSec != null ? formatTime(nextBreakInSec) : '—'}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <label htmlFor="break-interval" className="sr-only">Break reminder interval</label>
+                    <select
+                      id="break-interval"
+                      value={breakIntervalId}
+                      onChange={(e) => setBreakIntervalId(e.target.value)}
+                      className="flex-1 min-w-[10rem] bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm min-h-[44px]"
+                    >
+                      {BREAK_INTERVAL_OPTIONS.map((o) => (
+                        <option key={o.id} value={o.id}>{o.label}</option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={startBreak}
+                      disabled={isPaused || breakCountdown != null}
+                      className="px-4 py-2 bg-cyan-700 hover:bg-cyan-600 disabled:opacity-50 rounded-lg text-sm font-semibold min-h-[44px]"
+                    >
+                      Break now
+                    </button>
+                  </div>
+                  {notificationPermission === 'default' && (
+                    <button
+                      onClick={requestNotifications}
+                      className="w-full px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm min-h-[44px]"
+                    >
+                      Remind me even when this tab is in the background
+                    </button>
+                  )}
+                  {notificationPermission === 'granted' && (
+                    <p className="text-xs text-green-400">Background reminders are on — keep this tab open while you work.</p>
+                  )}
+                  {notificationPermission === 'denied' && (
+                    <p className="text-xs text-gray-500">Notifications are blocked in your browser, so reminders only show on this page.</p>
+                  )}
+                </div>
+              </div>
+
               {/* Lighting */}
               <div className="bg-gray-800 rounded-xl p-6">
                 <h3 className="font-bold mb-4 flex items-center gap-2">
@@ -1078,6 +1437,44 @@ const OcularErgonomicsMonitor = () => {
                 <div className="text-sm text-cyan-800">Distance band</div>
               </div>
             </div>
+
+            {blinkSummary && breakSummary && (
+              <div className="bg-cyan-50 border border-cyan-200 rounded-xl p-6 mb-8">
+                <h3 className="font-bold text-cyan-900 mb-3">Blinks &amp; breaks</h3>
+                <div className="grid sm:grid-cols-3 gap-4 text-center mb-3">
+                  <div>
+                    <div className="text-2xl font-bold text-cyan-700">
+                      {blinkSummary.meanRatePerMin != null ? Math.round(blinkSummary.meanRatePerMin) : '—'}
+                    </div>
+                    <div className="text-sm text-cyan-900">blinks per minute</div>
+                  </div>
+                  <div>
+                    <div className="text-2xl font-bold text-cyan-700">
+                      {blinkSummary.lowRateFraction != null ? `${Math.round(blinkSummary.lowRateFraction * 100)}%` : '—'}
+                    </div>
+                    <div className="text-sm text-cyan-900">of time below {BLINK_BANDS.low}/min</div>
+                  </div>
+                  <div>
+                    <div className="text-2xl font-bold text-cyan-700">
+                      {breakSummary.taken}/{breakSummary.prompted}
+                    </div>
+                    <div className="text-sm text-cyan-900">breaks taken / due</div>
+                  </div>
+                </div>
+                <p className="text-sm text-cyan-900">
+                  {blinkSummary.meanRatePerMin == null
+                    ? blinkSummary.counterStatus === 'error'
+                      ? 'The blink counter could not run on this device.'
+                      : `Blink rate needs at least ${BLINK_WARMUP_MS / 1000} seconds with your face in view.`
+                    : blinkSummary.meanRatePerMin < BLINK_BANDS.low
+                      ? 'Your blink rate was low for much of this session. This is common while concentrating on a screen and is a feedback number, not a diagnosis.'
+                      : blinkSummary.meanRatePerMin < BLINK_BANDS.healthy
+                        ? 'Your blink rate was a little below relaxed levels, which is typical of screen work.'
+                        : 'Your blink rate stayed in the usual range.'}
+                  {blinkSummary.nudges > 0 && ` We nudged you ${blinkSummary.nudges} time${blinkSummary.nudges === 1 ? '' : 's'}.`}
+                </p>
+              </div>
+            )}
 
             {distanceConfidence && (
               <div

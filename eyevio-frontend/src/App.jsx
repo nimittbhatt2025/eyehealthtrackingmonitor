@@ -24,11 +24,12 @@ import Dashboard from './pages/Dashboard'
 import VisionTests from './pages/VisionTests'
 import VisionTestRouteRedirect from './components/VisionTestRouteRedirect'
 import ContrastSensitivityTest from './pages/ContrastSensitivityTest'
-import GlaucomaTest from './pages/GlaucomaTest'
+import SideVisionTest from './pages/SideVisionTest'
 import CataractTest from './pages/CataractTest'
 import DryEyeTest from './pages/DryEyeTest'
 import RedReflexTest from './pages/RedReflexTest'
 import AccommodativeLagTest from './pages/AccommodativeLagTest'
+import NearPointConvergenceTest from './pages/NearPointConvergenceTest'
 import PeripheralAwarenessTest from './pages/PeripheralAwarenessTest'
 import OcularErgonomicsMonitor from './pages/OcularErgonomicsMonitor'
 import TestDetails from './pages/TestDetails'
@@ -147,11 +148,13 @@ function App() {
                   <Route path="/vision-tests/color_vision" element={<ColorVisionTest />} />
                   <Route path="/vision-tests/amsler_grid" element={<AmslerGridTest />} />
                   <Route path="/vision-tests/contrast_sensitivity" element={<ContrastSensitivityTest />} />
-                  <Route path="/vision-tests/glaucoma_neural" element={<GlaucomaTest />} />
+                  <Route path="/vision-tests/side_vision" element={<SideVisionTest />} />
+                  <Route path="/vision-tests/glaucoma_neural" element={<Navigate to="/vision-tests/side_vision" replace />} />
                   <Route path="/vision-tests/cataract_glare" element={<CataractTest />} />
                   <Route path="/vision-tests/dry_eye" element={<DryEyeTest />} />
                   <Route path="/vision-tests/red_reflex" element={<RedReflexTest />} />
                   <Route path="/vision-tests/accommodative_lag" element={<AccommodativeLagTest />} />
+                  <Route path="/vision-tests/near_point_convergence" element={<NearPointConvergenceTest />} />
                   <Route path="/vision-tests/peripheral_awareness" element={<PeripheralAwarenessTest />} />
                   <Route path="/vision-tests/ocular_ergonomics" element={<OcularErgonomicsMonitor />} />
                   <Route path="/vision-tests/:testType" element={<VisionTestRouteRedirect />} />

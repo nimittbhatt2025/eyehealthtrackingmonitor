@@ -25,9 +25,9 @@ const DEFAULT_HFOV_DEG = 65
 export const OPTIMAL_DISTANCES = {
   // Near Zone (12-16 inches / 30-40cm) - Fine detail and macular health
   amsler_grid: 355,    // 14 inches (35.5cm) - Tests central 20° of macula
-  color_vision: 355,   // 14 inches (35.5cm) - Ishihara standard distance
-  contrast_sensitivity: 406, // 16 inches (40.6cm) - Reading distance simulation
-  red_reflex: 305,     // 12 inches (30.5cm) - Bruckner test, retinal reflex capture
+  color_vision: 600,   // arm's length; large target, threshold is not size-limited
+  contrast_sensitivity: 1000, // 1 m - qCSF gratings sized in cycles per degree
+  red_reflex: 1000,    // ~1 m - Brückner-style, phone rear camera held by a helper
   
   // Arm's Length Zone (20-25 inches / 50-65cm) - Ergonomics and ciliary muscle
   eye_burnout: 610,    // 24 inches (61cm) - Ciliary muscle strain measurement
@@ -39,6 +39,7 @@ export const OPTIMAL_DISTANCES = {
   peripheral_field: 457, // 18 inches (45.7cm) - Fixed angle peripheral testing
   
   // Legacy/fallback
+  side_vision: 500,
   glaucoma_neural: 457, // 18 inches
   cataract_glare: 508,  // 20 inches
   accommodative_lag: 406, // 16 inches

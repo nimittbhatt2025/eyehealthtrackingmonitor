@@ -3,28 +3,71 @@ import { useNavigate } from 'react-router-dom'
 import { visionTestAPI } from '../services/api'
 import SamdDisclaimer from '../components/SamdDisclaimer'
 import { VisionTestShell } from '../components/TestPrepLayout'
-import { scoreGlareTolerance, interpretGlareResults } from '../utils/visionTestScoring'
+import { glareDeltaLogCS, scoreGlareDelta, interpretGlareDelta } from '../utils/visionTestScoring'
+import { createQuest, paintGrating, logCSToContrast, GRATING_ORIENTATIONS } from '../utils/psychophysics'
+import GratingSwatch from '../components/GratingSwatch'
 
 /**
- * Cataract "Glare & Scatter" Test
- * 
- * Cataracts cloud the lens, causing light to scatter inside the eye.
- * This test uses sine-wave gratings with glare simulation to detect lens cloudiness
- * YEARS before cataracts are visible on examination.
- * 
- * The key: healthy eyes can see gratings through glare, but cataractous lenses
- * scatter the glare light, making the gratings disappear completely.
+ * Glare test — contrast loss under veiling luminance.
+ *
+ * Two interleaved Bayesian (QUEST) staircases find the faintest grating the user
+ * can orient with and without a glare source. The result is
+ *   Δ logCS = logCS(no glare) − logCS(glare).
+ *
+ * Screen mode: a bright white ring around the grating scatters light inside the
+ * eye (the grating's own physical contrast is unchanged).
+ * Torch mode: a phone flashlight at a fixed off-axis angle is the glare source.
+ *
+ * Home screening only — not a cataract diagnosis.
  */
+
+const TRIALS_PER_CONDITION = 10
+const PRACTICE_TRIALS = 2
+const PRACTICE_LOGCS = 0.3 // 50% contrast — easy
+const GRATING_CYCLES = 12
+const APERTURE_RADIUS = 120 // on a 400px canvas
+const FEEDBACK_CORRECT_MS = 600
+const FEEDBACK_WRONG_MS = 1100
+
+const QUEST_SETTINGS = {
+  noGlare: { priorMean: 1.5, priorSd: 0.6 },
+  glare: { priorMean: 1.3, priorSd: 0.6 },
+}
+
+const ORIENTATIONS = GRATING_ORIENTATIONS
+
+function shuffle(list) {
+  const out = [...list]
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[out[i], out[j]] = [out[j], out[i]]
+  }
+  return out
+}
+
+/**
+ * Screen mode interleaves conditions (reduces learning/fatigue bias).
+ * Torch mode runs a no-glare block, then a torch-on block.
+ */
+function buildSchedule(mode) {
+  const practice = Array.from({ length: PRACTICE_TRIALS }, () => ({ condition: 'noGlare', practice: true }))
+  const noGlare = Array.from({ length: TRIALS_PER_CONDITION }, () => ({ condition: 'noGlare', practice: false }))
+  const glare = Array.from({ length: TRIALS_PER_CONDITION }, () => ({ condition: 'glare', practice: false }))
+  if (mode === 'torch') return [...practice, ...noGlare, ...glare]
+  return [...practice, ...shuffle([...noGlare, ...glare])]
+}
 
 const CataractTest = () => {
   const navigate = useNavigate()
-  const [testState, setTestState] = useState('instructions') // instructions, testing, results
+  const [testState, setTestState] = useState('instructions') // instructions, torch-setup, testing, torch-on, results
+  const [glareMode, setGlareMode] = useState('screen') // screen | torch
+  const [schedule, setSchedule] = useState([])
   const [currentTrial, setCurrentTrial] = useState(0)
   const [responses, setResponses] = useState([])
   const [startTime, setStartTime] = useState(null)
   const [testStartTime, setTestStartTime] = useState(null)
   const [currentStimulus, setCurrentStimulus] = useState(null)
-  const [glareActive, setGlareActive] = useState(false)
+  const [feedback, setFeedback] = useState(null)
   const [score, setScore] = useState(0)
   const [resultSummary, setResultSummary] = useState(null)
   const [isListening, setIsListening] = useState(false)
@@ -37,226 +80,128 @@ const CataractTest = () => {
   const useVoiceRef = useRef(false)
   const canvasRef = useRef(null)
   const handleResponseRef = useRef(null)
+  const lockedRef = useRef(false)
+  const advanceTimeoutRef = useRef(null)
+  const lastOrientationRef = useRef(null)
+  const questsRef = useRef(null)
 
-  // Test parameters
-  const TOTAL_TRIALS = 20 // 4 spatial frequencies × 5 (2 no-glare, 3 glare)
-  
-  // Spatial frequencies in cycles per degree
-  // Low freq = thick bars (easy), high freq = thin bars (hard)
-  const spatialFrequencies = [
-    { cpd: 1.5, description: 'Very Low (Thick bars)', difficulty: 'easy' },
-    { cpd: 3.0, description: 'Low (Medium bars)', difficulty: 'medium' },
-    { cpd: 6.0, description: 'Medium (Thin bars)', difficulty: 'hard' },
-    { cpd: 12.0, description: 'High (Very thin bars)', difficulty: 'very-hard' }
-  ]
+  useEffect(() => () => clearTimeout(advanceTimeoutRef.current), [])
 
-  // Orientations for gratings
-  const orientations = [
-    { angle: 0, name: 'Horizontal', direction: 'horizontal' },
-    { angle: 45, name: 'Diagonal Right', direction: 'diagonal-right' },
-    { angle: 90, name: 'Vertical', direction: 'vertical' },
-    { angle: 135, name: 'Diagonal Left', direction: 'diagonal-left' }
-  ]
+  const makeStimulus = useCallback((trialIndex, plan) => {
+    const slot = plan[trialIndex]
+    // Never repeat the previous direction, so every new trial visibly changes.
+    const choices = ORIENTATIONS.filter((o) => o.direction !== lastOrientationRef.current)
+    const orientation = choices[Math.floor(Math.random() * choices.length)]
+    lastOrientationRef.current = orientation.direction
 
-  const directionButtons = [
-    {
-      direction: 'horizontal',
-      label: 'Horizontal',
-      hint: '← →',
-      preview: 'repeating-linear-gradient(0deg, #fff 0 2px, transparent 2px 6px)',
-    },
-    {
-      direction: 'vertical',
-      label: 'Vertical',
-      hint: '↑ ↓',
-      preview: 'repeating-linear-gradient(90deg, #fff 0 2px, transparent 2px 6px)',
-    },
-    {
-      direction: 'diagonal-right',
-      label: 'Diag. right',
-      hint: '↗',
-      preview: 'repeating-linear-gradient(45deg, #fff 0 2px, transparent 2px 6px)',
-    },
-    {
-      direction: 'diagonal-left',
-      label: 'Diag. left',
-      hint: '↖',
-      preview: 'repeating-linear-gradient(135deg, #fff 0 2px, transparent 2px 6px)',
-    },
-  ]
-
-  // Draw sine-wave grating on canvas
-  const drawGrating = useCallback((canvas, frequency, orientation, contrast = 0.8) => {
-    if (!canvas) return
-    
-    const ctx = canvas.getContext('2d')
-    const width = canvas.width
-    const height = canvas.height
-    
-    // Clear canvas
-    ctx.fillStyle = '#888888' // Mid-gray background
-    ctx.fillRect(0, 0, width, height)
-    
-    // Create image data
-    const imageData = ctx.createImageData(width, height)
-    const data = imageData.data
-    
-    // Convert angle to radians
-    const angleRad = (orientation * Math.PI) / 180
-    
-    // Spatial frequency scaled to canvas size
-    const wavelength = width / (frequency * 2)
-    
-    // Generate sine-wave grating
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        // Rotate coordinates
-        const xRot = x * Math.cos(angleRad) + y * Math.sin(angleRad)
-        
-        // Calculate sine wave
-        const sineValue = Math.sin((2 * Math.PI * xRot) / wavelength)
-        
-        // Convert to grayscale (0-255) with contrast adjustment
-        const baseGray = 128
-        const grayValue = Math.round(baseGray + (sineValue * contrast * 127))
-        
-        // Set pixel
-        const index = (y * width + x) * 4
-        data[index] = grayValue     // R
-        data[index + 1] = grayValue // G
-        data[index + 2] = grayValue // B
-        data[index + 3] = 255       // A
-      }
-    }
-    
-    ctx.putImageData(imageData, 0, 0)
-  }, [])
-
-  // Generate a random stimulus
-  const generateStimulus = useCallback((trialNum) => {
-    // Cycle through conditions
-    const freqIndex = Math.floor(trialNum / 5) % spatialFrequencies.length
-    const trialInFreq = trialNum % 5
-    const withGlare = trialInFreq >= 2 // First 2 trials without glare, next 3 with glare
-    
-    const freq = spatialFrequencies[freqIndex]
-    const orientation = orientations[Math.floor(Math.random() * orientations.length)]
-    
-    // Reduce contrast slightly for glare trials (to stress the system more)
-    const contrast = withGlare ? 0.6 : 0.8
-    
+    const logCS = slot.practice ? PRACTICE_LOGCS : questsRef.current[slot.condition].next()
     return {
-      frequency: freq,
+      trial: trialIndex,
+      condition: slot.condition,
+      withGlare: slot.condition === 'glare',
+      practice: slot.practice,
       orientation,
-      withGlare,
-      contrast,
-      trial: trialNum
+      logCS,
+      contrast: logCSToContrast(logCS),
     }
   }, [])
 
   // Initialize speech recognition
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
-      if (SpeechRecognition) {
-        const recognitionInstance = new SpeechRecognition()
-        recognitionInstance.continuous = false
-        recognitionInstance.interimResults = false
-        recognitionInstance.lang = 'en-US'
+    if (typeof window === 'undefined') return
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!SpeechRecognition) return
 
-        recognitionInstance.onresult = (event) => {
-          const speechResult = event.results[0][0].transcript.toLowerCase()
-          setTranscript(speechResult)
-          
-          // Map spoken words to orientations
-          const directionMap = {
-            'horizontal': 'horizontal',
-            'vertical': 'vertical',
-            'diagonal right': 'diagonal-right',
-            'diagonal left': 'diagonal-left',
-            'diag right': 'diagonal-right',
-            'diag left': 'diagonal-left',
-          }
-          
-          // Check for direction keywords
-          let detectedDirection = null
-          for (const [keyword, direction] of Object.entries(directionMap)) {
-            if (speechResult.includes(keyword)) {
-              detectedDirection = direction
-              break
-            }
-          }
-          
-          if (detectedDirection && handleResponseRef.current) {
-            handleResponseRef.current(detectedDirection)
-          } else {
-            // If no valid direction found, show error
-            setTranscript('Not recognized. Say: Horizontal, Vertical, Diagonal Right, or Diagonal Left')
-            setTimeout(() => setTranscript(''), 2000)
-          }
+    const recognitionInstance = new SpeechRecognition()
+    recognitionInstance.continuous = false
+    recognitionInstance.interimResults = false
+    recognitionInstance.lang = 'en-US'
+
+    recognitionInstance.onresult = (event) => {
+      const speechResult = event.results[0][0].transcript.toLowerCase()
+      setTranscript(speechResult)
+
+      const directionMap = {
+        horizontal: 'horizontal',
+        vertical: 'vertical',
+        'diagonal right': 'diagonal-right',
+        'diagonal left': 'diagonal-left',
+        'diag right': 'diagonal-right',
+        'diag left': 'diagonal-left',
+      }
+
+      let detectedDirection = null
+      for (const [keyword, direction] of Object.entries(directionMap)) {
+        if (speechResult.includes(keyword)) {
+          detectedDirection = direction
+          break
         }
+      }
 
-        recognitionInstance.onerror = (event) => {
-          setIsListening(false)
-
-          // Fatal errors: stop voice and fall back to buttons (no retry loop)
-          const fatalErrors = ['network', 'not-allowed', 'service-not-allowed', 'audio-capture', 'aborted']
-          if (fatalErrors.includes(event.error)) {
-            setSpeechAvailable(false)
-            setUseVoice(false)
-            const messages = {
-              network: 'Voice needs internet. Tap a direction button below.',
-              'not-allowed': 'Microphone blocked. Tap a direction button below.',
-              'service-not-allowed': 'Voice not available. Tap a direction button below.',
-              'audio-capture': 'No microphone found. Tap a direction button below.',
-              aborted: '',
-            }
-            const msg = messages[event.error]
-            if (msg) {
-              setTranscript(msg)
-              setTimeout(() => setTranscript(''), 4000)
-            }
-            return
-          }
-
-          if (event.error === 'no-speech') {
-            return
-          }
-
-          // Transient errors: retry at most twice
-          if (speechRetryCountRef.current < 2 && useVoiceRef.current) {
-            speechRetryCountRef.current += 1
-            setTranscript('Didn\'t catch that. Try again or tap a button.')
-            setTimeout(() => setTranscript(''), 2000)
-            setTimeout(() => {
-              const rec = recognitionRef.current
-              if (!rec || !useVoiceRef.current) return
-              setIsListening(true)
-              try {
-                rec.start()
-              } catch {
-                setIsListening(false)
-              }
-            }, 1500)
-          }
-        }
-
-        recognitionInstance.onend = () => {
-          setIsListening(false)
-        }
-
-        recognitionRef.current = recognitionInstance
-        setRecognition(recognitionInstance)
-        setSpeechAvailable(true)
+      if (detectedDirection && handleResponseRef.current) {
+        handleResponseRef.current(detectedDirection)
+      } else {
+        setTranscript('Not recognized. Say: Horizontal, Vertical, Diagonal Right (/), or Diagonal Left (\\)')
+        setTimeout(() => setTranscript(''), 2000)
       }
     }
+
+    recognitionInstance.onerror = (event) => {
+      setIsListening(false)
+
+      // Fatal errors: stop voice and fall back to buttons (no retry loop)
+      const fatalErrors = ['network', 'not-allowed', 'service-not-allowed', 'audio-capture', 'aborted']
+      if (fatalErrors.includes(event.error)) {
+        setSpeechAvailable(false)
+        setUseVoice(false)
+        const messages = {
+          network: 'Voice needs internet. Tap a direction button below.',
+          'not-allowed': 'Microphone blocked. Tap a direction button below.',
+          'service-not-allowed': 'Voice not available. Tap a direction button below.',
+          'audio-capture': 'No microphone found. Tap a direction button below.',
+          aborted: '',
+        }
+        const msg = messages[event.error]
+        if (msg) {
+          setTranscript(msg)
+          setTimeout(() => setTranscript(''), 4000)
+        }
+        return
+      }
+
+      if (event.error === 'no-speech') return
+
+      // Transient errors: retry at most twice
+      if (speechRetryCountRef.current < 2 && useVoiceRef.current) {
+        speechRetryCountRef.current += 1
+        setTranscript('Didn\'t catch that. Try again or tap a button.')
+        setTimeout(() => setTranscript(''), 2000)
+        setTimeout(() => {
+          const rec = recognitionRef.current
+          if (!rec || !useVoiceRef.current) return
+          setIsListening(true)
+          try {
+            rec.start()
+          } catch {
+            setIsListening(false)
+          }
+        }, 1500)
+      }
+    }
+
+    recognitionInstance.onend = () => {
+      setIsListening(false)
+    }
+
+    recognitionRef.current = recognitionInstance
+    setRecognition(recognitionInstance)
+    setSpeechAvailable(true)
   }, [])
 
   useEffect(() => {
     useVoiceRef.current = useVoice
   }, [useVoice])
 
-  // Start listening (voice mode only)
   const startListening = useCallback(() => {
     if (!useVoice || !recognition || testState !== 'testing') return
     setTranscript('')
@@ -268,61 +213,60 @@ const CataractTest = () => {
     }
   }, [recognition, testState, useVoice])
 
-  // Auto-start listening when stimulus appears (voice mode only)
   useEffect(() => {
-    if (useVoice && testState === 'testing' && currentStimulus && !isListening) {
-      const delay = currentStimulus.withGlare ? 1500 : 800
+    if (useVoice && testState === 'testing' && currentStimulus && !feedback && !isListening) {
       const timeout = setTimeout(() => {
         startListening()
-      }, delay)
+      }, 800)
       return () => clearTimeout(timeout)
     }
-  }, [currentStimulus, testState, isListening, startListening, useVoice])
+  }, [currentStimulus, testState, feedback, isListening, startListening, useVoice])
 
-  // Start the test
-  const startTest = () => {
-    setTestState('testing')
+  const beginTrials = () => {
+    clearTimeout(advanceTimeoutRef.current)
+    lockedRef.current = false
+    lastOrientationRef.current = null
+    questsRef.current = {
+      noGlare: createQuest(QUEST_SETTINGS.noGlare),
+      glare: createQuest(QUEST_SETTINGS.glare),
+    }
+    const plan = buildSchedule(glareMode)
+    setSchedule(plan)
+    setFeedback(null)
     setResponses([])
     setCurrentTrial(0)
     setTestStartTime(Date.now())
     setUseVoice(false)
     speechRetryCountRef.current = 0
-    const stimulus = generateStimulus(0)
-    setCurrentStimulus(stimulus)
+    setCurrentStimulus(makeStimulus(0, plan))
     setStartTime(Date.now())
-    setGlareActive(false)
-    
-    // Draw initial grating after a short delay
-    setTimeout(() => {
-      if (canvasRef.current) {
-        drawGrating(canvasRef.current, stimulus.frequency.cpd, stimulus.orientation.angle, stimulus.contrast)
-      }
-    }, 100)
+    setTestState('testing')
   }
 
-  // Activate glare after stimulus is drawn
-  useEffect(() => {
-    if (testState === 'testing' && currentStimulus && canvasRef.current) {
-      // Draw the grating
-      drawGrating(canvasRef.current, currentStimulus.frequency.cpd, currentStimulus.orientation.angle, currentStimulus.contrast)
-      
-      // Activate glare after 500ms if this is a glare trial
-      if (currentStimulus.withGlare) {
-        const glareTimeout = setTimeout(() => {
-          setGlareActive(true)
-        }, 500)
-        return () => clearTimeout(glareTimeout)
-      } else {
-        setGlareActive(false)
-      }
+  const startTest = () => {
+    if (glareMode === 'torch') {
+      setTestState('torch-setup')
+      return
     }
-  }, [currentStimulus, testState, drawGrating])
+    beginTrials()
+  }
 
-  // Handle user response
+  useEffect(() => {
+    if (testState === 'testing' && currentStimulus) {
+      paintGrating(
+        canvasRef.current,
+        currentStimulus.orientation.angle,
+        GRATING_CYCLES,
+        currentStimulus.contrast,
+        { apertureRadius: APERTURE_RADIUS }
+      )
+    }
+  }, [currentStimulus, testState])
+
   const handleResponse = useCallback((direction) => {
-    if (!currentStimulus || !startTime) return
+    if (!currentStimulus || !startTime || lockedRef.current) return
+    lockedRef.current = true
 
-    // Stop current recognition
     if (recognition) {
       try {
         recognition.stop()
@@ -332,118 +276,86 @@ const CataractTest = () => {
     }
     setIsListening(false)
 
-    const responseTime = Date.now() - startTime
     const isCorrect = direction === currentStimulus.orientation.direction
-    
+    if (!currentStimulus.practice) {
+      questsRef.current[currentStimulus.condition].update(currentStimulus.logCS, isCorrect)
+    }
+
     const response = {
       trial: currentTrial,
-      frequency: currentStimulus.frequency,
-      orientation: currentStimulus.orientation,
+      condition: currentStimulus.condition,
       withGlare: currentStimulus.withGlare,
-      contrast: currentStimulus.contrast,
+      practice: currentStimulus.practice,
+      orientation: currentStimulus.orientation.direction,
+      logCS: Number(currentStimulus.logCS.toFixed(3)),
       userAnswer: direction,
       correct: isCorrect,
-      responseTime,
-      glareRecoveryTime: currentStimulus.withGlare ? responseTime - 500 : null
+      responseTime: Date.now() - startTime,
     }
 
     const newResponses = [...responses, response]
     setResponses(newResponses)
-    setGlareActive(false)
+    setFeedback({
+      correct: isCorrect,
+      correctName: currentStimulus.orientation.name,
+      practice: currentStimulus.practice,
+    })
 
-    // Check if test should end
-    if (currentTrial + 1 >= TOTAL_TRIALS) {
-      finishTest(newResponses)
-      return
-    }
+    advanceTimeoutRef.current = setTimeout(
+      () => {
+        setFeedback(null)
+        lockedRef.current = false
 
-    // Continue test
-    const nextTrial = currentTrial + 1
-    setCurrentTrial(nextTrial)
-    const newStimulus = generateStimulus(nextTrial)
-    setCurrentStimulus(newStimulus)
-    setStartTime(Date.now())
-  }, [currentStimulus, startTime, recognition, currentTrial, responses, generateStimulus])
+        const nextTrial = currentTrial + 1
+        if (nextTrial >= schedule.length) {
+          finishTest(newResponses)
+          return
+        }
 
-  // Update ref when handleResponse changes
+        setCurrentTrial(nextTrial)
+        setCurrentStimulus(makeStimulus(nextTrial, schedule))
+        setStartTime(Date.now())
+
+        // Torch mode: pause before the first torch-on trial.
+        const enteringGlareBlock =
+          glareMode === 'torch' &&
+          schedule[nextTrial].condition === 'glare' &&
+          schedule[currentTrial].condition !== 'glare'
+        if (enteringGlareBlock) setTestState('torch-on')
+      },
+      isCorrect ? FEEDBACK_CORRECT_MS : FEEDBACK_WRONG_MS
+    )
+  }, [currentStimulus, startTime, recognition, currentTrial, responses, schedule, glareMode, makeStimulus])
+
   useEffect(() => {
     handleResponseRef.current = handleResponse
   }, [handleResponse])
 
-  // Calculate final score and analyze for glare tolerance (not a cataract diagnosis)
   const finishTest = async (finalResponses) => {
-    const noGlareResponses = finalResponses.filter((r) => !r.withGlare)
-    const glareResponses = finalResponses.filter((r) => r.withGlare)
-
-    const noGlareTotal = noGlareResponses.length
-    const glareTotal = glareResponses.length
-    const noGlareCorrect = noGlareResponses.filter((r) => r.correct).length
-    const glareCorrect = glareResponses.filter((r) => r.correct).length
-
-    const noGlareAccuracy = noGlareTotal > 0 ? noGlareCorrect / noGlareTotal : 0
-    const glareAccuracy = glareTotal > 0 ? glareCorrect / glareTotal : 0
-    const glareSensitivity = Math.max(0, noGlareAccuracy - glareAccuracy)
-
-    const freqPerformance = {}
-    spatialFrequencies.forEach((freq) => {
-      const freqResponses = finalResponses.filter((r) => r.frequency.cpd === freq.cpd)
-      const glareFreq = freqResponses.filter((r) => r.withGlare)
-      const noGlareFreq = freqResponses.filter((r) => !r.withGlare)
-      freqPerformance[freq.cpd] = {
-        label: freq.description,
-        difficulty: freq.difficulty,
-        total: freqResponses.length,
-        correct: freqResponses.filter((r) => r.correct).length,
-        accuracy: freqResponses.length
-          ? freqResponses.filter((r) => r.correct).length / freqResponses.length
-          : 0,
-        noGlareAccuracy: noGlareFreq.length
-          ? noGlareFreq.filter((r) => r.correct).length / noGlareFreq.length
-          : null,
-        glareAccuracy: glareFreq.length
-          ? glareFreq.filter((r) => r.correct).length / glareFreq.length
-          : null,
-      }
+    const noGlareEst = questsRef.current.noGlare.estimate()
+    const glareEst = questsRef.current.glare.estimate()
+    const deltaLogCS = glareDeltaLogCS(noGlareEst.threshold, glareEst.threshold)
+    const finalScore = scoreGlareDelta(deltaLogCS)
+    const interpretation = interpretGlareDelta({
+      logCSNoGlare: noGlareEst.threshold,
+      logCSGlare: glareEst.threshold,
+      deltaLogCS,
+      sdNoGlare: noGlareEst.sd,
+      sdGlare: glareEst.sd,
     })
 
-    const avgMs = (list) =>
-      list.length
-        ? Math.round(list.reduce((sum, r) => sum + r.responseTime, 0) / list.length)
-        : null
-
-    const avgGlareResponseTime = avgMs(glareResponses)
-    const avgNoGlareResponseTime = avgMs(noGlareResponses)
-    const avgResponseTime = avgMs(finalResponses) || 0
-
-    const finalScore = scoreGlareTolerance(noGlareAccuracy, glareAccuracy, glareSensitivity)
-    const interpretation = interpretGlareResults({
-      score: finalScore,
-      noGlareAccuracy,
-      glareAccuracy,
-      glareSensitivity,
-      noGlareCorrect,
-      noGlareTotal,
-      glareCorrect,
-      glareTotal,
-      avgGlareResponseMs: avgGlareResponseTime,
-      avgNoGlareResponseMs: avgNoGlareResponseTime,
-    })
-
-    const glareImpact =
-      glareSensitivity > 0.4 ? 'high' : glareSensitivity > 0.25 ? 'moderate' : 'low'
+    const scored = finalResponses.filter((r) => !r.practice)
+    const avgResponseTime = scored.length
+      ? Math.round(scored.reduce((sum, r) => sum + r.responseTime, 0) / scored.length)
+      : 0
 
     setScore(finalScore)
     setResultSummary({
       ...interpretation,
-      glareImpact,
-      freqPerformance,
-      totalCorrect: finalResponses.filter((r) => r.correct).length,
-      totalTrials: finalResponses.length,
-      overallPct: finalResponses.length
-        ? Math.round(
-            (finalResponses.filter((r) => r.correct).length / finalResponses.length) * 100
-          )
-        : 0,
+      sdNoGlare: noGlareEst.sd,
+      sdGlare: glareEst.sd,
+      glareMode,
+      trialsPerCondition: TRIALS_PER_CONDITION,
     })
     setTestState('results')
 
@@ -452,23 +364,23 @@ const CataractTest = () => {
         test_type: 'cataract_glare',
         score: finalScore,
         response_time_ms: avgResponseTime,
-        errors: finalResponses.filter((r) => !r.correct).length,
+        errors: scored.filter((r) => !r.correct).length,
         test_details: {
-          no_glare_accuracy: noGlareAccuracy,
-          glare_accuracy: glareAccuracy,
-          glare_sensitivity: glareSensitivity,
-          glare_impact: glareImpact,
-          no_glare_correct: noGlareCorrect,
-          no_glare_total: noGlareTotal,
-          glare_correct: glareCorrect,
-          glare_total: glareTotal,
-          frequency_performance: freqPerformance,
-          avg_glare_response_time: avgGlareResponseTime,
-          avg_no_glare_response_time: avgNoGlareResponseTime,
+          method: 'quest_4afc_delta_logcs',
+          method_version: 2,
+          glare_mode: glareMode,
+          logcs_no_glare: interpretation.logCSNoGlare,
+          logcs_glare: interpretation.logCSGlare,
+          delta_logcs: deltaLogCS,
+          sd_no_glare: Number(noGlareEst.sd.toFixed(3)),
+          sd_glare: Number(glareEst.sd.toFixed(3)),
+          low_confidence: interpretation.lowConfidence,
+          trials_per_condition: TRIALS_PER_CONDITION,
+          grating_cycles_per_canvas: GRATING_CYCLES,
           interpretation_band: interpretation.band,
           interpretation_status: interpretation.status,
           scoring_note:
-            'Score = 50% glare accuracy + 30% no-glare accuracy + 20% retention (1 − drop/0.5). Not a cataract diagnosis.',
+            'Δ logCS = logCS(no glare) − logCS(glare) from two QUEST staircases (4-choice orientation). Score index: Δ 0 → 100, Δ ≥ 0.5 → 0. Not a cataract diagnosis.',
           responses: finalResponses,
           test_duration_ms: Date.now() - testStartTime,
         },
@@ -505,24 +417,90 @@ const CataractTest = () => {
     },
   }
 
+  const torchPlacement = (
+    <ul className="space-y-2 text-sm text-gray-700 list-disc pl-5">
+      <li>Sit about 50 cm from the screen in a dim room.</li>
+      <li>
+        Prop your phone upright at the <strong>same distance as the screen</strong>, about{' '}
+        <strong>30° off to one side</strong> (roughly one hand-span beside the screen edge for every
+        two hand-spans of distance), at eye height.
+      </li>
+      <li>Point the torch toward your face. Keep looking at the screen — do not stare into the light.</li>
+      <li>Keep the phone in the same spot every time you take this test so results are comparable.</li>
+    </ul>
+  )
+
+  if (testState === 'torch-setup' || testState === 'torch-on') {
+    const isOn = testState === 'torch-on'
+    return (
+      <div className="test-shell">
+        <div className="max-w-2xl mx-auto card p-8 space-y-6">
+          <h1 className="page-title">{isOn ? 'Turn the torch ON' : 'Set up your phone torch'}</h1>
+          {isOn ? (
+            <p className="text-gray-700">
+              First half done. Now switch your phone&apos;s flashlight <strong>on</strong>, keep it in the
+              same place, and continue. The next {TRIALS_PER_CONDITION} rounds are with the light on.
+            </p>
+          ) : (
+            <>
+              <p className="text-gray-700">
+                Place your phone now with the flashlight <strong>off</strong>. You&apos;ll do{' '}
+                {TRIALS_PER_CONDITION} rounds with the light off, then we&apos;ll ask you to switch it on.
+              </p>
+              {torchPlacement}
+            </>
+          )}
+          <div className="flex gap-4">
+            <button
+              type="button"
+              onClick={() => setTestState('instructions')}
+              className="flex-1 px-6 py-3 border-2 border-gray-300 rounded-full font-semibold text-gray-700 hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (isOn) {
+                  setStartTime(Date.now())
+                  setTestState('testing')
+                } else {
+                  beginTrials()
+                }
+              }}
+              className="flex-1 px-6 py-3 bg-accent-600 hover:bg-accent-700 text-white rounded-full font-semibold"
+            >
+              {isOn ? 'Torch is on — continue' : 'Phone is in place — start'}
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   if (testState === 'testing' && currentStimulus) {
+    const scoredDone = responses.filter((r) => !r.practice).length
+    const scoredTotal = TRIALS_PER_CONDITION * 2
+    const showScreenGlare = glareMode === 'screen' && currentStimulus.withGlare && !feedback
+    const subtitle = currentStimulus.practice
+      ? 'Practice round — not scored'
+      : currentStimulus.withGlare
+        ? glareMode === 'torch' ? 'Torch on' : 'Glare ring on'
+        : glareMode === 'torch' ? 'Torch off' : 'No glare'
+
     return (
       <VisionTestShell
-        title="Glare Sensitivity"
-        subtitle={
-          currentStimulus.withGlare
-            ? `Glare on · ${currentStimulus.frequency.description}`
-            : `No glare · ${currentStimulus.frequency.description}`
-        }
+        title="Glare Test"
+        subtitle={subtitle}
         statusBar={
           <div className="flex items-center gap-3 min-w-[140px]">
             <span className="text-xs font-medium whitespace-nowrap">
-              {currentTrial + 1}/{TOTAL_TRIALS}
+              {currentStimulus.practice ? 'Practice' : `${scoredDone + 1}/${scoredTotal}`}
             </span>
             <div className="w-24 bg-gray-200 rounded-full h-1.5">
               <div
                 className="bg-accent-600 h-1.5 rounded-full transition-all duration-300"
-                style={{ width: `${((currentTrial + 1) / TOTAL_TRIALS) * 100}%` }}
+                style={{ width: `${(scoredDone / scoredTotal) * 100}%` }}
               />
             </div>
           </div>
@@ -534,19 +512,35 @@ const CataractTest = () => {
                 ref={canvasRef}
                 width={400}
                 height={400}
-                className="w-full h-full rounded-2xl border-2 border-gray-300"
-                style={{ imageRendering: 'pixelated' }}
+                className="w-full h-full rounded-2xl"
+                style={{ background: 'rgb(128,128,128)' }}
               />
-              {glareActive && (
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none rounded-2xl overflow-hidden">
+              {showScreenGlare && (
+                <div
+                  className="absolute inset-0 pointer-events-none rounded-2xl"
+                  style={{
+                    background:
+                      'radial-gradient(circle closest-side, transparent 0 74%, #ffffff 76% 100%, transparent 100%)',
+                    boxShadow: '0 0 90px 40px rgba(255,255,255,0.9)',
+                  }}
+                />
+              )}
+              {feedback && (
+                <div className="absolute top-3 inset-x-0 flex justify-center pointer-events-none">
                   <div
-                    className="absolute inset-0 bg-white opacity-70 animate-pulse"
-                    style={{
-                      boxShadow:
-                        '0 0 100px 50px rgba(255,255,255,0.9), inset 0 0 100px 50px rgba(255,255,255,0.7)',
-                    }}
-                  />
-                  <div className="absolute w-3/4 h-3/4 rounded-full border-8 border-white opacity-90 animate-ping" />
+                    className={`px-4 py-2 rounded-xl text-center text-white shadow-lg ${
+                      feedback.correct ? 'bg-green-600' : 'bg-gray-900/90'
+                    }`}
+                  >
+                    <div className="text-sm font-semibold">
+                      {feedback.correct ? '✓ Correct — recorded' : '✗ Not quite — recorded'}
+                    </div>
+                    {!feedback.correct && (
+                      <div className="text-xs mt-0.5 opacity-90">
+                        These stripes were {feedback.correctName}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -556,33 +550,36 @@ const CataractTest = () => {
           <>
             <div>
               <p className="text-sm font-semibold text-gray-900">
-                Which way do the stripes run?
+                Which picture matches the stripes?
               </p>
               <p className="text-xs text-gray-500 mt-1">
-                Diag. right leans ↗ · Diag. left leans ↖
+                Stripes get fainter as you succeed. Not sure? Take your best guess — near your limit,
+                missing some is expected and is how the test finds it.
               </p>
-              {currentStimulus.withGlare && (
+              {currentStimulus.withGlare && glareMode === 'screen' && (
                 <p className="text-xs text-accent-700 font-medium mt-2 bg-accent-50 border border-accent-200 rounded-lg px-2 py-1.5">
-                  Try to see the bars through the glare
+                  Glare round: keep your eyes on the stripes, not the bright ring.
+                </p>
+              )}
+              {currentStimulus.withGlare && glareMode === 'torch' && (
+                <p className="text-xs text-accent-700 font-medium mt-2 bg-accent-50 border border-accent-200 rounded-lg px-2 py-1.5">
+                  Torch on: look at the stripes, not at the light.
                 </p>
               )}
             </div>
 
             <div className="grid grid-cols-2 gap-2">
-              {directionButtons.map((btn) => (
+              {ORIENTATIONS.map((o) => (
                 <button
-                  key={btn.direction}
+                  key={o.direction}
                   type="button"
-                  onClick={() => handleResponse(btn.direction)}
-                  className="flex flex-col items-center gap-1.5 px-2 py-3 bg-accent-600 hover:bg-accent-700 text-white rounded-xl text-xs font-semibold min-h-[72px] transition-colors"
+                  disabled={!!feedback}
+                  onClick={() => handleResponse(o.direction)}
+                  className="flex flex-col items-center gap-1.5 px-2 py-3 bg-accent-600 hover:bg-accent-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl text-xs font-semibold min-h-[80px] transition-colors"
                 >
-                  <span
-                    className="w-9 h-9 rounded border border-white/40 shrink-0"
-                    style={{ background: btn.preview }}
-                    aria-hidden
-                  />
+                  <GratingSwatch angle={o.angle} className="border border-white/40" />
                   <span>
-                    {btn.hint} {btn.label}
+                    {o.label} <span className="font-mono">{o.symbol}</span>
                   </span>
                 </button>
               ))}
@@ -663,7 +660,6 @@ const CataractTest = () => {
   return (
     <div className="test-shell">
       <div className="max-w-4xl mx-auto">
-        {/* Instructions */}
         {testState === 'instructions' && (
           <div className="card p-8">
             <div className="text-center mb-8">
@@ -672,96 +668,110 @@ const CataractTest = () => {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
                 </svg>
               </div>
-              <h1 className="page-title mb-2">
-                Glare Sensitivity Test
-              </h1>
+              <h1 className="page-title mb-2">Glare Test</h1>
               <p className="text-sm text-accent-600 font-medium mb-4">
-                See how much bright light and glare bother your eyes
+                How much a nearby light source reduces the faintest detail you can see
               </p>
             </div>
 
             <div className="space-y-6 text-left">
               <div className="bg-accent-50 border-l-4 border-accent-500 p-6">
-                <h3 className="font-semibold text-orange-900 mb-2 flex items-center">
-                  <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                  </svg>
-                  Why This Test Works
-                </h3>
+                <h3 className="font-semibold text-orange-900 mb-2">What this measures</h3>
                 <div className="text-sm text-orange-900 space-y-2">
                   <p>
-                    A cloudy lens can scatter light, which is one reason some people struggle with night glare.
-                    This exercise copies that experience with striped patterns and a bright overlay.
+                    A bright light near what you&apos;re looking at scatters inside the eye and washes out
+                    faint detail (like oncoming headlights). This test finds the faintest stripes you can
+                    see <strong>with and without</strong> a glare source and reports the difference
+                    (Δ logCS).
                   </p>
-                  <p className="mt-2">
-                    <strong>Important:</strong> glare trouble has many causes. This is not a cataract exam,
-                    not LOCS grading, and does not diagnose disease.
+                  <p>
+                    <strong>Important:</strong> a screen can&apos;t match real headlights, so the screen
+                    version is a simulation. Glare trouble has many causes; this is not a cataract exam
+                    and does not diagnose disease.
                   </p>
                 </div>
               </div>
 
               <div>
-                <h3 className="font-semibold text-gray-900 mb-3">How It Works:</h3>
+                <h3 className="font-semibold text-gray-900 mb-3">Choose a glare source</h3>
+                <div className="grid sm:grid-cols-2 gap-3">
+                  {[
+                    {
+                      id: 'screen',
+                      title: 'Screen glare ring (default)',
+                      body: 'A bright white ring appears around the stripes on glare rounds. Nothing extra needed.',
+                    },
+                    {
+                      id: 'torch',
+                      title: 'Phone torch (more realistic)',
+                      body: 'Use a phone flashlight placed off to the side as a real light source. Takes a minute to set up.',
+                    },
+                  ].map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => setGlareMode(opt.id)}
+                      className={`text-left rounded-xl border-2 p-4 transition-colors ${
+                        glareMode === opt.id ? 'border-accent-600 bg-accent-50' : 'border-gray-200 hover:border-gray-300'
+                      }`}
+                    >
+                      <div className="font-semibold text-gray-900 text-sm">{opt.title}</div>
+                      <div className="text-xs text-gray-600 mt-1">{opt.body}</div>
+                    </button>
+                  ))}
+                </div>
+                {glareMode === 'torch' && <div className="mt-4">{torchPlacement}</div>}
+              </div>
+
+              <div>
+                <h3 className="font-semibold text-gray-900 mb-3">How it works</h3>
                 <ol className="space-y-3 text-gray-700">
                   <li className="flex">
                     <span className="font-semibold mr-3">1.</span>
-                    <span>You'll see fuzzy striped patterns tilted in different directions</span>
+                    <span>A circle of stripes appears. The stripes run in one of four directions.</span>
                   </li>
                   <li className="flex">
                     <span className="font-semibold mr-3">2.</span>
-                    <span><strong>Tap the direction you see</strong>: Horizontal, Vertical, or Diagonal Right/Left</span>
+                    <span>
+                      <strong>Tap the button whose picture matches the stripes.</strong> You&apos;ll see
+                      “recorded” before the next pattern.
+                    </span>
                   </li>
                   <li className="flex">
                     <span className="font-semibold mr-3">3.</span>
-                    <span><strong>Sometimes a bright white ring will flash</strong> (glare simulation)</span>
+                    <span>
+                      The stripes get fainter when you&apos;re right and stronger when you miss, until the
+                      test finds your limit. <strong>If unsure, guess</strong> — that&apos;s expected.
+                    </span>
                   </li>
                   <li className="flex">
                     <span className="font-semibold mr-3">4.</span>
-                    <span>Try to see the bars THROUGH the glare - this tests lens clarity</span>
-                  </li>
-                  <li className="flex">
-                    <span className="font-semibold mr-3">5.</span>
-                    <span>20 trials total (~4-5 minutes)</span>
+                    <span>
+                      {PRACTICE_TRIALS} practice rounds, then {TRIALS_PER_CONDITION * 2} scored rounds
+                      (about 2–3 minutes).
+                    </span>
                   </li>
                 </ol>
-              </div>
 
-              <div className="bg-blue-50 border border-blue-200 rounded-xl p-6">
-                <h3 className="font-semibold text-blue-900 mb-3">What the results can show:</h3>
-                <div className="text-sm text-blue-800 space-y-2">
-                  <p><strong>Clear lens:</strong> You can still see the stripes even when the glare is on</p>
-                  <p><strong>Early cloudiness:</strong> The stripes get much harder to see once the glare appears</p>
-                  <p><strong>More cloudiness:</strong> The stripes are hard to see even without glare</p>
+                <div className="mt-4 grid grid-cols-4 gap-3">
+                  {ORIENTATIONS.map((o) => (
+                    <div key={o.direction} className="flex flex-col items-center gap-1.5 text-xs text-gray-700">
+                      <GratingSwatch angle={o.angle} size={56} className="border border-gray-300" />
+                      <span className="font-medium">
+                        {o.label} <span className="font-mono">{o.symbol}</span>
+                      </span>
+                    </div>
+                  ))}
                 </div>
               </div>
 
               <div className="bg-gray-50 rounded-xl p-6 border border-gray-200">
-                <h3 className="font-semibold text-gray-900 mb-3">Before You Start:</h3>
-                <ul className="space-y-2 text-sm text-gray-700">
-                  <li className="flex items-start">
-                    <svg className="w-5 h-5 mr-2 text-green-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                    </svg>
-                    <span>You can also use voice if your browser supports it (optional)</span>
-                  </li>
-                  <li className="flex items-start">
-                    <svg className="w-5 h-5 mr-2 text-green-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                    </svg>
-                    <span>Dim your room lights slightly (to make glare effect more noticeable)</span>
-                  </li>
-                  <li className="flex items-start">
-                    <svg className="w-5 h-5 mr-2 text-green-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                    </svg>
-                    <span>Sit about 50cm from your screen</span>
-                  </li>
-                  <li className="flex items-start">
-                    <svg className="w-5 h-5 mr-2 text-green-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                    </svg>
-                    <span>The bright flash is intentional - don't be alarmed!</span>
-                  </li>
+                <h3 className="font-semibold text-gray-900 mb-3">Before you start</h3>
+                <ul className="space-y-2 text-sm text-gray-700 list-disc pl-5">
+                  <li>Sit about 50 cm from your screen and wear your usual glasses.</li>
+                  <li>Dim the room lights and turn screen brightness up.</li>
+                  <li>Turn off Night Shift / True Tone / auto-brightness if you can.</li>
+                  <li>Voice answers are available if your browser supports them.</li>
                 </ul>
               </div>
             </div>
@@ -783,7 +793,6 @@ const CataractTest = () => {
           </div>
         )}
 
-        {/* Results */}
         {testState === 'results' && resultSummary && (
           <div className="card p-8">
             {(() => {
@@ -798,24 +807,34 @@ const CataractTest = () => {
                         {resultSummary.band === 'good' ? '✓' : '!'}
                       </span>
                     </div>
-                    <h2 className="text-3xl font-serif font-bold text-gray-900 mb-2">
-                      Test Complete
-                    </h2>
-                    <p className="text-gray-600">Glare tolerance — home check only</p>
+                    <h2 className="text-3xl font-serif font-bold text-gray-900 mb-2">Test Complete</h2>
+                    <p className="text-gray-600">
+                      Contrast loss under glare —{' '}
+                      {resultSummary.glareMode === 'torch' ? 'phone torch' : 'screen glare ring'} · home check
+                      only
+                    </p>
                   </div>
 
                   <div className="bg-amber-50 rounded-2xl p-8 mb-6">
                     <div className="text-center">
-                      <div className="text-6xl font-bold text-accent-700 mb-2">{score}</div>
-                      <div className="text-sm text-gray-600 mb-1">Glare Tolerance Score</div>
-                      <p className="text-xs text-gray-500 mb-4 max-w-md mx-auto">
-                        {resultSummary.scoreMeaning}
-                      </p>
+                      <div className="text-6xl font-bold text-accent-700 mb-1">
+                        {resultSummary.deltaLogCS.toFixed(2)}
+                      </div>
+                      <div className="text-sm text-gray-600 mb-1">Δ logCS (contrast lost under glare)</div>
+                      <p className="text-xs text-gray-500 mb-4 max-w-md mx-auto">{resultSummary.scoreMeaning}</p>
                       <div className={`inline-block px-4 py-2 rounded-full font-semibold ${tone.badge}`}>
                         {resultSummary.status}
                       </div>
+                      <div className="text-xs text-gray-500 mt-3">Trend index: {score}/100</div>
                     </div>
                   </div>
+
+                  {resultSummary.lowConfidence && (
+                    <div className="border border-amber-300 bg-amber-50 rounded-xl p-4 mb-6 text-sm text-amber-900">
+                      Low confidence: your answers were inconsistent, so these numbers are rough. Retake when
+                      rested, at a steady distance, in a dim room.
+                    </div>
+                  )}
 
                   <div className={`border rounded-xl p-6 mb-6 ${tone.panel}`}>
                     <h3 className={`font-semibold mb-2 ${tone.title}`}>What this means</h3>
@@ -823,90 +842,34 @@ const CataractTest = () => {
                     <p className={`text-sm ${tone.body}`}>{resultSummary.detail}</p>
                   </div>
 
-                  <div className="grid sm:grid-cols-3 gap-4 mb-6">
-                    <div className="bg-gray-50 rounded-xl p-5 border border-gray-100">
-                      <div className="text-sm text-gray-600 mb-1">Without glare</div>
-                      <div className="text-3xl font-bold text-gray-900">{resultSummary.noGlarePct}%</div>
-                      <div className="text-xs text-gray-500 mt-1">
-                        {resultSummary.noGlareCorrect}/{resultSummary.noGlareTotal} correct
-                        {resultSummary.avgNoGlareResponseMs != null && (
-                          <> · ~{Math.round(resultSummary.avgNoGlareResponseMs / 100) / 10}s avg</>
-                        )}
-                      </div>
-                    </div>
-                    <div className="bg-gray-50 rounded-xl p-5 border border-gray-100">
-                      <div className="text-sm text-gray-600 mb-1">With glare</div>
-                      <div className="text-3xl font-bold text-accent-700">{resultSummary.glarePct}%</div>
-                      <div className="text-xs text-gray-500 mt-1">
-                        {resultSummary.glareCorrect}/{resultSummary.glareTotal} correct
-                        {resultSummary.avgGlareResponseMs != null && (
-                          <> · ~{Math.round(resultSummary.avgGlareResponseMs / 100) / 10}s avg</>
-                        )}
-                      </div>
-                    </div>
-                    <div className="bg-gray-50 rounded-xl p-5 border border-gray-100">
-                      <div className="text-sm text-gray-600 mb-1">Drop under glare</div>
-                      <div
-                        className={`text-3xl font-bold ${
-                          resultSummary.dropPts >= 40
-                            ? 'text-red-600'
-                            : resultSummary.dropPts >= 25
-                              ? 'text-amber-600'
-                              : 'text-green-600'
-                        }`}
-                      >
-                        {resultSummary.dropPts}
-                        <span className="text-lg font-semibold"> pts</span>
-                      </div>
-                      <div className="text-xs text-gray-500 mt-1">
-                        Without − with glare accuracy
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="mb-6">
-                    <h3 className="font-semibold text-gray-900 mb-3">
-                      Overall: {resultSummary.totalCorrect}/{resultSummary.totalTrials} correct (
-                      {resultSummary.overallPct}%)
-                    </h3>
-                    <div className="space-y-2">
-                      {Object.entries(resultSummary.freqPerformance || {}).map(([cpd, perf]) => (
-                        <div
-                          key={cpd}
-                          className="flex items-center justify-between gap-3 rounded-xl border border-gray-100 bg-white px-4 py-3 text-sm"
-                        >
-                          <div className="min-w-0">
-                            <div className="font-medium text-gray-900 truncate">{perf.label}</div>
-                            <div className="text-xs text-gray-500">
-                              {perf.correct}/{perf.total} correct
-                              {perf.noGlareAccuracy != null && perf.glareAccuracy != null && (
-                                <>
-                                  {' '}
-                                  · no glare {Math.round(perf.noGlareAccuracy * 100)}% · glare{' '}
-                                  {Math.round(perf.glareAccuracy * 100)}%
-                                </>
-                              )}
-                            </div>
-                          </div>
-                          <div className="font-bold text-gray-800 shrink-0">
-                            {Math.round((perf.accuracy || 0) * 100)}%
-                          </div>
+                  <div className="grid sm:grid-cols-2 gap-4 mb-6">
+                    {[
+                      { label: 'Without glare', value: resultSummary.logCSNoGlare, sd: resultSummary.sdNoGlare },
+                      { label: 'With glare', value: resultSummary.logCSGlare, sd: resultSummary.sdGlare },
+                    ].map((row) => (
+                      <div key={row.label} className="bg-gray-50 rounded-xl p-5 border border-gray-100">
+                        <div className="text-sm text-gray-600 mb-1">{row.label}</div>
+                        <div className="text-3xl font-bold text-gray-900">
+                          {row.value.toFixed(2)} <span className="text-base font-semibold">logCS</span>
                         </div>
-                      ))}
-                    </div>
+                        <div className="text-xs text-gray-500 mt-1">
+                          Faintest stripes seen ≈ {(logCSToContrast(row.value) * 100).toFixed(1)}% contrast ·
+                          ±{row.sd.toFixed(2)} · {resultSummary.trialsPerCondition} rounds
+                        </div>
+                      </div>
+                    ))}
                   </div>
 
                   <div className="bg-blue-50 border border-blue-200 rounded-xl p-6 mb-8">
                     <h3 className="font-semibold text-blue-900 mb-3">About glare (education only)</h3>
                     <div className="text-sm text-blue-800 space-y-2">
                       <p>
-                        Night glare can come from many things — uncorrected prescription, dry eye,
-                        dirty lenses, or a cloudy crystalline lens. Only an eye doctor can sort those
-                        out.
+                        Night glare can come from many things — uncorrected prescription, dry eye, dirty
+                        lenses, or a cloudy crystalline lens. Only an eye doctor can sort those out.
                       </p>
                       <p>
-                        If this home check flags glare trouble: book a full eye exam, mention night
-                        driving or halos, and do not treat these scores as a cataract diagnosis.
+                        For comparable results over time, retake with the same glare source, distance, and
+                        room lighting.
                       </p>
                     </div>
                   </div>
