@@ -20,14 +20,9 @@ except ImportError as e:
 # Test 2: Test vision prediction
 print("2⃣ Testing Vision Drift Prediction...")
 try:
-    # Create sample test data (3 months of declining vision)
-    test_dates = [
-        datetime.now() - timedelta(days=90),
-        datetime.now() - timedelta(days=60),
-        datetime.now() - timedelta(days=30),
-        datetime.now()
-    ]
-    test_scores = [95.0, 92.0, 89.0, 87.0]
+    # Sample data: 7 sessions over 90 days, slowly declining
+    test_dates = [datetime.now() - timedelta(days=d) for d in (90, 75, 60, 45, 30, 15, 0)]
+    test_scores = [95.0, 93.0, 94.0, 90.0, 89.0, 88.0, 87.0]
     
     result = prediction.predict_vision_drift_advanced(
         test_dates=test_dates,
@@ -36,13 +31,14 @@ try:
     )
     
     if 'error' in result:
-        print(f"    Prediction failed: {result['error']}")
+        print(f"    Prediction unavailable: {result['error']}")
     else:
+        pi = result['prediction_interval_95']
         print(f"    Prediction successful!")
         print(f"      Current Score: {result['current_score']}")
-        print(f"      Predicted Score (30 days): {result['predicted_score']:.1f}")
-        print(f"      Trend: {result['trend']} ({result['severity']})")
-        print(f"      Confidence (R²): {result['r_squared']:.2f}")
+        print(f"      In {result['days_predicted']} days: {result['predicted_score']:.1f} "
+              f"(95% PI {pi['lower']:.1f}–{pi['upper']:.1f})")
+        print(f"      Trend: {result['trend']}")
         print(f"      Method: {result['method_used']}\n")
 except Exception as e:
     print(f"    Test failed: {e}\n")
@@ -77,59 +73,6 @@ try:
 except Exception as e:
     print(f"     MediaPipe test failed: {e}")
     print(f"      (This is OK - it will work with actual video)\n")
-
-# Test 5: Test prescription prediction
-print("5⃣ Testing Prescription Change Prediction...")
-try:
-    current_prescription = {
-        'od_sph': -2.5,
-        'os_sph': -2.75
-    }
-    
-    vision_trend = {
-        'trend': 'declining',
-        'score_change': -6.0,
-        'confidence': 0.85
-    }
-    
-    prescription_result = prediction.predict_prescription_change(
-        current_prescription=current_prescription,
-        vision_trend=vision_trend
-    )
-    
-    print(f"    Prescription prediction successful!")
-    print(f"      Change Needed: {prescription_result['change_needed']}")
-    print(f"      Reason: {prescription_result['reason']}")
-    if prescription_result['change_needed']:
-        print(f"      Recommended Change: ±{prescription_result['recommended_change']['change_magnitude']:.2f}D\n")
-    else:
-        print()
-except Exception as e:
-    print(f"    Test failed: {e}\n")
-
-# Test 6: Test overall health score
-print("6⃣ Testing Overall Eye Health Score...")
-try:
-    health_result = prediction.generate_health_score(
-        vision_score=87.0,
-        fatigue_score=45.0,
-        lens_effectiveness=85.0,
-        lifestyle_factors={
-            'screen_time': 6,
-            'sleep_hours': 7,
-            'breaks_taken': 4
-        }
-    )
-    
-    print(f"    Health score calculation successful!")
-    print(f"      Total Score: {health_result['total_score']}/100")
-    print(f"      Grade: {health_result['grade']}")
-    print(f"      Breakdown:")
-    for component, score in health_result['breakdown'].items():
-        print(f"         {component.capitalize()}: {score:.1f}")
-    print()
-except Exception as e:
-    print(f"    Test failed: {e}\n")
 
 print("=" * 50)
 print(" ML Feature Tests Complete!")

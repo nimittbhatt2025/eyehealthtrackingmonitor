@@ -26,7 +26,10 @@ from app.ai_models.ocular_ml_preprocess import ensure_ocular_input
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_WEIGHTS = REPO_ROOT / 'sclera_redness_ordinal.pth'
 LEGACY_WEIGHTS = REPO_ROOT / 'best_unfrozen_ordinal.pth'
-MODEL_VERSION = 'bounded_ordinal_resnet18_tta_v1'
+# Five-pass TTA was measured on the held-out set (scripts/export_onnx.py): MAE 0.131 vs 0.134
+# single-pass, difference CI includes 0, identical grades, 5× the compute. Off unless SCLERA_TTA=1.
+USE_TTA = os.environ.get('SCLERA_TTA', '0').lower() in ('1', 'true', 'yes')
+MODEL_VERSION = 'bounded_ordinal_resnet18_tta_v1' if USE_TTA else 'bounded_ordinal_resnet18_v1'
 
 _eval_transform = transforms.Compose([
     transforms.Resize((224, 224)),
@@ -135,16 +138,15 @@ def _predict_pil(
     device: torch.device,
     pil: Image.Image,
     *,
-    use_tta: bool = True,
-) -> Tuple[float, float, List[float]]:
-    variants = _tta_variants(pil) if use_tta else [pil]
-    scores: List[float] = []
+    use_tta: Optional[bool] = None,
+) -> Tuple[float, Optional[float], List[float]]:
+    """Returns (mean, std across TTA passes or None for a single pass, per-pass scores)."""
+    variants = _tta_variants(pil) if (USE_TTA if use_tta is None else use_tta) else [pil]
+    batch = torch.stack([_eval_transform(v) for v in variants]).to(device)
     with torch.no_grad():
-        for variant in variants:
-            tensor = _eval_transform(variant).unsqueeze(0).to(device)
-            scores.append(float(model(tensor).cpu().item()))
+        scores = [float(s) for s in model(batch).reshape(-1).cpu().tolist()]
     mean_score = float(np.mean(scores))
-    std_score = float(np.std(scores)) if len(scores) > 1 else 0.0
+    std_score = float(np.std(scores)) if len(scores) > 1 else None
     return mean_score, std_score, [round(s, 3) for s in scores]
 
 
@@ -199,9 +201,9 @@ def predict_eye_patch(
     side: Optional[str] = None,
     *,
     prepared: bool = False,
-    use_tta: bool = True,
+    use_tta: Optional[bool] = None,
 ) -> Dict[str, Any]:
-    """Score one BGR ocular crop with optional TTA."""
+    """Score one BGR ocular crop (TTA only when SCLERA_TTA=1 or use_tta=True)."""
     empty = {
         'available': False,
         'score': None,
@@ -232,7 +234,7 @@ def predict_eye_patch(
         return {
             'available': True,
             'score': round(score, 2),
-            'uncertainty_std': round(uncertainty, 4),
+            'uncertainty_std': round(uncertainty, 4) if uncertainty is not None else None,
             'tta_pass_scores': pass_scores,
             'discretized_grade': grade,
             'grade_label': _grade_label(grade),
@@ -250,12 +252,20 @@ def predict_both_eyes(
     left_side: Optional[str] = 'left',
     right_side: Optional[str] = 'right',
     prepared: bool = False,
-    use_tta: bool = True,
+    use_tta: Optional[bool] = None,
 ) -> Dict[str, Any]:
-    """Run TTA model on left/right ocular crops and aggregate."""
+    """Score left/right ocular crops and aggregate."""
     left = predict_eye_patch(left_bgr, side=left_side, prepared=prepared, use_tta=use_tta)
     right = predict_eye_patch(right_bgr, side=right_side, prepared=prepared, use_tta=use_tta)
+    return aggregate_eye_predictions(left, right)
 
+
+def aggregate_eye_predictions(
+    left: Dict[str, Any],
+    right: Dict[str, Any],
+    model_version: str = MODEL_VERSION,
+) -> Dict[str, Any]:
+    """Average per-eye redness scores into the person-level result."""
     scores = [r['score'] for r in (left, right) if r.get('available') and r.get('score') is not None]
     if not scores:
         err = left.get('error') or right.get('error') or 'Inference unavailable'
@@ -264,7 +274,7 @@ def predict_both_eyes(
             'error': err,
             'left': left,
             'right': right,
-            'model_version': MODEL_VERSION,
+            'model_version': model_version,
         }
 
     stds = [
@@ -284,14 +294,12 @@ def predict_both_eyes(
         'grade_label': _grade_label(avg_grade),
         'left': left,
         'right': right,
-        'model_version': MODEL_VERSION,
+        'model_version': model_version,
     }
 
 
-def predict_sclera_redness(image_bytes: bytes, *, use_tta: bool = True) -> Dict[str, Any]:
-    """
-    Score raw image bytes via the production smart-crop + TTA pipeline.
-    """
+def predict_sclera_redness(image_bytes: bytes) -> Dict[str, Any]:
+    """Score raw image bytes via the production smart-crop pipeline."""
     from app.ai_models.sclera_inference import predict_sclera_redness_production, production_to_ml_redness
 
     production = predict_sclera_redness_production(image_bytes)

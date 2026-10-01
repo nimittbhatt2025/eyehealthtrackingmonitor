@@ -4,19 +4,28 @@ Blink Calibration API Routes
 Endpoints for calibrating personalized blink detection
 """
 
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from app.ai_models.blink_calibration import BlinkCalibrator, AdaptiveBlinkDetector
 from app.ai_models.eye_analysis import detect_eyes
+from app.ai_models.dry_eye_analysis import decode_base64_image
 from app.models import User
-import cv2
+from app.utils.image_upload import ImageUploadError, read_image_request
 import numpy as np
-import base64
 
 bp = Blueprint('calibration', __name__, url_prefix='/api/calibration')
 
 # Store active calibrators per user session
 active_calibrators = {}
+
+
+def _frame_from_request():
+    """Frame bytes (multipart "frame" part) or base64 string (legacy JSON); None if absent/invalid."""
+    try:
+        _, frame = read_image_request('frame')
+    except ImageUploadError:
+        return None
+    return frame or None
 
 
 @bp.route('/start', methods=['POST'])
@@ -64,18 +73,14 @@ def add_baseline():
         return jsonify({'error': 'No active calibration session'}), 400
     
     try:
-        data = request.get_json()
-        frame_data = data.get('frame')
+        frame_data = _frame_from_request()
         
-        if not frame_data:
+        if frame_data is None:
             print("[BASELINE ERROR] No frame data")
             return jsonify({'error': 'No frame data provided'}), 400
         
-        # Decode base64 image
         try:
-            img_data = base64.b64decode(frame_data.split(',')[1] if ',' in frame_data else frame_data)
-            nparr = np.frombuffer(img_data, np.uint8)
-            frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            frame = decode_base64_image(frame_data)
             
             if frame is None:
                 print("[BASELINE ERROR] Failed to decode image")
@@ -129,17 +134,15 @@ def add_blink():
         return jsonify({'error': 'No active calibration session'}), 400
     
     try:
-        data = request.get_json()
-        frame_data = data.get('frame')
+        frame_data = _frame_from_request()
         
-        if not frame_data:
+        if frame_data is None:
             print("[BLINK ERROR] No frame data")
             return jsonify({'error': 'No frame data provided'}), 400
         
-        # Decode base64 image
-        img_data = base64.b64decode(frame_data.split(',')[1] if ',' in frame_data else frame_data)
-        nparr = np.frombuffer(img_data, np.uint8)
-        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        frame = decode_base64_image(frame_data)
+        if frame is None:
+            return jsonify({'error': 'Invalid image format'}), 400
         
         # Detect eyes and get EAR
         eye_data = detect_eyes(frame)
@@ -269,17 +272,13 @@ def test_blink():
             print(f"[TEST ERROR] No calibration session or saved threshold for user {user_id}")
             return jsonify({'error': 'No calibration found. Please calibrate first.'}), 400
     
-    data = request.get_json()
-    frame_data = data.get('frame')
+    frame_data = _frame_from_request()
     
-    if not frame_data:
+    if frame_data is None:
         return jsonify({'error': 'No frame provided'}), 400
     
     try:
-        # Decode and process frame
-        img_data = base64.b64decode(frame_data.split(',')[1])
-        nparr = np.frombuffer(img_data, np.uint8)
-        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        frame = decode_base64_image(frame_data)
         
         if frame is None:
             return jsonify({'error': 'Invalid frame data'}), 400

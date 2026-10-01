@@ -1,7 +1,18 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { FaRobot, FaTimes, FaPaperPlane, FaSpinner, FaExclamationTriangle, FaStethoscope, FaVial, FaExpand, FaCompress } from 'react-icons/fa';
-import { getChatbotEngine } from '../utils/advancedChatbotEngine';
+import { useState, useRef, useEffect } from 'react';
+import { FaTimes, FaPaperPlane, FaSpinner, FaExclamationTriangle, FaStethoscope, FaVial, FaExpand, FaCompress } from 'react-icons/fa';
 import { useNavigate } from 'react-router-dom';
+
+// The engine pulls in the full condition database (~100 kB); load it only once the chat is used.
+let enginePromise = null;
+const loadChatbotEngine = () => {
+  enginePromise ??= import('../utils/advancedChatbotEngine')
+    .then((m) => m.getChatbotEngine())
+    .catch((err) => {
+      enginePromise = null;
+      throw err;
+    });
+  return enginePromise;
+};
 
 const AIChatbot = () => {
   const [isOpen, setIsOpen] = useState(false);
@@ -16,7 +27,10 @@ const AIChatbot = () => {
   const [isTyping, setIsTyping] = useState(false);
   const messagesEndRef = useRef(null);
   const navigate = useNavigate();
-  const chatbotEngine = useRef(getChatbotEngine());
+
+  useEffect(() => {
+    if (isOpen) loadChatbotEngine().catch(() => {});
+  }, [isOpen]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -38,7 +52,8 @@ const AIChatbot = () => {
     // Process with advanced engine
     setTimeout(async () => {
       try {
-        const analysis = await chatbotEngine.current.processMessage(input);
+        const engine = await loadChatbotEngine();
+        const analysis = await engine.processMessage(input);
 
         // Build assistant message with all components
         const assistantMessage = {
@@ -262,9 +277,9 @@ const AIChatbot = () => {
                             className="text-xs px-3 py-1 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded-full hover:bg-indigo-200 dark:hover:bg-indigo-900/50 transition-colors flex items-center space-x-1"
                           >
                             <span>{condition.name}</span>
-                            {condition.confidence && (
+                            {condition.retrieval?.strength && (
                               <span className="text-indigo-500 dark:text-indigo-400">
-                                ({Math.round(condition.confidence * 100)}%)
+                                ({condition.retrieval.strength} match)
                               </span>
                             )}
                             <span>→</span>

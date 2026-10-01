@@ -79,32 +79,26 @@ def calculate_lens_effectiveness(lens_data: LensData, recent_vision_tests: List[
     return min(effectiveness, 100)
 
 
-def detect_vision_decline(tests: List[VisionTest], threshold: float = 10.0) -> Dict[str, Any]:
+def detect_vision_decline(tests: List[VisionTest], test_type: str = None, method_version: Any = None) -> Dict[str, Any]:
     """
-    Detect if vision has declined significantly
-    Args:
-        tests: List of vision tests
-        threshold: Percentage decline to trigger alert
-    Returns: Dict with decline information
+    Reliable-change decline check (see app.utils.change_detection).
+    `declined` is True only for a decline confirmed on two consecutive sessions.
     """
-    if len(tests) < 2:
-        return {'declined': False}
-    
-    # Compare recent average to baseline
-    baseline_tests = tests[:5]  # First 5 tests
-    recent_tests = tests[-5:]  # Last 5 tests
-    
-    baseline_avg = np.mean([t.score for t in baseline_tests])
-    recent_avg = np.mean([t.score for t in recent_tests])
-    
-    decline_percent = ((baseline_avg - recent_avg) / baseline_avg) * 100
-    
+    from app.utils.change_detection import assess_tests, summary_message
+
+    if test_type is None and tests:
+        test_type = getattr(tests[0], 'test_type', None)
+    assessment = assess_tests(tests, test_type, method_version)
+    flagged = [s for s in assessment['series'] if s['status'] == assessment['status']]
+    lead = flagged[0] if flagged else {}
     return {
-        'declined': decline_percent >= threshold,
-        'decline_percent': decline_percent,
-        'baseline_score': baseline_avg,
-        'current_score': recent_avg,
-        'tests_analyzed': len(tests)
+        'declined': assessment['status'] == 'confirmed_decline',
+        'status': assessment['status'],
+        'message': summary_message(assessment),
+        'baseline_score': lead.get('baseline_mean'),
+        'current_score': lead.get('latest'),
+        'tests_analyzed': len(tests),
+        'assessment': assessment,
     }
 
 

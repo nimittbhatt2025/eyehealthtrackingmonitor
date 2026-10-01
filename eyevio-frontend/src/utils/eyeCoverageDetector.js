@@ -10,7 +10,7 @@
  * video buffer; CSS mirroring on the preview does not affect landmark space.
  */
 
-import { FaceMesh } from '@mediapipe/face_mesh'
+import { createFaceMesh, createHands } from './mediapipeSolutions'
 
 // Anatomical: MediaPipe right-eye group = subject's right eye (left side of unmirrored frame)
 const IRIS_RIGHT = [468, 469, 470, 471, 472]
@@ -131,50 +131,52 @@ export class EyeCoverageDetector {
     if (!this.video) return false
 
     try {
-      this.faceMesh = new FaceMesh({
-        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`,
-      })
-      this.faceMesh.setOptions({
+      const faceMesh = createFaceMesh({
         maxNumFaces: 1,
         refineLandmarks: true,
         minDetectionConfidence: 0.5,
         minTrackingConfidence: 0.5,
       })
-      this.faceMesh.onResults((results) => {
+      this.faceMesh = faceMesh
+      faceMesh.onResults((results) => {
         this.lastResults = results
         if (this._facePending) {
           this._facePending()
           this._facePending = null
         }
       })
-      await this.faceMesh.initialize()
+      await faceMesh.initialize()
+      if (this.faceMesh !== faceMesh) return false
 
       // Hands is optional — palm occlusion still works via iris sampling
+      let hands = null
       try {
-        const { Hands } = await import('@mediapipe/hands')
-        this.hands = new Hands({
-          locateFile: (file) =>
-            `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/${file}`,
-        })
-        this.hands.setOptions({
+        hands = await createHands({
           selfieMode: true,
           maxNumHands: 2,
           modelComplexity: 1,
           minDetectionConfidence: 0.4,
           minTrackingConfidence: 0.4,
         })
-        this.hands.onResults((results) => {
+        if (this.faceMesh !== faceMesh) {
+          hands.close().catch(() => {})
+          return false
+        }
+        this.hands = hands
+        hands.onResults((results) => {
           this.lastHandResults = results
           if (this._handPending) {
             this._handPending()
             this._handPending = null
           }
         })
-        await this.hands.initialize()
+        await hands.initialize()
+        if (this.faceMesh !== faceMesh) return false
         this.handsAvailable = true
       } catch (err) {
         console.warn('MediaPipe Hands unavailable; using iris occlusion only:', err)
-        this.hands = null
+        if (hands) hands.close().catch(() => {})
+        if (this.hands === hands) this.hands = null
         this.handsAvailable = false
       }
 
@@ -515,19 +517,11 @@ export class EyeCoverageDetector {
 
   stop() {
     if (this.faceMesh) {
-      try {
-        this.faceMesh.close()
-      } catch (e) {
-        /* ignore */
-      }
+      this.faceMesh.close().catch(() => {})
       this.faceMesh = null
     }
     if (this.hands) {
-      try {
-        this.hands.close()
-      } catch (e) {
-        /* ignore */
-      }
+      this.hands.close().catch(() => {})
       this.hands = null
     }
     // Never stop the shared camera here — the verification component owns it

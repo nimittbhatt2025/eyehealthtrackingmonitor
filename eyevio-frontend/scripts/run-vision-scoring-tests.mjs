@@ -23,6 +23,7 @@ import {
   sideVisionReliability,
   glareDeltaLogCS,
   scoreGlareDelta,
+  interpretGlareDelta,
   summarizePupilReflex,
   medianPupilReflex,
   redReflexSymmetry,
@@ -177,6 +178,28 @@ assert(amslerMarkedAreaDeg2([], 0.05) === 0, 'no marks → no area')
   assert(aligned.threshold > 5 && aligned.threshold < 45, 'vernier psi recovers a 15″ threshold roughly')
   const shifted = run(90, 20)
   assert(Math.abs(shifted.bias - 90) < 30, 'vernier psi recovers a 90″ bias')
+
+  // An observer who answers "looks aligned" whenever the shift is within ±0.5σ of their bias.
+  const runWithAligned = (bias, sigma) => {
+    const q = createVernierPsi({ random: rand })
+    for (let i = 0; i < 40; i++) {
+      const x = q.next()
+      const z = (x - bias) / sigma + (rand() + rand() + rand() - 1.5) * 2
+      q.update(x, Math.abs(z) < 0.5 ? null : z > 0)
+    }
+    return q.estimate()
+  }
+  const alignedAnswers = runWithAligned(0, 15)
+  assert(Math.abs(alignedAnswers.bias) < 20, 'vernier psi: "looks aligned" answers keep an aligned observer near zero bias')
+  assert(alignedAnswers.trials === 40, 'vernier psi counts "looks aligned" answers as trials')
+  const shiftedAligned = runWithAligned(90, 20)
+  assert(Math.abs(shiftedAligned.bias - 90) < 30, 'vernier psi recovers a 90″ bias with "looks aligned" answers')
+  {
+    const q = createVernierPsi()
+    const before = q.estimate().bias
+    q.update(0, null)
+    assert(Math.abs(q.estimate().bias - before) < 1e-6, 'one "looks aligned" at zero shift does not move the bias')
+  }
   const s = summarizeVernier({
     center: { bias: 0, biasSd: 5, threshold: 15 },
     up: { bias: 100, biasSd: 15, threshold: 30 },
@@ -272,6 +295,21 @@ assert(scoreGlareDelta(0) === 100, 'no glare loss → 100')
 assert(scoreGlareDelta(0.5) === 0, 'Δ 0.5 logCS → 0')
 assert(scoreGlareDelta(-0.1) === 100, 'glare improvement capped at 100')
 assert(scoreGlareDelta(0.25) === 50, 'Δ 0.25 → 50')
+{
+  const allRight = () => {
+    const q = createQuest({ priorMean: 1.5, priorSd: 0.6 })
+    for (let i = 0; i < 10; i++) q.update(q.next(), true)
+    return q.estimate()
+  }
+  const ng = allRight()
+  const g = allRight()
+  const delta = glareDeltaLogCS(ng.threshold, g.threshold)
+  const verdict = interpretGlareDelta({ logCSNoGlare: ng.threshold, logCSGlare: g.threshold, deltaLogCS: delta, sdNoGlare: ng.sd, sdGlare: g.sd })
+  assert(delta === 0 && scoreGlareDelta(delta) === 100, 'glare: all answers right in both conditions → Δ 0, score 100')
+  assert(verdict.ceilingNoGlare && verdict.ceilingGlare && verdict.band === 'good', 'glare: all-right run is flagged as at the test limit')
+  const partial = interpretGlareDelta({ logCSNoGlare: 2.12, logCSGlare: 1.7, deltaLogCS: 0.42, sdNoGlare: 0.1, sdGlare: 0.1 })
+  assert(partial.band === 'poor' && partial.ceilingNote && Math.abs(partial.contrastFactor - 2.63) < 0.01, 'glare: no-glare ceiling notes Δ may be larger')
+}
 
 // QUEST should converge near a simulated observer's true threshold.
 {

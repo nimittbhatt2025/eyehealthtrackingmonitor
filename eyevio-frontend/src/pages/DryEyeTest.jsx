@@ -17,6 +17,10 @@ import SamdDisclaimer from '../components/SamdDisclaimer'
 import PathologyTriagePanel from '../components/PathologyTriagePanel'
 import TearStabilityCheck from '../components/TearStabilityCheck'
 import { lockCameraColour } from '../utils/cameraControls'
+import OnDevicePrivacyToggle from '../components/OnDevicePrivacyToggle'
+import { analyzeCapturedFrame, describeAnalysisLocation } from '../ml/eyePhotoAnalysis'
+import { prepareImageUpload } from '../utils/imageUpload'
+import { warmOnDevice } from '../ml/onDeviceInference'
 
 /**
  * Dry Eye Check
@@ -63,6 +67,7 @@ const DryEyeTest = () => {
   const [lightingError, setLightingError] = useState(null)
   const [answers, setAnswers] = useState(emptyOsdiAnswers)
   const [tearResult, setTearResult] = useState(null)
+  const [analysisWhere, setAnalysisWhere] = useState(null)
   const colourLockRef = useRef({ locked: false, reason: 'not_attempted' })
 
   const allQuestionsAnswered = osdiComplete(answers)
@@ -110,6 +115,7 @@ const DryEyeTest = () => {
   useEffect(() => {
     if (testState === 'capture') {
       initializeCamera()
+      warmOnDevice('redness')
     }
     return () => {
       if (testState !== 'capture') stopCamera()
@@ -165,7 +171,7 @@ const DryEyeTest = () => {
     return dataUrl
   }, [cameraReady])
 
-  const analyzePhoto = useCallback(async (dataUrl, symptoms, tear) => {
+  const analyzePhoto = useCallback(async (symptoms, tear) => {
     setTestState('analyzing')
     setError(null)
     setLightingError(null)
@@ -173,7 +179,16 @@ const DryEyeTest = () => {
     stopCamera()
 
     try {
-      const response = await visionTestAPI.analyzeDryEye({ image: dataUrl, capture_mode: 'camera' })
+      const preview = lightingPreviewRef.current || new StableLightingPreview()
+      const where = await analyzeCapturedFrame('redness', canvasRef.current, preview)
+      setAnalysisWhere(where)
+      let response
+      if (where.mode === 'on_device') {
+        response = await visionTestAPI.analyzeDryEye({ on_device: where.payload, lighting: preview.lastUi })
+      } else {
+        const upload = await prepareImageUpload(canvasRef.current, where.landmarks)
+        response = await visionTestAPI.analyzeDryEye({ image: upload.blob, client_crop: upload.meta, capture_mode: 'camera' })
+      }
       const cvData = response.data
       const tearScore = tear?.breakup?.score ?? null
       const blended = combineDryEyeScores(cvData.score, symptoms.symptomHealthScore, tearScore)
@@ -227,6 +242,9 @@ const DryEyeTest = () => {
           metrics: cvData.metrics,
           crop_source: cvData.crop_source,
           scoring_path: cvData.scoring_path,
+          analysis_location: where.mode,
+          analysis_fallback_reason: where.mode === 'server' ? where.reason : null,
+          on_device: cvData.on_device ?? null,
           pathology_triage: cvData.pathology_triage,
           left_eye: cvData.left_eye,
           right_eye: cvData.right_eye,
@@ -244,6 +262,8 @@ const DryEyeTest = () => {
       if (poorLighting && lighting) {
         setLightingError(lighting)
         setError(lighting.message || 'Lighting is not suitable. Adjust lighting and try again.')
+      } else if (err.code === 'no_face' || err.code === 'eye_too_small') {
+        setError(err.message)
       } else {
         const msg = err.response?.data?.message || err.response?.data?.error || 'Analysis failed. Please try again in brighter, even lighting.'
         setError(msg)
@@ -268,8 +288,7 @@ const DryEyeTest = () => {
 
   const handleCapture = () => {
     if (!symptomResults) return
-    const dataUrl = capturePhoto()
-    if (dataUrl) analyzePhoto(dataUrl, symptomResults, tearResult)
+    if (capturePhoto()) analyzePhoto(symptomResults, tearResult)
   }
 
   const handleRetake = () => {
@@ -443,6 +462,7 @@ const DryEyeTest = () => {
               </div>
             )}
 
+            <OnDevicePrivacyToggle allowSaving={false} />
             <PhotoLightingBanner lighting={liveLighting} />
             <canvas ref={lightingCanvasRef} className="hidden" aria-hidden />
 
@@ -501,6 +521,9 @@ const DryEyeTest = () => {
               </div>
               <h2 className="section-title text-2xl mb-2">Screening Complete</h2>
               <p className="text-gray-500">{results.risk_message}</p>
+              {analysisWhere && (
+                <p className="text-xs text-gray-400 mt-2">{describeAnalysisLocation(analysisWhere)}</p>
+              )}
             </div>
 
             <div className="bg-brand-soft rounded-2xl p-6 mb-6 text-center">

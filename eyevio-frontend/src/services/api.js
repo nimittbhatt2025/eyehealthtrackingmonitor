@@ -12,6 +12,40 @@ const api = axios.create({
   },
 })
 
+// Blob image fields go as multipart (binary part + JSON "meta" part) instead of base64 JSON.
+// With { background: true } the server may answer 202 + job id; the job is polled
+// and resolved/rejected like the synchronous response (same status and body).
+async function postWithImage(url, data, field = 'image', { background = false } = {}) {
+  const file = data?.[field]
+  if (!(file instanceof Blob)) return api.post(url, data)
+  const meta = { ...data }
+  delete meta[field]
+  const form = new FormData()
+  form.append(field, file, `${field}.jpg`)
+  form.append('meta', JSON.stringify(meta))
+  const headers = { 'Content-Type': 'multipart/form-data' }
+  if (background) headers.Prefer = 'respond-async'
+  const response = await api.post(url, form, { headers })
+  return response.status === 202 && response.data?.job_id ? pollJob(response.data.job_id) : response
+}
+
+async function pollJob(jobId, { timeoutMs = 120000 } = {}) {
+  const deadline = Date.now() + timeoutMs
+  let delay = 150
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, delay))
+    delay = Math.min(delay * 1.5, 1500)
+    const { data: job } = await api.get(`/jobs/${jobId}`)
+    if (job.status === 'done') return { data: job.result, status: job.http_status }
+    if (job.status === 'failed') {
+      const err = new Error(job.result?.message || job.result?.error || 'Analysis failed')
+      err.response = { status: job.http_status, data: job.result }
+      throw err
+    }
+  }
+  throw new Error('Photo analysis timed out. Please try again.')
+}
+
 // Request interceptor - add auth token
 api.interceptors.request.use(
   (config) => {
@@ -86,8 +120,8 @@ export const visionTestAPI = {
   getTestById: (id) => api.get(`/vision-test/${id}`),
   getHistory: (params) => api.get('/vision-test/', { params }),
   getStats: (params) => api.get('/vision-test/stats', { params }),
-  analyzeDryEye: (data) => api.post('/vision-test/analyze-dry-eye', data),
-  checkPhotoLighting: (data) => api.post('/vision-test/check-photo-lighting', data),
+  analyzeDryEye: (data) => postWithImage('/vision-test/analyze-dry-eye', data, 'image', { background: true }),
+  checkPhotoLighting: (data) => postWithImage('/vision-test/check-photo-lighting', data),
 }
 
 // Webcam API
@@ -162,17 +196,17 @@ export function triggerPdfDownload(data, filename) {
 // Calibration API
 export const calibrationAPI = {
   start: () => api.post('/calibration/start'),
-  submitBaseline: (data) => api.post('/calibration/baseline', data),
-  submitBlink: (data) => api.post('/calibration/blink', data),
+  submitBaseline: (data) => postWithImage('/calibration/baseline', data, 'frame'),
+  submitBlink: (data) => postWithImage('/calibration/blink', data, 'frame'),
   finalize: () => api.post('/calibration/finalize'),
   getStatus: () => api.get('/calibration/status'),
-  test: (data) => api.post('/calibration/test', data),
+  test: (data) => postWithImage('/calibration/test', data, 'frame'),
 }
 
 // Eye photo monitoring API
 export const eyePhotoAPI = {
-  capture: (data) => api.post('/eye-photos/', data),
-  checkLighting: (data) => api.post('/eye-photos/check-lighting', data),
+  capture: (data) => postWithImage('/eye-photos/', data, 'image', { background: true }),
+  checkLighting: (data) => postWithImage('/eye-photos/check-lighting', data),
   list: (params) => api.get('/eye-photos/', { params }),
   getById: (id) => api.get(`/eye-photos/${id}`),
   delete: (id) => api.delete(`/eye-photos/${id}`),

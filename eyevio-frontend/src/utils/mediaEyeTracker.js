@@ -1,4 +1,4 @@
-import { FaceMesh } from '@mediapipe/face_mesh'
+import { createFaceMesh } from './mediapipeSolutions'
 import { Camera } from '@mediapipe/camera_utils'
 
 /**
@@ -246,13 +246,8 @@ export class MediaEyeTracker {
   async initialize() {
     console.log(' Initializing MediaPipe FaceMesh...')
 
-    this.faceMesh = new FaceMesh({
-      locateFile: (file) => {
-        return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
-      },
-    })
-
-    this.faceMesh.setOptions({
+    if (this.faceMesh) this.faceMesh.close().catch(() => {})
+    this.faceMesh = createFaceMesh({
       maxNumFaces: 1,
       refineLandmarks: true, // Enable iris tracking
       minDetectionConfidence: 0.5,
@@ -305,6 +300,10 @@ export class MediaEyeTracker {
 
     if (this.camera) {
       this.camera.stop()
+    }
+    if (this.faceMesh) {
+      this.faceMesh.close().catch(() => {})
+      this.faceMesh = null
     }
 
     console.log('🛑 Eye tracking stopped')

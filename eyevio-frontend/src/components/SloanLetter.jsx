@@ -1,3 +1,7 @@
+import { E_PATH, E_ROTATION } from '../utils/stimulusGeometry'
+
+export { E_DIRECTIONS } from '../utils/stimulusGeometry'
+
 /**
  * Sloan optotypes drawn on a 5×5 grid with 1-unit strokes, so the letter's
  * height is exactly the rendered size and stroke width is height / 5.
@@ -19,13 +23,6 @@ const PATHS = {
 
 export const SLOAN_LETTERS = ['C', 'D', 'H', 'K', 'N', 'O', 'R', 'S', 'V', 'Z']
 export const HOTV_LETTERS = ['H', 'O', 'T', 'V']
-
-/** Tumbling E directions = the way the E's bars point. */
-export const E_DIRECTIONS = ['up', 'right', 'down', 'left']
-const E_ROTATION = { right: 0, down: 90, left: 180, up: 270 }
-// Three bars and the spine are 1 unit thick with 1-unit gaps (5×5 grid).
-const E_PATH = 'M0 0.5 H5 M0 2.5 H5 M0 4.5 H5 M0.5 0 V5'
-
 const SloanLetter = ({ letter, size, color = '#111' }) => (
   <svg width={size} height={size} viewBox="0 0 5 5" aria-label={letter} role="img" style={{ display: 'block' }}>
     <path d={PATHS[letter]} fill="none" stroke={color} strokeWidth="1" strokeLinejoin="miter" strokeMiterlimit="2" />

@@ -60,7 +60,7 @@ CONDITION_WEIGHTS = {
         'surface_irregularity': 1.2,
         'visual_change': 1.3,
         'asymmetry': 1.0,
-        'opacity_grade': 2.0,
+        'screening_band': 1.0,
     },
     'general': {
         'health_score': 1.0,
@@ -76,7 +76,7 @@ CONDITION_LABELS = {
     'dry_eye': 'Dry eye',
     'cornea_scar': 'Cornea / surface changes',
     'glaucoma': 'Between-visit surface monitoring',
-    'cataract': 'Cataract opacity',
+    'cataract': 'Cataract screening',
     'general': 'General eye health',
 }
 
@@ -99,9 +99,9 @@ CONDITION_SCOPE = {
         'surface_proxy_only': True,
     },
     'cataract': {
-        'tracks': ['Opacity grade', 'Clarity score', 'Aligned pupil-region appearance'],
+        'tracks': ['Calibrated screening band (low / indeterminate / elevated, or cannot assess)', 'Aligned pupil-region appearance'],
         'disclaimer': (
-            'Screening only — not LOCS III grading and not a millimeter size measurement. '
+            'Screening only — not a severity grade, not LOCS III and not a millimetre size measurement. '
             'A dilated slit-lamp exam remains the clinical standard for cataract diagnosis.'
         ),
         'opacity_monitor': True,
@@ -165,6 +165,13 @@ def _eye_brightness_from_photo(photo: EyePhoto) -> float:
     if photo.health_score is not None:
         return float(photo.health_score)
     details = _details(photo)
+    pupil_brightness = [
+        ((details.get(f'{side}_eye') or {}).get('image_metrics') or {}).get('mean_brightness')
+        for side in ('left', 'right')
+    ]
+    pupil_brightness = [v for v in pupil_brightness if v is not None]
+    if pupil_brightness:
+        return sum(pupil_brightness) / len(pupil_brightness) * 100.0 / 255.0
     metrics = details.get('metrics') or {}
     left = float(metrics.get('left_appearance_score') or photo.left_eye_score or 0)
     right = float(metrics.get('right_appearance_score') or photo.right_eye_score or 0)
@@ -200,7 +207,8 @@ def calculate_comparison_confidence(
 
     if not visual.get('available'):
         score -= 15
-        reasons.append('no_aligned_crops')
+        kept_on_device = any(not photo.image_thumbnail for photo in (current, baseline))
+        reasons.append('metric_only_photo_kept_on_device' if kept_on_device else 'no_aligned_crops')
 
     if days_between is not None:
         if days_between > 90:
@@ -240,26 +248,19 @@ def _asymmetry_from_photo(photo: EyePhoto) -> Dict[str, float]:
     }
 
 
-def _opacity_from_photo(photo: EyePhoto) -> Dict[str, Any]:
+def _screening_from_photo(photo: EyePhoto) -> Dict[str, Any]:
+    """Calibrated screening result stored on a cataract photo; legacy opacity-score photos are unscored."""
     details = _details(photo)
-    opacity = details.get('opacity_score')
-    if opacity is None and photo.health_score is not None:
-        opacity = max(0.0, 100.0 - float(photo.health_score))
-    grade_level = details.get('grade_level')
-    if grade_level is None and opacity is not None:
-        if opacity <= 20:
-            grade_level = 0
-        elif opacity <= 40:
-            grade_level = 1
-        elif opacity <= 65:
-            grade_level = 2
-        else:
-            grade_level = 3
-    return {
-        'opacity_score': float(opacity) if opacity is not None else None,
-        'grade_level': int(grade_level) if grade_level is not None else None,
-        'opacity_grade': details.get('opacity_grade'),
-    }
+    screening = details.get('screening')
+    if isinstance(screening, dict) and screening.get('status'):
+        return {
+            'status': screening['status'],
+            'band': screening.get('band'),
+            'band_level': screening.get('band_level'),
+            'likelihood': screening.get('likelihood'),
+        }
+    status = 'legacy_unscored' if photo.condition_type == 'cataract' else None
+    return {'status': status, 'band': None, 'band_level': None, 'likelihood': None}
 
 
 def _compute_change_burden(
@@ -269,8 +270,8 @@ def _compute_change_burden(
     visual: Dict[str, Any],
     condition: str,
     weights: Dict[str, float],
-    cur_opacity: Dict[str, Any],
-    base_opacity: Dict[str, Any],
+    cur_screen: Dict[str, Any],
+    base_screen: Dict[str, Any],
 ) -> Tuple[float, List[str], Dict[str, Any]]:
     raw_score = 0.0
     reasons: List[str] = []
@@ -285,19 +286,13 @@ def _compute_change_burden(
         raw_score += health_drop * weights['health_score']
         reasons.append(f'Appearance score dropped {health_drop:.0f} points')
 
-    if condition == 'cataract' and changes.get('opacity_score'):
-        opacity_rise = changes['opacity_score']['delta']
-        if opacity_rise >= 8:
-            raw_score += opacity_rise * weights.get('opacity_grade', 1.5)
-            reasons.append(f'Opacity score increased by {opacity_rise:.0f} points')
-
-    if condition == 'cataract' and changes.get('grade_level'):
-        grade_rise = changes['grade_level']['delta']
-        if grade_rise >= 1:
-            raw_score += grade_rise * 18 * weights.get('opacity_grade', 1.5)
-            cur_g = cur_opacity.get('opacity_grade') or f"level {int(cur_opacity['grade_level'])}"
-            base_g = base_opacity.get('opacity_grade') or f"level {int(base_opacity['grade_level'])}"
-            reasons.append(f'Opacity grade moved from {base_g} to {cur_g}')
+    band_rise = 0
+    if condition == 'cataract' and cur_screen.get('band_level') is not None and base_screen.get('band_level') is not None:
+        band_rise = int(cur_screen['band_level']) - int(base_screen['band_level'])
+        if band_rise >= 1:
+            # one band = confirm threshold; low → elevated reaches the persistent threshold
+            raw_score += band_rise * CONFIRM_THRESHOLD * weights.get('screening_band', 1.0)
+            reasons.append(f"Screening result moved from {base_screen['band']} to {cur_screen['band']}")
 
     redness_rise = changes['sclera_redness']['delta']
     if condition != 'cataract' and redness_rise >= 6:
@@ -333,6 +328,7 @@ def _compute_change_burden(
             flags['redness_change_significant']
             or flags['asymmetry_change_significant']
             or health_drop >= 8
+            or band_rise >= 1
         )
         if metric_support:
             raw_score += change * 0.35 * weights['visual_change']
@@ -400,19 +396,17 @@ def compare_photos(
     right_change = _metric_delta(current.right_eye_score, baseline.right_eye_score, higher_is_worse=False)
     max_eye_change = max(abs(left_change['delta']), abs(right_change['delta']))
 
-    cur_opacity = _opacity_from_photo(current)
-    base_opacity = _opacity_from_photo(baseline)
-    if cur_opacity['opacity_score'] is not None and base_opacity['opacity_score'] is not None:
-        changes['opacity_score'] = _metric_delta(
-            cur_opacity['opacity_score'],
-            base_opacity['opacity_score'],
-            higher_is_worse=True,
+    cur_screen = _screening_from_photo(current)
+    base_screen = _screening_from_photo(baseline)
+    if cur_screen['likelihood'] is not None and base_screen['likelihood'] is not None:
+        changes['cataract_likelihood'] = _metric_delta(
+            cur_screen['likelihood'], base_screen['likelihood'], higher_is_worse=True,
         )
-    if cur_opacity['grade_level'] is not None and base_opacity['grade_level'] is not None:
-        changes['grade_level'] = _metric_delta(
-            float(cur_opacity['grade_level']),
-            float(base_opacity['grade_level']),
-            higher_is_worse=True,
+    screening_note = None
+    if condition == 'cataract' and (cur_screen['status'] != 'assessed' or base_screen['status'] != 'assessed'):
+        screening_note = (
+            'Model screening could not be compared because one of the two photos was not assessed '
+            '(out of distribution, legacy score, or model unavailable). Only the visual side-by-side applies.'
         )
 
     cur_asym = _asymmetry_from_photo(current)
@@ -443,7 +437,7 @@ def compare_photos(
     confidence_level = comp_confidence['level']
 
     change_burden, reasons, flags = _compute_change_burden(
-        changes, cur_asym, base_asym, visual, condition, weights, cur_opacity, base_opacity
+        changes, cur_asym, base_asym, visual, condition, weights, cur_screen, base_screen
     )
 
     if max_eye_change >= LARGE_EYE_CHANGE:
@@ -498,9 +492,10 @@ def compare_photos(
             'max_eye_change': round(max_eye_change, 1),
             'asymmetry_flag': max_eye_change >= LARGE_EYE_CHANGE,
         },
-        'opacity': {
-            'current': cur_opacity,
-            'baseline': base_opacity,
+        'screening': {
+            'current': cur_screen,
+            'baseline': base_screen,
+            'note': screening_note,
         },
         'visual_comparison': {
             'available': visual.get('available'),
@@ -774,15 +769,11 @@ def build_monthly_timeline(photos: List[EyePhoto]) -> List[Dict[str, Any]]:
                 'avg_tear_film': 0,
                 'avg_irregularity': 0,
                 'avg_asymmetry': 0,
-                'avg_opacity_score': None,
-                'avg_grade_level': None,
+                'screening_summary': None,
             }
         photo_dict = photo.to_dict(include_thumbnail=True)
-        opacity = _opacity_from_photo(photo)
         details = _details(photo)
-        photo_dict['opacity_score'] = opacity.get('opacity_score')
-        photo_dict['opacity_grade'] = opacity.get('opacity_grade')
-        photo_dict['grade_level'] = opacity.get('grade_level')
+        photo_dict['screening'] = _screening_from_photo(photo)
         photo_dict['capture_quality'] = details.get('capture_quality')
         asym = _asymmetry_from_photo(photo)
         photo_dict['health_score_asymmetry'] = asym.get('health_score_asymmetry')
@@ -796,7 +787,8 @@ def build_monthly_timeline(photos: List[EyePhoto]) -> List[Dict[str, Any]]:
         models = bucket.pop('photo_models')
         n = len(photos_in_month)
         bucket['photo_count'] = n
-        bucket['avg_health_score'] = round(sum(p['health_score'] for p in photos_in_month) / n, 1)
+        health_vals = [p['health_score'] for p in photos_in_month if p['health_score'] is not None]
+        bucket['avg_health_score'] = round(sum(health_vals) / len(health_vals), 1) if health_vals else None
         bucket['avg_redness'] = round(sum(p['sclera_redness'] or 0 for p in photos_in_month) / n, 1)
         bucket['avg_tear_film'] = round(sum(p['tear_film_quality'] or 0 for p in photos_in_month) / n, 1)
         bucket['avg_irregularity'] = round(
@@ -806,10 +798,18 @@ def build_monthly_timeline(photos: List[EyePhoto]) -> List[Dict[str, Any]]:
             sum(p.get('health_score_asymmetry') or 0 for p in photos_in_month) / n, 1
         )
 
-        opacity_vals = [o for o in (_opacity_from_photo(m)['opacity_score'] for m in models) if o is not None]
-        grade_vals = [g for g in (_opacity_from_photo(m)['grade_level'] for m in models) if g is not None]
-        bucket['avg_opacity_score'] = round(sum(opacity_vals) / len(opacity_vals), 1) if opacity_vals else None
-        bucket['avg_grade_level'] = round(sum(grade_vals) / len(grade_vals), 1) if grade_vals else None
+        screens = [_screening_from_photo(m) for m in models]
+        if any(sc['status'] for sc in screens):
+            assessed = [sc for sc in screens if sc['status'] == 'assessed']
+            worst = max(assessed, key=lambda sc: sc['band_level']) if assessed else None
+            legacy = sum(1 for sc in screens if sc['status'] == 'legacy_unscored')
+            bucket['screening_summary'] = {
+                'assessed': len(assessed),
+                'not_assessed': len(screens) - len(assessed) - legacy,
+                'legacy_unscored': legacy,
+                'max_likelihood': max(sc['likelihood'] for sc in assessed) if assessed else None,
+                'worst_band': worst['band'] if worst else None,
+            }
         bucket['latest_photo'] = photos_in_month[-1]
         timeline.append(bucket)
 

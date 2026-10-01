@@ -203,7 +203,7 @@ def child_progress_card(child_member: FamilyMember, days: int = 7) -> Dict[str, 
         ).all()
     )
     tests = (
-        VisionTest.query.filter_by(user_id=user.id)
+        VisionTest.usable().filter_by(user_id=user.id)
         .order_by(VisionTest.created_at.desc())
         .limit(5)
         .all()
@@ -300,7 +300,7 @@ def child_detail(caregiver_user_id: int, child_user_id: int, days: int = 30) -> 
     cutoff = datetime.utcnow() - timedelta(days=days)
 
     tests = (
-        VisionTest.query.filter(
+        VisionTest.usable().filter(
             VisionTest.user_id == child_user_id,
             VisionTest.created_at >= cutoff,
         )

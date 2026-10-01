@@ -21,6 +21,7 @@ import {
   detectDisplayState,
   blockingDisplayIssues,
 } from '../utils/colorThreshold'
+import { C_ICON_PATH, LANDOLT_GAPS, inLandoltC } from '../utils/stimulusGeometry'
 
 /**
  * Colour Threshold Test — discrimination thresholds along the protan, deutan
@@ -37,12 +38,7 @@ const PRACTICE_AXES = ['tritan', 'protan']
 const FIXATE_MS = 400
 const PRACTICE_FEEDBACK_MS = 900
 const PANEL_BG = 'rgb(28,28,28)'
-const GAPS = [
-  { id: 'up', label: 'Up', key: 'ArrowUp', angle: -90 },
-  { id: 'right', label: 'Right', key: 'ArrowRight', angle: 0 },
-  { id: 'down', label: 'Down', key: 'ArrowDown', angle: 90 },
-  { id: 'left', label: 'Left', key: 'ArrowLeft', angle: 180 },
-]
+const GAPS = LANDOLT_GAPS
 const QUEST_OPTS = { min: 0.5, max: 3.2, step: 0.02, priorMean: 2.2, priorSd: 0.7, beta: 3.5, guessRate: 0.25, lapseRate: 0.03 }
 
 const BEYOND_GAMUT_MARGIN = 0.15
@@ -65,17 +61,6 @@ function buildSchedule(perAxis) {
   return [...firsts, ...rest]
 }
 
-function inGapC(x, y, R, gapAngle) {
-  const r = Math.hypot(x, y)
-  const outer = 0.6 * R
-  const inner = 0.32 * R
-  if (r < inner || r > outer) return false
-  const a = (gapAngle * Math.PI) / 180
-  const along = x * Math.cos(a) + y * Math.sin(a)
-  const across = -x * Math.sin(a) + y * Math.cos(a)
-  return !(along > 0 && Math.abs(across) < (outer - inner) / 2)
-}
-
 function paintColorStimulus(canvas, { dir, distance, gapAngle }) {
   const size = canvas.width
   const ctx = canvas.getContext('2d')
@@ -90,7 +75,7 @@ function paintColorStimulus(canvas, { dir, distance, gapAngle }) {
     const radius = minDist * (0.3 + Math.random() * 0.17)
     if (Math.hypot(x, y) > R - radius) continue
     const Y = DOT_LUMINANCES[Math.floor(Math.random() * DOT_LUMINANCES.length)]
-    const [r, g, b] = dotRgb(inGapC(x, y, R, gapAngle) ? target : WHITE_UV, Y)
+    const [r, g, b] = dotRgb(inLandoltC(x, y, R, gapAngle) ? target : WHITE_UV, Y)
     ctx.fillStyle = `rgb(${r},${g},${b})`
     ctx.beginPath()
     ctx.arc(p.x, p.y, radius, 0, 2 * Math.PI)
@@ -102,7 +87,7 @@ function CIcon({ angle, size = 32 }) {
   return (
     <svg width={size} height={size} viewBox="-10 -10 20 20" aria-hidden>
       <g transform={`rotate(${angle})`}>
-        <path d="M 6.2 -2 A 6.5 6.5 0 1 0 6.2 2" fill="none" stroke="currentColor" strokeWidth="3" />
+        <path d={C_ICON_PATH} fill="none" stroke="currentColor" strokeWidth="3" />
       </g>
     </svg>
   )

@@ -1,5 +1,5 @@
-import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
-import { useEffect } from 'react'
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
+import { Suspense, lazy, useEffect } from 'react'
 import { Toaster } from 'react-hot-toast'
 import { useAuthStore } from './store/authStore'
 import PWAInstallPrompt from './components/PWAInstallPrompt'
@@ -10,52 +10,54 @@ import { KeyboardShortcutsProvider } from './context/KeyboardShortcutsContext'
 import { CameraProvider } from './context/CameraContext'
 import CameraIndicator from './components/CameraIndicator'
 import CameraPermissionBanner from './components/CameraPermissionBanner'
+import RouteFallback from './components/RouteFallback'
 
 // Layouts
 import MainLayout from './components/layout/MainLayout'
 import AuthLayout from './components/layout/AuthLayout'
+import VisionTestActiveLayout from './components/layout/VisionTestActiveLayout'
 
-// Pages
-import Home from './pages/Home'
+// Auth pages load eagerly; every other page is its own chunk, so MediaPipe and
+// onnxruntime-web download only with the tests that use them.
 import Login from './pages/auth/Login'
 import Register from './pages/auth/Register'
-import Onboarding from './pages/Onboarding'
-import Dashboard from './pages/Dashboard'
-import VisionTests from './pages/VisionTests'
-import VisionTestRouteRedirect from './components/VisionTestRouteRedirect'
-import ContrastSensitivityTest from './pages/ContrastSensitivityTest'
-import SideVisionTest from './pages/SideVisionTest'
-import CataractTest from './pages/CataractTest'
-import DryEyeTest from './pages/DryEyeTest'
-import RedReflexTest from './pages/RedReflexTest'
-import AccommodativeLagTest from './pages/AccommodativeLagTest'
-import NearPointConvergenceTest from './pages/NearPointConvergenceTest'
-import PeripheralAwarenessTest from './pages/PeripheralAwarenessTest'
-import OcularErgonomicsMonitor from './pages/OcularErgonomicsMonitor'
-import TestDetails from './pages/TestDetails'
-import Trends from './pages/Trends'
-import Lifestyle from './pages/Lifestyle'
-import Achievements from './pages/Achievements'
-import EyeConditions from './pages/EyeConditions'
-import Community from './pages/Community'
-import Alerts from './pages/Alerts'
-import Settings from './pages/Settings'
-import Help from './pages/Help'
-import Profile from './pages/Profile'
-import Reports from './pages/Reports'
-import BlinkCalibration from './pages/BlinkCalibration'
-import EyeTrackingAnalysis from './pages/EyeTrackingAnalysis'
-import EyeHealthMonitor from './pages/EyeHealthMonitor'
-import CataractOpacityMonitor from './pages/CataractOpacityMonitor'
-import MyopiaProgression from './pages/MyopiaProgression'
-import DigitalWellbeing from './pages/DigitalWellbeing'
-import FamilyDashboard from './pages/FamilyDashboard'
-import UniversalCalibration from './components/UniversalCalibration'
-import IPDDistanceCalibration from './components/IPDDistanceCalibration'
-import VisualAcuityTest from './pages/VisualAcuityTest'
-import ColorVisionTest from './pages/ColorVisionTest'
-import AmslerGridTest from './pages/AmslerGridTest'
-import VisionTestActiveLayout from './components/layout/VisionTestActiveLayout'
+
+const Home = lazy(() => import('./pages/Home'))
+const Onboarding = lazy(() => import('./pages/Onboarding'))
+const Dashboard = lazy(() => import('./pages/Dashboard'))
+const VisionTests = lazy(() => import('./pages/VisionTests'))
+const VisionTestRouteRedirect = lazy(() => import('./components/VisionTestRouteRedirect'))
+const ContrastSensitivityTest = lazy(() => import('./pages/ContrastSensitivityTest'))
+const SideVisionTest = lazy(() => import('./pages/SideVisionTest'))
+const CataractTest = lazy(() => import('./pages/CataractTest'))
+const DryEyeTest = lazy(() => import('./pages/DryEyeTest'))
+const RedReflexTest = lazy(() => import('./pages/RedReflexTest'))
+const AccommodativeLagTest = lazy(() => import('./pages/AccommodativeLagTest'))
+const NearPointConvergenceTest = lazy(() => import('./pages/NearPointConvergenceTest'))
+const PeripheralAwarenessTest = lazy(() => import('./pages/PeripheralAwarenessTest'))
+const OcularErgonomicsMonitor = lazy(() => import('./pages/OcularErgonomicsMonitor'))
+const TestDetails = lazy(() => import('./pages/TestDetails'))
+const Trends = lazy(() => import('./pages/Trends'))
+const Lifestyle = lazy(() => import('./pages/Lifestyle'))
+const Achievements = lazy(() => import('./pages/Achievements'))
+const EyeConditions = lazy(() => import('./pages/EyeConditions'))
+const Community = lazy(() => import('./pages/Community'))
+const Alerts = lazy(() => import('./pages/Alerts'))
+const Settings = lazy(() => import('./pages/Settings'))
+const Help = lazy(() => import('./pages/Help'))
+const Profile = lazy(() => import('./pages/Profile'))
+const Reports = lazy(() => import('./pages/Reports'))
+const BlinkCalibration = lazy(() => import('./pages/BlinkCalibration'))
+const EyeTrackingAnalysis = lazy(() => import('./pages/EyeTrackingAnalysis'))
+const EyeHealthMonitor = lazy(() => import('./pages/EyeHealthMonitor'))
+const CataractOpacityMonitor = lazy(() => import('./pages/CataractOpacityMonitor'))
+const MyopiaProgression = lazy(() => import('./pages/MyopiaProgression'))
+const DigitalWellbeing = lazy(() => import('./pages/DigitalWellbeing'))
+const FamilyDashboard = lazy(() => import('./pages/FamilyDashboard'))
+const IPDDistanceCalibration = lazy(() => import('./components/IPDDistanceCalibration'))
+const VisualAcuityTest = lazy(() => import('./pages/VisualAcuityTest'))
+const ColorVisionTest = lazy(() => import('./pages/ColorVisionTest'))
+const AmslerGridTest = lazy(() => import('./pages/AmslerGridTest'))
 
 // Protected Route Component
 function ProtectedRoute({ children }) {
@@ -73,23 +75,6 @@ function ProtectedRoute({ children }) {
   }
 
   return children
-}
-
-// Calibration Wrapper to handle returnTo parameter
-function CalibrationWrapper() {
-  const navigate = useNavigate()
-  const [searchParams] = useSearchParams()
-  const returnTo = searchParams.get('returnTo')
-
-  const handleComplete = () => {
-    if (returnTo) {
-      navigate(returnTo)
-    } else {
-      navigate('/vision-tests')
-    }
-  }
-
-  return <UniversalCalibration onComplete={handleComplete} />
 }
 
 function App() {
@@ -111,6 +96,7 @@ function App() {
             />
             <PWAInstallPrompt />
             <AIChatbot />
+            <Suspense fallback={<RouteFallback fullScreen />}>
             <Routes>
               {/* Public Routes */}
               <Route path="/" element={<Home />} />
@@ -187,6 +173,7 @@ function App() {
               {/* Catch all */}
               <Route path="*" element={<Navigate to="/" />} />
             </Routes>
+            </Suspense>
           </KeyboardShortcutsProvider>
           </Router>
           <CameraPermissionBanner />

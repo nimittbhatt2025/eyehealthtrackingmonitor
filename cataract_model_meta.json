@@ -1,0 +1,69 @@
+{
+  "model": "cataract_resnet18_binary",
+  "version": "resnet_v2_calibrated",
+  "trained_at": "2026-09-29T01:51:36+00:00",
+  "labels": [
+    "cataract",
+    "normal"
+  ],
+  "positive_label": "cataract",
+  "temperature": 1.6237069368362427,
+  "temperature_fitted_unconstrained": 1.6237069368362427,
+  "thresholds": {
+    "rule_out": 0.2,
+    "rule_in": 0.8,
+    "balanced": 0.5
+  },
+  "threshold_info": {
+    "fitted": {
+      "rule_out": 0.6004055142402649,
+      "rule_in": 0.6004055142402649
+    },
+    "source": "prior (calibration pool near-separable; fitted thresholds degenerate)"
+  },
+  "ood": {
+    "threshold": 1.1089695692062378,
+    "layers": [
+      "layer1",
+      "layer2",
+      "layer3",
+      "layer4"
+    ],
+    "method": "class-conditional Mahalanobis (tied Ledoit-Wolf covariance) on pooled layer1-4 features; score = max_layer(d / val_p99_layer)"
+  },
+  "data": {
+    "source": "Zenodo 10.5281/zenodo.18250149 \u2014 external eye photographs, binary labels",
+    "train": 834,
+    "val": 160,
+    "test": 166,
+    "dedup": {
+      "val": {
+        "before": 178,
+        "after": 160,
+        "removed_near_duplicate_of_reference": 18,
+        "removed_internal_duplicate": 0
+      },
+      "test": {
+        "before": 180,
+        "after": 166,
+        "removed_near_duplicate_of_reference": 14,
+        "removed_internal_duplicate": 0
+      }
+    },
+    "dhash_max_distance": 6
+  },
+  "recipe": {
+    "backbone": "resnet18 (ImageNet)",
+    "trainable": "layer4 + fc",
+    "epochs": 12,
+    "lr": 0.0001,
+    "batch_size": 16,
+    "seed": 0,
+    "selection": "lowest validation NLL"
+  },
+  "headline": {
+    "test_clean_auc": 0.9998499399759904,
+    "test_webcam_sim_auc": 0.991296518607443,
+    "auc_eye_masked_out": 0.9983493397358943
+  }
+}

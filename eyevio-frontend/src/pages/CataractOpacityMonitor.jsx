@@ -3,8 +3,6 @@ import { Link } from 'react-router-dom'
 import { toast } from 'react-hot-toast'
 import {
   Camera,
-  TrendingDown,
-  TrendingUp,
   Minus,
   AlertTriangle,
   Calendar,
@@ -19,6 +17,11 @@ import PhotoLightingBanner from '../components/PhotoLightingBanner'
 import SamdDisclaimer from '../components/SamdDisclaimer'
 import PathologyTriagePanel from '../components/PathologyTriagePanel'
 import { PupilRegionTracker } from '../utils/pupilRegionDetector'
+import OnDevicePrivacyToggle from '../components/OnDevicePrivacyToggle'
+import EyeThumbnail from '../components/EyeThumbnail'
+import { analyzeCapturedFrame, describeAnalysisLocation } from '../ml/eyePhotoAnalysis'
+import { prepareImageUpload } from '../utils/imageUpload'
+import { getSavePhotosPreference, setSavePhotosPreference, warmOnDevice } from '../ml/onDeviceInference'
 import {
   cropEyeDataUrl,
   drawEyeZoom,
@@ -43,48 +46,85 @@ function getPupilCrops(source) {
   }
 }
 
-const GRADE_COLORS = {
-  clear: 'bg-emerald-100 text-emerald-800 border-emerald-200',
-  mild: 'bg-amber-50 text-amber-900 border-amber-200',
-  moderate: 'bg-orange-50 text-orange-900 border-orange-200',
-  dense: 'bg-red-50 text-red-800 border-red-200',
+const SCREENING_STYLES = {
+  low: { label: 'No cataract-like pattern', cls: 'bg-emerald-50 text-emerald-800 border-emerald-200' },
+  indeterminate: { label: 'Inconclusive', cls: 'bg-amber-50 text-amber-900 border-amber-200' },
+  elevated: { label: 'Cataract-like pattern', cls: 'bg-red-50 text-red-800 border-red-200' },
+  cannot_assess: { label: 'Cannot assess', cls: 'bg-gray-100 text-gray-700 border-gray-300' },
+  model_unavailable: { label: 'Model unavailable', cls: 'bg-gray-100 text-gray-700 border-gray-300' },
+  legacy_unscored: { label: 'Older photo — no calibrated result', cls: 'bg-gray-50 text-gray-500 border-gray-200' },
+}
+const BAND_LEVEL = { low: 0, indeterminate: 1, elevated: 2 }
+
+function screeningOf(source) {
+  const s = source?.screening || source?.analysis_details?.screening
+  if (s?.status) return s
+  return { status: 'legacy_unscored' }
 }
 
-function opacityMonthStatus(month, monthIndex, timeline) {
-  if (monthIndex === 0) return 'Baseline month'
-  const prev = timeline[monthIndex - 1]
-  const curOpacity = month.avg_opacity_score ?? (100 - (month.avg_health_score ?? 0))
-  const prevOpacity = prev.avg_opacity_score ?? (100 - (prev.avg_health_score ?? 0))
-  const delta = curOpacity - prevOpacity
-  if (Math.abs(delta) < 6) return 'Stable vs prior month'
-  return delta > 0 ? 'Cloudier vs prior month' : 'Clearer vs prior month'
+function screeningKey(s) {
+  return s?.status === 'assessed' ? s.band : s?.status || 'legacy_unscored'
 }
 
-function GradeBadge({ grade, label }) {
-  if (!grade) return null
-  const colors = GRADE_COLORS[grade] || 'bg-gray-100 text-gray-800 border-gray-200'
+function ScreeningBadge({ screening }) {
+  if (!screening) return null
+  const key = screeningKey(screening)
+  const style = SCREENING_STYLES[key] || SCREENING_STYLES.legacy_unscored
   return (
-    <span className={`inline-flex items-center rounded-md border px-2.5 py-1 text-xs font-semibold ${colors}`}>
-      {label || grade}
+    <span className={`inline-flex items-center rounded-md border px-2.5 py-1 text-xs font-semibold ${style.cls}`}>
+      {style.label}
+      {screening.status === 'assessed' && screening.likelihood != null && (
+        <span className="ml-1.5 font-normal">· {(screening.likelihood * 100).toFixed(0)}%</span>
+      )}
     </span>
   )
 }
 
-function MetricDelta({ label, change, higherIsWorse = false }) {
-  if (!change) return null
-  const { delta, current, baseline } = change
-  const worsened = higherIsWorse ? delta > 0 : delta < 0
-  const improved = higherIsWorse ? delta < 0 : delta > 0
-  const Icon = worsened ? TrendingDown : improved ? TrendingUp : Minus
-  const color = worsened ? 'text-red-600' : improved ? 'text-emerald-600' : 'text-gray-500'
+function monthScreeningStatus(month, monthIndex, timeline) {
+  const cur = month.screening_summary?.worst_band
+  if (!cur) return month.screening_summary?.not_assessed ? 'Not assessed this month' : 'Older photos — no calibrated result'
+  const prevBand = timeline
+    .slice(0, monthIndex)
+    .map((m) => m.screening_summary?.worst_band)
+    .filter(Boolean)
+    .pop()
+  if (!prevBand) return 'First assessed month'
+  const delta = BAND_LEVEL[cur] - BAND_LEVEL[prevBand]
+  if (delta === 0) return 'Same band as last assessed month'
+  return delta > 0 ? `Moved up from ${prevBand}` : `Moved down from ${prevBand}`
+}
 
+function EyeScreeningCard({ side, eye }) {
+  const s = eye?.screening || {}
   return (
-    <div className="flex items-center justify-between text-sm py-1.5 border-b border-gray-100 last:border-0">
-      <span className="text-gray-600">{label}</span>
-      <div className={`flex items-center gap-1.5 font-medium ${color}`}>
-        <Icon className="w-3.5 h-3.5" aria-hidden />
-        <span>{current}</span>
-        <span className="text-gray-400 font-normal">vs {baseline}</span>
+    <div className="rounded-lg border border-gray-200 overflow-hidden bg-white">
+      {s.gradcam ? (
+        <img src={s.gradcam} alt={`${side} eye model attention`} className="w-full aspect-square object-cover" />
+      ) : (
+        <div className="aspect-square flex items-center justify-center text-xs text-gray-400 bg-gray-50 px-3 text-center">
+          {s.status === 'assessed' ? 'Attention map unavailable' : 'No attention map — not assessed'}
+        </div>
+      )}
+      <div className="p-2 text-xs space-y-1">
+        <div className="font-medium text-gray-800 capitalize">{side} eye</div>
+        <ScreeningBadge screening={s} />
+        {s.status === 'cannot_assess' && (
+          <p className="text-gray-500">
+            {s.reason === 'out_of_distribution'
+              ? `Out of training distribution (score ${s.ood_score} > ${s.ood_threshold})`
+              : s.reason}
+          </p>
+        )}
+        {s.ordinal?.status === 'assessed' && (
+          <p className="text-gray-700">
+            Ordinal grade: <strong className="capitalize">{s.ordinal.label}</strong>
+          </p>
+        )}
+        {s.gradcam_central_mass != null && (
+          <p className="text-gray-500">
+            {Math.round(s.gradcam_central_mass * 100)}% of attention on the central eye region
+          </p>
+        )}
       </div>
     </div>
   )
@@ -117,6 +157,13 @@ export default function CataractOpacityMonitor() {
   const [deletingId, setDeletingId] = useState(null)
   const [pupilsLocked, setPupilsLocked] = useState(false)
   const [zoomSharp, setZoomSharp] = useState(false)
+  const [savePhotos, setSavePhotos] = useState(getSavePhotosPreference)
+  const [analysisWhere, setAnalysisWhere] = useState(null)
+
+  const handleSavePhotosChange = (value) => {
+    setSavePhotos(value)
+    setSavePhotosPreference(value)
+  }
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -223,6 +270,10 @@ export default function CataractOpacityMonitor() {
   }, [view, initializeCamera, stopCamera])
 
   useEffect(() => {
+    if (view === 'capture' && !savePhotos) warmOnDevice('cataract')
+  }, [view, savePhotos])
+
+  useEffect(() => {
     if (view !== 'capture' || !cameraReady) {
       setLiveLighting(null)
       setPupilsLocked(false)
@@ -294,15 +345,34 @@ export default function CataractOpacityMonitor() {
     }
   }, [view, cameraReady])
 
-  const submitCapture = async (dataUrl, eyeCrops, acknowledgePoorLighting = false) => {
-    const response = await eyePhotoAPI.capture({
-      image: dataUrl,
-      eye_crops: eyeCrops || undefined,
+  const submitCapture = async (where, canvas, eyeCrops, acknowledgePoorLighting = false) => {
+    const common = {
       condition_type: CONDITION_TYPE,
       doctor_visit_interval_months: doctorMonths,
       acknowledge_poor_lighting: acknowledgePoorLighting,
-    })
-    return response.data
+    }
+    let body
+    if (where.mode === 'on_device') {
+      body = { ...common, on_device: where.payload, lighting: lightingPreviewRef.current?.lastUi }
+    } else {
+      const upload = await prepareImageUpload(canvas, where.landmarks, { quality: 0.95 })
+      body = {
+        ...common,
+        image: upload.blob,
+        client_crop: upload.meta,
+        eye_crops: eyeCrops || undefined,
+        store_image: savePhotos,
+      }
+    }
+    const { data } = await eyePhotoAPI.capture(body)
+    // Attention maps computed on-device are shown here but never uploaded.
+    if (where.mode === 'on_device' && data.analysis) {
+      for (const side of ['left', 'right']) {
+        const screening = data.analysis[`${side}_eye`]?.screening
+        if (screening?.status === 'assessed' && where.overlays?.[side]) screening.gradcam = where.overlays[side]
+      }
+    }
+    return data
   }
 
   const captureAndAnalyze = async (acknowledgePoorLighting = false) => {
@@ -318,24 +388,25 @@ export default function CataractOpacityMonitor() {
       if ('imageSmoothingQuality' in ctx) ctx.imageSmoothingQuality = 'high'
       ctx.drawImage(video, 0, 0)
     }
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.95)
 
-    // Fresh landmark pass on the captured frame for sharper pupil crops
+    // Pupil close-ups are only needed when photos are kept (timeline thumbnails).
     let eyeCrops = null
-    try {
-      const regions =
-        (await pupilTrackerRef.current?.track(video)) ||
-        pupilTrackerRef.current?.getRegions(canvas.width, canvas.height)
-      if (regions?.anatomicalLeft || regions?.anatomicalRight) {
-        eyeCrops = {
-          left: cropEyeDataUrl(canvas, regions.anatomicalLeft),
-          right: cropEyeDataUrl(canvas, regions.anatomicalRight),
-          size: [320, 320],
-          source: 'client_iris_zoom_v2',
+    if (savePhotos) {
+      try {
+        const regions =
+          (await pupilTrackerRef.current?.track(video)) ||
+          pupilTrackerRef.current?.getRegions(canvas.width, canvas.height)
+        if (regions?.anatomicalLeft || regions?.anatomicalRight) {
+          eyeCrops = {
+            left: cropEyeDataUrl(canvas, regions.anatomicalLeft),
+            right: cropEyeDataUrl(canvas, regions.anatomicalRight),
+            size: [320, 320],
+            source: 'client_iris_zoom_v2',
+          }
         }
+      } catch (err) {
+        console.warn('Could not crop pupil close-ups at capture:', err)
       }
-    } catch (err) {
-      console.warn('Could not crop pupil close-ups at capture:', err)
     }
 
     setView('analyzing')
@@ -344,21 +415,25 @@ export default function CataractOpacityMonitor() {
     setLightingError(null)
 
     try {
-      const data = await submitCapture(dataUrl, eyeCrops, acknowledgePoorLighting)
+      const where = await analyzeCapturedFrame('cataract', canvas, lightingPreviewRef.current, { savePhotos })
+      setAnalysisWhere(where)
+      const data = await submitCapture(where, canvas, eyeCrops, acknowledgePoorLighting)
       setLastResult(data)
       setView('results')
 
       if (data.lighting?.quality === 'fair' || data.lighting?.acknowledged) {
-        toast('Photo saved, but lighting was not ideal — grade comparison may be less reliable.', {
+        toast('Photo saved, but lighting was not ideal — comparison may be less reliable.', {
           icon: '⚠️',
           duration: 6000,
         })
       } else if (data.alert) {
         toast.error(data.alert.message, { duration: 6000 })
       } else if (data.comparison?.deteriorated) {
-        toast('Opacity change detected — review your comparison.', { icon: '⚠️' })
+        toast('Change detected — review your comparison.', { icon: '⚠️' })
+      } else if (data.analysis?.screening?.status === 'cannot_assess') {
+        toast('Photo saved. The model could not assess this photo.', { icon: 'ℹ️' })
       } else {
-        toast.success('Opacity grade saved.')
+        toast.success('Screening photo saved.')
       }
 
       loadData()
@@ -370,6 +445,8 @@ export default function CataractOpacityMonitor() {
         setLightingError(lighting)
         setError(lighting.message || 'Lighting is not suitable. Adjust your lighting and try again.')
         toast.error('Poor lighting — please fix before capturing.', { duration: 5000 })
+      } else if (err.code === 'no_face' || err.code === 'eye_too_small') {
+        setError(err.message)
       } else {
         const msg =
           err.response?.data?.message ||
@@ -384,7 +461,7 @@ export default function CataractOpacityMonitor() {
 
   const handleDeletePhoto = async (photoId, { fromResults = false } = {}) => {
     const confirmed = window.confirm(
-      'Delete this cataract screening photo? It will be removed from your opacity timeline.'
+      'Delete this cataract screening photo? It will be removed from your timeline.'
     )
     if (!confirmed) return
 
@@ -406,9 +483,8 @@ export default function CataractOpacityMonitor() {
   }
 
   const analysis = lastResult?.analysis || lastResult?.photo?.analysis_details || {}
-  const opacityGrade = analysis.opacity_grade || lastResult?.comparison?.opacity?.current?.opacity_grade
-  const opacityScore = analysis.opacity_score
-  const gradeLabel = analysis.grade_label
+  const screening = screeningOf(analysis)
+  const modelStatus = analysis.model_status || {}
 
   if (loading && view === 'home') {
     return (
@@ -423,8 +499,9 @@ export default function CataractOpacityMonitor() {
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Lens photo timeline</h1>
         <p className="text-gray-600 mt-1 text-sm max-w-2xl">
-          Capture zoomed left and right pupil photos each month to track a home cloudiness grade over time.
-          This estimates appearance — not cataract size in millimeters, and not LOCS III diagnosis.
+          Capture zoomed left and right pupil photos each month. A calibrated model says whether the photo
+          resembles cataract photos it was trained on — or says it cannot assess the photo. This is not a
+          severity grade, not a size in millimetres, and not a LOCS III diagnosis.
         </p>
         <SamdDisclaimer testType="cataract" className="mt-3 max-w-2xl" />
       </div>
@@ -433,11 +510,16 @@ export default function CataractOpacityMonitor() {
         <div>
           <div className="text-sm font-medium text-gray-700 mb-1.5">What this tracks</div>
           <ul className="text-sm text-gray-600 space-y-1 list-disc pl-5">
-            <li>Opacity grade: clear → mild → moderate → dense</li>
-            <li>Clarity score (higher = clearer lens region)</li>
-            <li>ResNet-18 grader when weights are present (else CV heuristics)</li>
-            <li>Month-over-month grade change alerts</li>
+            <li>Calibrated screening band: no cataract-like pattern · inconclusive · cataract-like pattern</li>
+            <li>&ldquo;Cannot assess&rdquo; when a photo is unlike the training images</li>
+            <li>Attention map showing which part of the eye the model looked at</li>
+            <li>Alerts when the band moves up and a retake confirms it</li>
           </ul>
+          <p className="text-xs text-gray-500 mt-2">
+            Known limitation: the model can partly tell training photos apart by background, so a
+            &ldquo;no cataract-like pattern&rdquo; result is never reassurance. Model card:{' '}
+            <code className="text-[11px]">docs/model_cards/cataract_resnet18.md</code>
+          </p>
           <p className="text-xs text-gray-500 mt-2">
             Also try the{' '}
             <Link to="/vision-tests" className="text-accent-700 font-medium underline-offset-2 hover:underline">
@@ -462,7 +544,7 @@ export default function CataractOpacityMonitor() {
             <option value={12}>Every 12 months</option>
           </select>
           <p className="text-xs text-gray-500 mt-1.5">
-            Alerts can recommend an earlier visit if opacity grade worsens before this schedule.
+            Alerts can recommend an earlier visit if a confirmed band change happens before this schedule.
           </p>
         </div>
       </div>
@@ -474,14 +556,14 @@ export default function CataractOpacityMonitor() {
               <div>
                 <div className="flex items-center gap-2 text-sm font-medium text-gray-500 mb-1">
                   <Calendar className="w-4 h-4" />
-                  Monthly opacity check
+                  Monthly lens photo
                 </div>
                 <p className="text-gray-900 font-semibold">{status?.message}</p>
                 {status?.has_photos && (
-                  <p className="text-sm text-gray-600 mt-1">
-                    Last clarity: <strong>{status.last_health_score}</strong>/100
-                    {status.days_since_last != null && ` · ${status.days_since_last} days ago`}
-                  </p>
+                  <div className="text-sm text-gray-600 mt-1 flex flex-wrap items-center gap-2">
+                    {photos[0] && <ScreeningBadge screening={screeningOf(photos[0])} />}
+                    {status.days_since_last != null && <span>{status.days_since_last} days ago</span>}
+                  </div>
                 )}
               </div>
               <button type="button" onClick={() => setView('capture')} className="btn-primary min-h-[44px]">
@@ -495,32 +577,28 @@ export default function CataractOpacityMonitor() {
             <div className="card p-5">
               <h2 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
                 <History className="w-4 h-4" />
-                Opacity grade timeline
+                Screening timeline
               </h2>
               <div className="space-y-4">
                 {timeline.map((month, monthIndex) => {
-                  const opacity = month.avg_opacity_score
-                  const barWidth = opacity != null ? Math.min(100, opacity) : Math.min(100, 100 - (month.avg_health_score || 0))
+                  const summary = month.screening_summary
                   const latest = month.latest_photo
-                  const grade = latest?.opacity_grade || latest?.analysis_details?.opacity_grade
-                  const statusLabel = opacityMonthStatus(month, monthIndex, timeline)
+                  const statusLabel = monthScreeningStatus(month, monthIndex, timeline)
+                  const worst = summary?.worst_band
+                    ? { status: 'assessed', band: summary.worst_band, likelihood: summary.max_likelihood }
+                    : { status: summary?.not_assessed ? 'cannot_assess' : 'legacy_unscored' }
                   return (
                     <div key={month.month} className="rounded-xl border border-gray-200 p-3 bg-gray-50/50">
-                      <div className="flex items-center gap-3 mb-2">
+                      <div className="flex flex-wrap items-center gap-3 mb-2">
                         <span className="text-xs font-medium text-gray-500 w-16 shrink-0">{month.label}</span>
-                        <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-amber-500 rounded-full"
-                            style={{ width: `${barWidth}%` }}
-                            title="Higher bar = more opacity"
-                          />
-                        </div>
-                        <span className="text-sm font-semibold text-gray-800 w-28 text-right">
-                          {opacity != null ? `${opacity} opac.` : `${month.avg_health_score} clear`}
+                        <ScreeningBadge screening={worst} />
+                        <span className="text-xs text-gray-500">
+                          {month.photo_count} photo{month.photo_count === 1 ? '' : 's'}
+                          {summary && summary.assessed + summary.not_assessed > 0 &&
+                            ` · ${summary.assessed} assessed · ${summary.not_assessed} not assessed`}
                         </span>
                       </div>
                       <div className="flex flex-wrap items-center gap-2 text-xs">
-                        {grade && <GradeBadge grade={grade} label={grade} />}
                         <span className="text-gray-600">{statusLabel}</span>
                         {latest?.image_thumbnail && (
                           <img
@@ -535,7 +613,9 @@ export default function CataractOpacityMonitor() {
                 })}
               </div>
               <p className="text-xs text-gray-500 mt-3">
-                Bar shows estimated opacity (higher = cloudier). Grades are screening estimates only.
+
+                Each month shows its highest-likelihood assessed photo. Bands come from operating thresholds
+                (20% / 80%) on a calibrated model — screening flags, not severity.
               </p>
             </div>
           )}
@@ -545,7 +625,6 @@ export default function CataractOpacityMonitor() {
               <h2 className="font-semibold text-gray-900 mb-4">Saved pupil close-ups ({photos.length})</h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                 {photos.map((photo) => {
-                  const details = photo.analysis_details || {}
                   const crops = getPupilCrops(photo)
                   return (
                     <div key={photo.id} className="rounded-lg border border-gray-200 overflow-hidden bg-gray-50">
@@ -581,17 +660,14 @@ export default function CataractOpacityMonitor() {
                           </div>
                         </div>
                       ) : (
-                        <img
+                        <EyeThumbnail
                           src={photo.image_thumbnail}
                           alt={`Cataract screening ${new Date(photo.captured_at).toLocaleDateString()}`}
                           className="w-full aspect-[2/1] object-cover"
                         />
                       )}
                       <div className="p-2 text-xs space-y-1">
-                        <GradeBadge grade={details.opacity_grade} label={details.grade_label || details.opacity_grade} />
-                        <div className="font-semibold text-gray-900">
-                          Opacity {details.opacity_score ?? Math.round(100 - (photo.health_score || 0))}
-                        </div>
+                        <ScreeningBadge screening={screeningOf(photo)} />
                         <div className="text-gray-500">{new Date(photo.captured_at).toLocaleDateString()}</div>
                         <button
                           type="button"
@@ -612,7 +688,7 @@ export default function CataractOpacityMonitor() {
             <div className="card p-5 text-center text-sm text-gray-600">
               <Eye className="w-8 h-8 text-gray-400 mx-auto mb-2" />
               <p className="font-medium text-gray-900 mb-1">No cataract screening photos yet</p>
-              <p>Take your first pupil close-up to start the opacity grade timeline.</p>
+              <p>Take your first pupil close-up to start the screening timeline.</p>
             </div>
           )}
         </>
@@ -631,6 +707,7 @@ export default function CataractOpacityMonitor() {
             </li>
           </ul>
 
+          <OnDevicePrivacyToggle savePhotos={savePhotos} onChange={handleSavePhotosChange} />
           <PhotoLightingBanner lighting={liveLighting} />
           <canvas ref={lightingCanvasRef} className="hidden" aria-hidden />
 
@@ -673,7 +750,8 @@ export default function CataractOpacityMonitor() {
                 <canvas ref={rightZoomRef} className="w-full aspect-square bg-black object-contain" />
               </div>
               <p className="text-xs text-gray-500 col-span-2 md:col-span-1">
-                Move closer until the zooms look sharp (not pixelated). We save these close-ups — not the whole face.
+                Move closer until the zooms look sharp (not pixelated).
+                {savePhotos ? ' We save these close-ups — not the whole face.' : ' Nothing is uploaded unless you turn on photo saving.'}
               </p>
             </div>
           </div>
@@ -695,7 +773,7 @@ export default function CataractOpacityMonitor() {
               disabled={!cameraReady || (liveLighting && !liveLighting.acceptable)}
               className="btn-primary min-h-[44px] disabled:opacity-50"
             >
-              Capture pupil close-ups &amp; grade
+              Capture pupil close-ups &amp; screen
             </button>
             {liveLighting && !liveLighting.acceptable && (
               <button
@@ -724,9 +802,9 @@ export default function CataractOpacityMonitor() {
       {view === 'analyzing' && (
         <div className="card p-10 text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-4 border-accent-100 border-t-accent-600 mx-auto mb-4" />
-          <p className="text-gray-700 font-medium">Estimating opacity grade…</p>
+          <p className="text-gray-700 font-medium">Screening…</p>
           <p className="text-sm text-gray-500 mt-1">
-            Aligning pupil-region crops, running ResNet when available, comparing to prior months
+            Checking each eye against the training distribution, running the calibrated model, comparing to prior months
           </p>
         </div>
       )}
@@ -737,16 +815,14 @@ export default function CataractOpacityMonitor() {
           <div className="card p-5 border-l-4 border-l-accent-500">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <h2 className="font-semibold text-gray-900">Opacity screening result</h2>
+                <h2 className="font-semibold text-gray-900">Cataract screening result</h2>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <GradeBadge grade={opacityGrade} label={gradeLabel || opacityGrade} />
-                  {opacityScore != null && (
-                    <span className="text-sm text-gray-700">
-                      Opacity score <strong>{opacityScore}</strong>/100
+                  <ScreeningBadge screening={screening} />
+                  {screening.status === 'assessed' && (
+                    <span className="text-sm text-gray-600">
+                      Calibrated likelihood from the {screening.driving_eye} eye
+                      {screening.coverage === 'one_eye' && ' (other eye not assessed)'}
                     </span>
-                  )}
-                  {analysis.score != null && (
-                    <span className="text-sm text-gray-500">· Clarity {analysis.score}/100</span>
                   )}
                 </div>
                 {analysis.risk_message && (
@@ -773,7 +849,7 @@ export default function CataractOpacityMonitor() {
               <p className="text-sm font-semibold text-amber-900">Lighting warning</p>
               <p className="text-sm text-amber-800 mt-1">
                 {lastResult.lighting?.message ||
-                  'Suboptimal lighting can inflate opacity estimates. Retake in even front light when possible.'}
+                  'Suboptimal lighting makes "cannot assess" more likely and comparisons less reliable. Retake in even front light when possible.'}
               </p>
             </div>
           )}
@@ -791,25 +867,21 @@ export default function CataractOpacityMonitor() {
               )}
               <div className="flex-1">
                 <h2 className="font-semibold text-gray-900">
-                  {lastResult.comparison?.deteriorated ? 'Opacity change detected' : 'Photo saved'}
+                  {lastResult.comparison?.deteriorated ? 'Confirmed change detected' : 'Photo saved'}
                 </h2>
                 <p className="text-sm text-gray-700 mt-1">
                   {lastResult.comparison?.message || 'Your screening photo has been added to your timeline.'}
                 </p>
-                {lastResult.comparison?.changes && (
-                  <div className="mt-3 max-w-md">
-                    <MetricDelta label="Clarity score" change={lastResult.comparison.changes.health_score} />
-                    <MetricDelta
-                      label="Opacity score"
-                      change={lastResult.comparison.changes.opacity_score}
-                      higherIsWorse
-                    />
-                    <MetricDelta
-                      label="Grade level"
-                      change={lastResult.comparison.changes.grade_level}
-                      higherIsWorse
-                    />
+                {lastResult.comparison?.screening && (
+                  <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-gray-600">
+                    <span>Reference photo:</span>
+                    <ScreeningBadge screening={lastResult.comparison.screening.baseline} />
+                    <span>→ now:</span>
+                    <ScreeningBadge screening={lastResult.comparison.screening.current} />
                   </div>
+                )}
+                {lastResult.comparison?.screening?.note && (
+                  <p className="text-xs text-gray-500 mt-2">{lastResult.comparison.screening.note}</p>
                 )}
                 {lastResult.comparison?.recommend_doctor_visit && (
                   <p className="text-sm text-red-700 font-medium mt-2">
@@ -822,12 +894,19 @@ export default function CataractOpacityMonitor() {
 
           {(lastResult.photo?.image_thumbnail ||
             getPupilCrops(lastResult).left ||
-            getPupilCrops(lastResult).right) && (
+            getPupilCrops(lastResult).right ||
+            analysis.left_eye?.screening) && (
             <div className="card p-5">
-              <h3 className="font-semibold text-gray-900 mb-3">Saved pupil close-ups</h3>
+              <h3 className="font-semibold text-gray-900 mb-3">
+                {lastResult.photo?.image_thumbnail ? 'Saved pupil close-ups' : 'Screening detail'}
+              </h3>
+              {analysisWhere && (
+                <p className="text-xs text-gray-500 mb-3">{describeAnalysisLocation(analysisWhere)}</p>
+              )}
               <div className="grid sm:grid-cols-[1fr_1fr] gap-4 items-start">
                 {(() => {
                   const crops = getPupilCrops(lastResult)
+                  if (!lastResult.photo?.image_thumbnail && !crops.left && !crops.right) return null
                   if (crops.left || crops.right) {
                     return (
                       <>
@@ -860,51 +939,35 @@ export default function CataractOpacityMonitor() {
                 })()}
               </div>
               <div className="text-sm text-gray-600 space-y-2 mt-4">
-                  <p>
+                  {(analysis.left_eye?.screening || analysis.right_eye?.screening) && (
+                    <>
+                      <h4 className="font-medium text-gray-800">What the model looked at</h4>
+                      <div className="grid grid-cols-2 gap-3 max-w-md">
+                        <EyeScreeningCard side="left" eye={analysis.left_eye} />
+                        <EyeScreeningCard side="right" eye={analysis.right_eye} />
+                      </div>
+                      <p className="text-xs text-gray-500">
+                        Grad-CAM heat map: red areas pushed the prediction toward &ldquo;cataract&rdquo;. Attention on
+                        skin, lashes or corners instead of the pupil means the result should not be trusted.
+                      </p>
+                    </>
+                  )}
+                  <p className="text-xs text-gray-500">
                     Method:{' '}
-                    <strong className="text-gray-800">
-                      {analysis.method === 'resnet_v1'
-                        ? 'ResNet-18 grader'
-                        : 'CV heuristic (ResNet unavailable)'}
+                    <strong className="text-gray-700">
+                      {modelStatus.calibrated
+                        ? 'Calibrated ResNet-18 screener with out-of-distribution abstain'
+                        : 'Screening model unavailable'}
                     </strong>
+                    {modelStatus.calibrated && modelStatus.headline_metrics && (
+                      <>
+                        {' '}— held-out AUC {modelStatus.headline_metrics.test_clean_auc?.toFixed(3)} (clean),{' '}
+                        {modelStatus.headline_metrics.test_webcam_sim_auc?.toFixed(3)} (webcam-simulated); AUC with the
+                        eye masked out {modelStatus.headline_metrics.auc_eye_masked_out?.toFixed(3)}, which shows the
+                        training-source shortcut.
+                      </>
+                    )}
                   </p>
-                  {analysis.method === 'resnet_v1' ? (
-                    <p className="text-xs text-gray-500">
-                      Binary cataract classifier on pupil-region crops. Probability maps to opacity
-                      0–100 for month-over-month trends — not LOCS III.
-                      {analysis.cataract_probability != null && (
-                        <>
-                          {' '}
-                          Avg P(cataract):{' '}
-                          <strong className="text-gray-700">
-                            {(Number(analysis.cataract_probability) * 100).toFixed(1)}%
-                          </strong>
-                        </>
-                      )}
-                    </p>
-                  ) : (
-                    <p className="text-xs text-gray-500">
-                      Pupil-region brightness and texture heuristics. Place{' '}
-                      <code className="text-[11px]">cataract_detection_resnet18.pth</code> at the
-                      repo root (or set CATARACT_MODEL_PATH) to enable ResNet grading.
-                    </p>
-                  )}
-                  {(analysis.left_eye?.opacity_score != null ||
-                    analysis.right_eye?.opacity_score != null) && (
-                    <p className="text-xs text-gray-500">
-                      Per eye — L: {analysis.left_eye?.opacity_score ?? '—'}
-                      {analysis.left_eye?.method === 'resnet_v1' &&
-                        analysis.left_eye?.dl_metrics?.cataract_probability != null && (
-                          <> ({(analysis.left_eye.dl_metrics.cataract_probability * 100).toFixed(0)}%)</>
-                        )}
-                      {' · '}
-                      R: {analysis.right_eye?.opacity_score ?? '—'}
-                      {analysis.right_eye?.method === 'resnet_v1' &&
-                        analysis.right_eye?.dl_metrics?.cataract_probability != null && (
-                          <> ({(analysis.right_eye.dl_metrics.cataract_probability * 100).toFixed(0)}%)</>
-                        )}
-                    </p>
-                  )}
                   <PathologyTriagePanel triage={analysis.pathology_triage} />
                   {lastResult.photo?.id && (
                     <button

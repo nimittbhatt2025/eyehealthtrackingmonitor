@@ -80,10 +80,19 @@ export function createVernierPsi({
       const near = offsets.filter((_, k) => scores[k] <= best + 0.01)
       return near[Math.floor(random() * near.length)]
     },
+    /**
+     * `respondedRight` true / false, or null for "looks aligned", which counts as
+     * half a right and half a left answer: it favours biases near this offset
+     * without pushing the estimate either way.
+     */
     update(offset, respondedRight) {
       const k = offsets.indexOf(offset)
       const lr = k >= 0 ? likeRight[k] : params.map((p) => pRight(offset, p.b, p.s, lapse))
-      logPost = logPost.map((lp, i) => lp + Math.log(respondedRight ? lr[i] : 1 - lr[i]))
+      const logLike =
+        respondedRight == null
+          ? (p) => 0.5 * (Math.log(p) + Math.log(1 - p))
+          : (p) => Math.log(respondedRight ? p : 1 - p)
+      logPost = logPost.map((lp, i) => lp + logLike(lr[i]))
       history.push({ offset, respondedRight })
     },
     estimate() {

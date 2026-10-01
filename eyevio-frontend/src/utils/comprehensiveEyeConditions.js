@@ -324,70 +324,39 @@ export const EYE_CONDITIONS = {
   },
 
   reduced_blink_rate: {
-    name: 'Reduced Blink Rate Syndrome',
+    name: 'Reduced Blink Rate',
     category: 'preventable_lifestyle',
-    severity: 'mild',
+    severity: 'moderate',
     priority: 'high',
-    description: 'Unconscious reduction in blink frequency during screen use, leading to dryness.',
-    symptoms: [
-      'Dry eyes',
-      'Burning sensation',
-      'Eye irritation',
-      'Redness',
-      'Blurred vision',
-    ],
+    description: 'Decreased blinking frequency during screen use, causing dryness.',
+    symptoms: ['Dry eyes', 'Burning sensation', 'Redness', 'Irritation'],
     riskFactors: [
-      {
-        factor: 'Screen Concentration',
-        description: 'Intense focus on screens reduces natural blink reflex',
-        impact: 'high',
-        threshold: 'Blink rate < 12/min',
-      },
+      { factor: 'Screen concentration', description: 'Intense focus reduces natural blinking', impact: 'high', threshold: '< 10 blinks/min' },
     ],
     prevention: [
-      {
-        action: 'Conscious blinking',
-        description: 'Set reminders to blink fully every few seconds',
-        frequency: 'Continuous during screen use',
-      },
-      {
-        action: 'Blink exercises',
-        description: 'Practice complete blinks (squeeze shut, then relax)',
-        frequency: 'Every hour',
-      },
+      { action: 'Conscious blinking', description: 'Blink fully every 10-15 seconds', frequency: 'Continuous' },
+      { action: 'Blink reminders', description: 'Use app notifications', frequency: 'Every 10 min' },
     ],
-    warningSigns: ['Chronic dryness', 'Eye surface damage'],
-    appTests: ['blink_analysis', 'blink_rate_tracking'],
+    warningSigns: ['Chronic dryness', 'Corneal issues'],
+    appTests: ['blink_rate_monitor'],
   },
 
   incomplete_blink: {
-    name: 'Incomplete Blink Syndrome',
+    name: 'Incomplete Blink',
     category: 'preventable_lifestyle',
-    severity: 'mild',
+    severity: 'moderate',
     priority: 'medium',
-    description: 'Partial eyelid closure during blinking, failing to fully lubricate the eye surface.',
-    symptoms: [
-      'Persistent dryness despite frequent blinking',
-      'Gritty feeling',
-      'Eye fatigue',
-    ],
+    description: 'Eyelids don\'t close completely during blinking, reducing tear spread.',
+    symptoms: ['Dry patches on cornea', 'Irritation', 'Fluctuating vision', 'Discomfort'],
     riskFactors: [
-      {
-        factor: 'Screen Focus',
-        description: 'Intense concentration prevents complete blink closure',
-        impact: 'high',
-        threshold: 'Partial closure detected',
-      },
+      { factor: 'Screen use', description: 'Partial blinks more common during digital tasks', impact: 'high', threshold: '> 50% incomplete' },
     ],
     prevention: [
-      {
-        action: 'Full blink practice',
-        description: 'Consciously close eyelids completely during blinks',
-        frequency: 'Continuous',
-      },
+      { action: 'Blink exercises', description: 'Practice full, complete blinks', frequency: 'Several times daily' },
+      { action: 'Eye rest', description: 'Close eyes fully for 20 seconds regularly', frequency: 'Hourly' },
     ],
-    warningSigns: ['Worsening dry eye', 'Corneal exposure'],
-    appTests: ['blink_completeness_analysis'],
+    warningSigns: ['Persistent dry patches', 'Corneal damage'],
+    appTests: ['blink_quality_analysis'],
   },
 
   blue_light_sensitivity: {
@@ -395,35 +364,18 @@ export const EYE_CONDITIONS = {
     category: 'preventable_lifestyle',
     severity: 'mild',
     priority: 'medium',
-    description: 'Increased discomfort from exposure to blue light emitted by digital screens.',
-    symptoms: [
-      'Eye strain from screens',
-      'Headaches after device use',
-      'Difficulty sleeping after evening screen time',
-      'Visual discomfort',
-    ],
+    description: 'Discomfort or eye strain specifically from blue light emitted by digital devices.',
+    symptoms: ['Eye strain', 'Headaches', 'Sleep disruption', 'Dry eyes', 'Difficulty focusing'],
     riskFactors: [
-      {
-        factor: 'Evening Screen Use',
-        description: 'Blue light exposure before bed disrupts circadian rhythm',
-        impact: 'medium',
-        threshold: 'Screen use within 2h of sleep',
-      },
+      { factor: 'Evening device use', description: 'Blue light before bed disrupts circadian rhythm', impact: 'high', threshold: '> 2 hours before sleep' },
+      { factor: 'All-day screen exposure', description: 'Cumulative blue light exposure', impact: 'medium', threshold: '> 8 hours' },
     ],
     prevention: [
-      {
-        action: 'Use blue light filters',
-        description: 'Enable night mode or use blue-blocking glasses',
-        frequency: 'Evening hours',
-      },
-      {
-        action: 'Reduce evening screens',
-        description: 'Minimize device use 2 hours before bedtime',
-        frequency: 'Daily',
-      },
+      { action: 'Blue light filters', description: 'Use screen filters, night mode, or blue-blocking glasses', frequency: 'Always' },
+      { action: 'Limit evening screens', description: 'Stop device use 1-2 hours before bed', frequency: 'Nightly' },
     ],
-    warningSigns: ['Sleep disturbances', 'Chronic headaches'],
-    appTests: ['screen_time_tracking', 'environment_analysis'],
+    warningSigns: ['Chronic sleep issues', 'Severe headaches'],
+    appTests: ['blue_light_exposure', 'circadian_assessment'],
   },
 
   screen_induced_headaches: {
@@ -969,67 +921,6 @@ export const EYE_CONDITIONS = {
 
   // 🟠 C. BINOCULAR & COORDINATION CONDITIONS
   strabismus_ed: {
-    name: 'Focus Flexibility Deficiency',
-    category: 'refractive',
-    severity: 'mild',
-    priority: 'low',
-    description: 'Difficulty quickly adjusting focus between near and far distances.',
-    symptoms: [
-      'Slow refocusing',
-      'Blurred vision when switching distances',
-      'Eye strain',
-    ],
-    riskFactors: [
-      {
-        factor: 'Age',
-        description: 'Focus flexibility declines with age',
-        impact: 'medium',
-        threshold: '> 40 years',
-      },
-    ],
-    prevention: [
-      {
-        action: 'Focus exercises',
-        description: 'Practice near-far focusing drills',
-        frequency: 'Daily',
-      },
-    ],
-    warningSigns: ['Worsening flexibility'],
-    appTests: ['accommodation_flexibility'],
-  },
-
-  blur_adaptation_issues: {
-    name: 'Blur Adaptation Issues',
-    category: 'refractive',
-    severity: 'mild',
-    priority: 'low',
-    description: 'Brain struggles to adapt to persistent blur, causing discomfort.',
-    symptoms: [
-      'Persistent discomfort with corrected blur',
-      'Headaches',
-      'Eye strain',
-    ],
-    riskFactors: [
-      {
-        factor: 'New Prescription',
-        description: 'Recent change in glasses/contacts',
-        impact: 'medium',
-        threshold: 'Within 2 weeks',
-      },
-    ],
-    prevention: [
-      {
-        action: 'Gradual adaptation',
-        description: 'Wear new prescription progressively longer each day',
-        frequency: 'First week',
-      },
-    ],
-    warningSigns: ['Persistent discomfort after 2 weeks'],
-    appTests: ['visual_acuity'],
-  },
-
-  //  C. BINOCULAR & COORDINATION CONDITIONS (Adding more details)
-  strabismus_ed: {
     name: 'Strabismus (Eye Misalignment) - Educational',
     category: 'binocular',
     severity: 'moderate',
@@ -1071,6 +962,27 @@ export const EYE_CONDITIONS = {
     warningSigns: ['Sudden onset', 'Worsening misalignment', 'Vision loss'],
     appTests: ['binocular_alignment', 'depth_perception'],
   },
+
+  blur_adaptation_issues: {
+    name: 'Blur Adaptation Issues',
+    category: 'refractive',
+    severity: 'mild',
+    priority: 'low',
+    description: 'Brain struggles to adapt to persistent blur or new prescription.',
+    symptoms: ['Discomfort with new glasses', 'Headaches', 'Eye strain', 'Nausea'],
+    riskFactors: [
+      { factor: 'Significant prescription change', description: 'Large change in lens power', impact: 'high', threshold: '> 0.75D change' },
+      { factor: 'First-time glasses', description: 'Never worn correction before', impact: 'medium', threshold: 'N/A' },
+    ],
+    prevention: [
+      { action: 'Gradual adaptation', description: 'Wear new glasses progressively longer each day', frequency: 'First week' },
+      { action: 'Follow-up exam', description: 'Verify prescription if discomfort persists', frequency: 'After 2 weeks' },
+    ],
+    warningSigns: ['Persistent discomfort after 2 weeks', 'Worsening symptoms'],
+    appTests: ['visual_acuity', 'prescription_verification'],
+  },
+
+  //  C. BINOCULAR & COORDINATION CONDITIONS (Adding more details)
 
   divergence_insufficiency: {
     name: 'Divergence Insufficiency',
@@ -1696,60 +1608,8 @@ export const EYE_CONDITIONS = {
     appTests: ['fatigue_score', 'rest_tracking'],
   },
 
-  reduced_blink_rate: {
-    name: 'Reduced Blink Rate',
-    category: 'preventable_lifestyle',
-    severity: 'moderate',
-    priority: 'high',
-    description: 'Decreased blinking frequency during screen use, causing dryness.',
-    symptoms: ['Dry eyes', 'Burning sensation', 'Redness', 'Irritation'],
-    riskFactors: [
-      { factor: 'Screen concentration', description: 'Intense focus reduces natural blinking', impact: 'high', threshold: '< 10 blinks/min' },
-    ],
-    prevention: [
-      { action: 'Conscious blinking', description: 'Blink fully every 10-15 seconds', frequency: 'Continuous' },
-      { action: 'Blink reminders', description: 'Use app notifications', frequency: 'Every 10 min' },
-    ],
-    warningSigns: ['Chronic dryness', 'Corneal issues'],
-    appTests: ['blink_rate_monitor'],
-  },
 
-  incomplete_blink: {
-    name: 'Incomplete Blink',
-    category: 'preventable_lifestyle',
-    severity: 'moderate',
-    priority: 'medium',
-    description: 'Eyelids don\'t close completely during blinking, reducing tear spread.',
-    symptoms: ['Dry patches on cornea', 'Irritation', 'Fluctuating vision', 'Discomfort'],
-    riskFactors: [
-      { factor: 'Screen use', description: 'Partial blinks more common during digital tasks', impact: 'high', threshold: '> 50% incomplete' },
-    ],
-    prevention: [
-      { action: 'Blink exercises', description: 'Practice full, complete blinks', frequency: 'Several times daily' },
-      { action: 'Eye rest', description: 'Close eyes fully for 20 seconds regularly', frequency: 'Hourly' },
-    ],
-    warningSigns: ['Persistent dry patches', 'Corneal damage'],
-    appTests: ['blink_quality_analysis'],
-  },
 
-  blue_light_sensitivity: {
-    name: 'Blue Light Sensitivity',
-    category: 'preventable_lifestyle',
-    severity: 'mild',
-    priority: 'medium',
-    description: 'Discomfort or eye strain specifically from blue light emitted by digital devices.',
-    symptoms: ['Eye strain', 'Headaches', 'Sleep disruption', 'Dry eyes', 'Difficulty focusing'],
-    riskFactors: [
-      { factor: 'Evening device use', description: 'Blue light before bed disrupts circadian rhythm', impact: 'high', threshold: '> 2 hours before sleep' },
-      { factor: 'All-day screen exposure', description: 'Cumulative blue light exposure', impact: 'medium', threshold: '> 8 hours' },
-    ],
-    prevention: [
-      { action: 'Blue light filters', description: 'Use screen filters, night mode, or blue-blocking glasses', frequency: 'Always' },
-      { action: 'Limit evening screens', description: 'Stop device use 1-2 hours before bed', frequency: 'Nightly' },
-    ],
-    warningSigns: ['Chronic sleep issues', 'Severe headaches'],
-    appTests: ['blue_light_exposure', 'circadian_assessment'],
-  },
 
   // 🔵 B. REFRACTIVE - REMAINING CONDITIONS
   focus_flexibility_deficiency: {
@@ -1771,24 +1631,6 @@ export const EYE_CONDITIONS = {
     appTests: ['accommodation_flexibility'],
   },
 
-  blur_adaptation_issues: {
-    name: 'Blur Adaptation Issues',
-    category: 'refractive',
-    severity: 'mild',
-    priority: 'low',
-    description: 'Brain struggles to adapt to persistent blur or new prescription.',
-    symptoms: ['Discomfort with new glasses', 'Headaches', 'Eye strain', 'Nausea'],
-    riskFactors: [
-      { factor: 'Significant prescription change', description: 'Large change in lens power', impact: 'high', threshold: '> 0.75D change' },
-      { factor: 'First-time glasses', description: 'Never worn correction before', impact: 'medium', threshold: 'N/A' },
-    ],
-    prevention: [
-      { action: 'Gradual adaptation', description: 'Wear new glasses progressively longer each day', frequency: 'First week' },
-      { action: 'Follow-up exam', description: 'Verify prescription if discomfort persists', frequency: 'After 2 weeks' },
-    ],
-    warningSigns: ['Persistent discomfort after 2 weeks', 'Worsening symptoms'],
-    appTests: ['visual_acuity', 'prescription_verification'],
-  },
 
   // 🟠 C. BINOCULAR - REMAINING CONDITIONS
   binocular_dysfunction: {

@@ -18,4 +18,8 @@ module.exports = {
     ],
     'react/prop-types': 'off',
   },
+  overrides: [
+    { files: ['public/service-worker.js'], env: { serviceworker: true } },
+    { files: ['scripts/**', 'tests/**', 'tools/**', '*.config.js'], env: { node: true } },
+  ],
 }

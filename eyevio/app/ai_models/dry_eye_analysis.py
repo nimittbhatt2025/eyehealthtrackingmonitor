@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import base64
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import cv2
 import numpy as np
@@ -42,27 +42,23 @@ MAX_SCLERA_SATURATION = 85
 MIN_SCLERA_MASK_COVERAGE = 0.02
 
 
-def decode_base64_image(image_data: str) -> Optional[np.ndarray]:
-    """Decode a base64 or data-URL image into a BGR numpy array."""
-    if not image_data:
+def decode_base64_image(image_data: Union[str, bytes]) -> Optional[np.ndarray]:
+    """Decode a base64 / data-URL string or raw encoded bytes (multipart upload) into BGR."""
+    raw = base64_to_bytes(image_data)
+    if not raw:
         return None
-    payload = image_data
-    if ',' in payload:
-        payload = payload.split(',', 1)[1]
-    payload = re.sub(r'\s', '', payload)
     try:
-        raw = base64.b64decode(payload)
-        arr = np.frombuffer(raw, dtype=np.uint8)
-        frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-        return frame
+        return cv2.imdecode(np.frombuffer(raw, dtype=np.uint8), cv2.IMREAD_COLOR)
     except Exception:
         return None
 
 
-def base64_to_bytes(image_data: str) -> Optional[bytes]:
-    """Extract raw image bytes from a base64 or data-URL payload."""
+def base64_to_bytes(image_data: Union[str, bytes]) -> Optional[bytes]:
+    """Extract raw image bytes from a base64 or data-URL payload; bytes pass through."""
     if not image_data:
         return None
+    if isinstance(image_data, (bytes, bytearray)):
+        return bytes(image_data)
     payload = image_data
     if ',' in payload:
         payload = payload.split(',', 1)[1]
@@ -517,6 +513,11 @@ def analyze_eye_patch(
 ) -> Dict[str, Any]:
     redness_data = measure_sclera_redness(eye_bgr, side=side, white_balance=white_balance)
     surface = analyze_tear_film_surface(eye_bgr)
+    return eye_result_from_measurements(redness_data, surface)
+
+
+def eye_result_from_measurements(redness_data: Dict[str, Any], surface: Dict[str, float]) -> Dict[str, Any]:
+    """Per-eye result from redness + surface measurements (server-measured or on-device)."""
     redness = redness_data.get('sclera_redness')
     appearance = _eye_appearance_score(
         redness,
@@ -534,8 +535,8 @@ def analyze_eye_patch(
         'redness_details': redness_data,
         'experimental_tear_proxy': surface['experimental_tear_proxy'],
         'experimental_texture_proxy': surface['experimental_texture_proxy'],
-        'tear_film_quality': surface['tear_film_quality'],
-        'surface_irregularity': surface['surface_irregularity'],
+        'tear_film_quality': surface['experimental_tear_proxy'],
+        'surface_irregularity': surface['experimental_texture_proxy'],
         'risk_level': _risk_from_score(appearance),
     }
 
@@ -576,8 +577,14 @@ def _analyze_cropped_eyes(
     landmarks: Any = None,
     external_eye_only: bool = False,
     crop_source: Optional[str] = None,
+    white_balance: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """Run appearance analysis on pre-cropped left/right eye patches."""
+    """
+    Run appearance analysis on pre-cropped left/right eye patches.
+
+    ``white_balance`` overrides the estimate from ``frame``: a client face-crop
+    upload sends the full-frame estimate, which the crop alone would bias.
+    """
     if crop_source is None:
         if external_eye_only:
             crop_source = 'external_eye'
@@ -608,7 +615,10 @@ def _analyze_cropped_eyes(
         eyewear = detect_eyewear(frame, landmarks)
         capture_quality = build_capture_quality_summary(lighting, eyewear)
 
-    white_balance = estimate_white_balance(frame) if not external_eye_only else {'available': False}
+    if external_eye_only:
+        white_balance = {'available': False}
+    elif not (white_balance or {}).get('available'):
+        white_balance = estimate_white_balance(frame)
     left = analyze_eye_patch(crops['left'], side='left', white_balance=white_balance)
     right = analyze_eye_patch(crops['right'], side='right', white_balance=white_balance)
 
@@ -656,10 +666,52 @@ def _analyze_cropped_eyes(
             apply=is_webcam_face_capture(frame, raw_shapes, external_eye_only=False),
             architecture=model_status().get('architecture'),
         )
+    result = assemble_dry_eye_result(
+        left,
+        right,
+        ml_redness,
+        lighting=lighting,
+        eyewear=eyewear,
+        capture_quality=capture_quality,
+        white_balance=white_balance,
+        aligned_crops=build_aligned_crops(crops['left'], crops['right']),
+        crop_source=crop_source,
+        landmarks_present=landmarks is not None,
+    )
+    if external_eye_only:
+        result['external_eye_only'] = True
+    try:
+        from app.ai_models.pathology_classifier import attach_pathology_triage
+        attach_pathology_triage(
+            result,
+            left_bgr=crops.get('left'),
+            right_bgr=crops.get('right'),
+        )
+    except Exception:
+        result['pathology_triage'] = {
+            'available': False,
+            'reason': 'attach_error',
+        }
+    return result
+
+
+def assemble_dry_eye_result(
+    left: Dict[str, Any],
+    right: Dict[str, Any],
+    ml_redness: Dict[str, Any],
+    *,
+    lighting: Dict[str, Any],
+    eyewear: Dict[str, Any],
+    capture_quality: Dict[str, Any],
+    white_balance: Dict[str, Any],
+    aligned_crops: Optional[Dict[str, Any]],
+    crop_source: str,
+    landmarks_present: bool,
+) -> Dict[str, Any]:
+    """Findings, risk and metrics from per-eye results — shared by server and on-device analysis."""
     if ml_redness.get('available'):
         left['ml_redness'] = ml_redness.get('left')
         right['ml_redness'] = ml_redness.get('right')
-    aligned_crops = build_aligned_crops(crops['left'], crops['right'])
     asymmetry = eye_asymmetry_metrics(left, right)
 
     left_score = left['appearance_score']
@@ -709,9 +761,9 @@ def _analyze_cropped_eyes(
         'crop_source': crop_source,
         'scoring_path': (
             'landmark_dual_eye_ml'
-            if ml_redness.get('available') and landmarks is not None
+            if ml_redness.get('available') and landmarks_present
             else 'landmark_heuristics'
-            if landmarks is not None
+            if landmarks_present
             else 'macro_or_haar_ml'
             if ml_redness.get('available')
             else 'heuristics_only'
@@ -743,24 +795,10 @@ def _analyze_cropped_eyes(
             'Appearance tracking only — not a medical diagnosis. Lighting, makeup, and camera quality affect results.'
         ),
     }
-    if external_eye_only:
-        result['external_eye_only'] = True
-    try:
-        from app.ai_models.pathology_classifier import attach_pathology_triage
-        attach_pathology_triage(
-            result,
-            left_bgr=crops.get('left'),
-            right_bgr=crops.get('right'),
-        )
-    except Exception:
-        result['pathology_triage'] = {
-            'available': False,
-            'reason': 'attach_error',
-        }
     return result
 
 
-def analyze_dry_eye_frame(frame: np.ndarray) -> Dict[str, Any]:
+def analyze_dry_eye_frame(frame: np.ndarray, *, white_balance: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Full dry-eye screening analysis on a single BGR frame."""
     if frame is None or frame.size == 0:
         return {'error': 'Invalid image'}
@@ -775,10 +813,16 @@ def analyze_dry_eye_frame(frame: np.ndarray) -> Dict[str, Any]:
         landmarks=crop_result.get('landmarks'),
         external_eye_only=crop_result.get('external_eye_only', False),
         crop_source=crop_result.get('crop_source') or crop_result.get('crop_method'),
+        white_balance=white_balance,
     )
 
 
-def analyze_dry_eye_from_base64(image_data: str, *, capture_mode: str = 'camera') -> Dict[str, Any]:
+def analyze_dry_eye_from_base64(
+    image_data: Union[str, bytes],
+    *,
+    capture_mode: str = 'camera',
+    white_balance: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     """
     Decode a photo and score dry-eye / sclera appearance.
 
@@ -790,7 +834,7 @@ def analyze_dry_eye_from_base64(image_data: str, *, capture_mode: str = 'camera'
     if frame is None:
         return {'error': 'Could not decode image. Please capture again.'}
 
-    result = analyze_dry_eye_frame(frame)
+    result = analyze_dry_eye_frame(frame, white_balance=white_balance)
 
     from app.ai_models.sclera_inference import (
         apply_production_ml_redness,

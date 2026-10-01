@@ -29,9 +29,10 @@ const APERTURE_RADIUS = 120 // on a 400px canvas
 const FEEDBACK_CORRECT_MS = 600
 const FEEDBACK_WRONG_MS = 1100
 
+// Identical priors: a lower glare prior would build a loss into Δ before any answers.
 const QUEST_SETTINGS = {
   noGlare: { priorMean: 1.5, priorSd: 0.6 },
-  glare: { priorMean: 1.3, priorSd: 0.6 },
+  glare: { priorMean: 1.5, priorSd: 0.6 },
 }
 
 const ORIENTATIONS = GRATING_ORIENTATIONS
@@ -375,6 +376,8 @@ const CataractTest = () => {
           sd_no_glare: Number(noGlareEst.sd.toFixed(3)),
           sd_glare: Number(glareEst.sd.toFixed(3)),
           low_confidence: interpretation.lowConfidence,
+          ceiling_no_glare: interpretation.ceilingNoGlare,
+          ceiling_glare: interpretation.ceilingGlare,
           trials_per_condition: TRIALS_PER_CONDITION,
           grating_cycles_per_canvas: GRATING_CYCLES,
           interpretation_band: interpretation.band,
@@ -818,14 +821,26 @@ const CataractTest = () => {
                   <div className="bg-amber-50 rounded-2xl p-8 mb-6">
                     <div className="text-center">
                       <div className="text-6xl font-bold text-accent-700 mb-1">
-                        {resultSummary.deltaLogCS.toFixed(2)}
+                        {score}
+                        <span className="text-2xl font-semibold text-gray-500">/100</span>
                       </div>
-                      <div className="text-sm text-gray-600 mb-1">Δ logCS (contrast lost under glare)</div>
+                      <div className="text-sm text-gray-600 mb-1">Glare score</div>
                       <p className="text-xs text-gray-500 mb-4 max-w-md mx-auto">{resultSummary.scoreMeaning}</p>
                       <div className={`inline-block px-4 py-2 rounded-full font-semibold ${tone.badge}`}>
                         {resultSummary.status}
                       </div>
-                      <div className="text-xs text-gray-500 mt-3">Trend index: {score}/100</div>
+                      <div className="text-sm text-gray-700 mt-4">
+                        {resultSummary.contrastFactor <= 1.05
+                          ? 'With glare on you needed the same contrast as without it.'
+                          : `With glare on you needed ${resultSummary.contrastFactor.toFixed(1)}× the contrast to see the stripes.`}
+                      </div>
+                      <div className="text-xs text-gray-500 mt-1">
+                        Contrast lost under glare: Δ {Math.max(0, resultSummary.deltaLogCS).toFixed(2)} logCS
+                        (0 = none; each 0.3 = twice the contrast needed)
+                      </div>
+                      {resultSummary.ceilingNote && (
+                        <div className="text-xs text-gray-500 mt-2 max-w-md mx-auto">{resultSummary.ceilingNote}</div>
+                      )}
                     </div>
                   </div>
 
@@ -844,11 +859,14 @@ const CataractTest = () => {
 
                   <div className="grid sm:grid-cols-2 gap-4 mb-6">
                     {[
-                      { label: 'Without glare', value: resultSummary.logCSNoGlare, sd: resultSummary.sdNoGlare },
-                      { label: 'With glare', value: resultSummary.logCSGlare, sd: resultSummary.sdGlare },
+                      { label: 'Without glare', value: resultSummary.logCSNoGlare, sd: resultSummary.sdNoGlare, ceiling: resultSummary.ceilingNoGlare },
+                      { label: 'With glare', value: resultSummary.logCSGlare, sd: resultSummary.sdGlare, ceiling: resultSummary.ceilingGlare },
                     ].map((row) => (
                       <div key={row.label} className="bg-gray-50 rounded-xl p-5 border border-gray-100">
-                        <div className="text-sm text-gray-600 mb-1">{row.label}</div>
+                        <div className="text-sm text-gray-600 mb-1">
+                          {row.label}
+                          {row.ceiling && <span className="ml-2 text-xs font-semibold text-green-700">at test limit</span>}
+                        </div>
                         <div className="text-3xl font-bold text-gray-900">
                           {row.value.toFixed(2)} <span className="text-base font-semibold">logCS</span>
                         </div>

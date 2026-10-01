@@ -3,7 +3,7 @@
  * Uses anatomical ROIs + temporal stabilizer (EMA, hysteresis, frame confirmation).
  */
 
-import { FaceMesh } from '@mediapipe/face_mesh'
+import { createFaceMesh } from './mediapipeSolutions'
 import { QualityStabilizer } from './captureQualityStabilizer'
 import { getLightingUiCopy } from './photoLightingCheck'
 
@@ -57,21 +57,23 @@ let meshInitPromise = null
 function getFaceMesh() {
   if (sharedFaceMesh) return Promise.resolve(sharedFaceMesh)
   if (meshInitPromise) return meshInitPromise
-  meshInitPromise = new Promise((resolve, reject) => {
-    const faceMesh = new FaceMesh({
-      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`,
-    })
-    faceMesh.setOptions({
-      maxNumFaces: 1,
-      refineLandmarks: true,
-      minDetectionConfidence: 0.5,
-      minTrackingConfidence: 0.5,
-    })
-    faceMesh.initialize().then(() => {
-      sharedFaceMesh = faceMesh
-      resolve(faceMesh)
-    }).catch(reject)
+  const faceMesh = createFaceMesh({
+    maxNumFaces: 1,
+    refineLandmarks: true,
+    minDetectionConfidence: 0.5,
+    minTrackingConfidence: 0.5,
   })
+  meshInitPromise = faceMesh.initialize().then(
+    () => {
+      sharedFaceMesh = faceMesh
+      return faceMesh
+    },
+    (err) => {
+      meshInitPromise = null
+      faceMesh.close().catch(() => {})
+      throw err
+    }
+  )
   return meshInitPromise
 }
 
@@ -576,6 +578,35 @@ export class StableLightingPreview {
     this._pendingResolve = null
     this._lastUi = null
     this._reasonHistory = []
+    this._queue = Promise.resolve()
+  }
+
+  get lastUi() {
+    return this._lastUi
+  }
+
+  // FaceMesh reports through one onResults callback, so sends must not overlap.
+  _send(image, timeoutMs) {
+    const run = () => new Promise((resolve) => {
+      this._pendingResolve = resolve
+      setTimeout(() => {
+        if (this._pendingResolve === resolve) {
+          this._pendingResolve = null
+          resolve()
+        }
+      }, timeoutMs)
+      this.faceMesh.send({ image }).catch(resolve)
+    })
+    this._queue = this._queue.then(run, run)
+    return this._queue
+  }
+
+  /** Face Mesh landmarks for one still image (the exact frame being analysed), or null. */
+  async detectLandmarks(image) {
+    if (!this.faceMesh) await this.init()
+    this.lastLandmarks = null
+    await this._send(image, 1500)
+    return this.lastLandmarks ? this.lastLandmarks.map(({ x, y }) => ({ x, y })) : null
   }
 
   reset() {
@@ -606,16 +637,7 @@ export class StableLightingPreview {
     canvas.getContext('2d').drawImage(video, 0, 0)
     const imageData = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height)
 
-    await new Promise((resolve) => {
-      this._pendingResolve = resolve
-      setTimeout(() => {
-        if (this._pendingResolve === resolve) {
-          this._pendingResolve = null
-          resolve()
-        }
-      }, 200)
-      this.faceMesh.send({ image: video }).catch(resolve)
-    })
+    await this._send(video, 200)
 
     const raw = scoreLighting(imageData, this.lastLandmarks)
     const stabilized = this.stabilizer.push(raw.confidence)

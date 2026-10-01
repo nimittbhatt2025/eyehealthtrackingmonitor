@@ -84,6 +84,16 @@ function Dashboard() {
   }
 
   const hasData = stats?.tests?.total_tests > 0
+  const vision = stats?.summary?.vision_health || {}
+  const counts = vision.status_counts || {}
+  const activeAlerts = stats?.summary?.active_alerts || 0
+  const changeHeadline = counts.confirmed_decline
+    ? { value: counts.confirmed_decline, detail: 'Confirmed change — see Trends' }
+    : counts.possible_decline
+      ? { value: counts.possible_decline, detail: 'Worse once — retest to confirm' }
+      : vision.test_types_tracked
+        ? { value: 'Stable', detail: 'No reliable change beyond retest noise' }
+        : { value: '—', detail: 'No data yet' }
 
   return (
     <div className="space-y-8 md:space-y-12 pb-8">
@@ -114,14 +124,9 @@ function Dashboard() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
               </svg>
             </div>
-            <div className="text-sm font-medium text-white/80 mb-1">Health Score</div>
-            <div className="text-4xl font-bold text-white mb-1">
-              {stats?.summary?.health_score || 0}
-              {stats?.summary?.health_score ? <span className="text-2xl text-white/70">/100</span> : ''}
-            </div>
-            <div className="text-xs font-medium text-white/70">
-              {stats?.summary?.health_score ? 'Excellent condition' : 'No data yet'}
-            </div>
+            <div className="text-sm font-medium text-white/80 mb-1">Change checks</div>
+            <div className="text-4xl font-bold text-white mb-1">{changeHeadline.value}</div>
+            <div className="text-xs font-medium text-white/70">{changeHeadline.detail}</div>
           </div>
         </div>
 
@@ -144,13 +149,9 @@ function Dashboard() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
             </svg>
           </div>
-          <div className="text-sm font-medium text-gray-500 mb-1">Avg Score</div>
-          <div className="text-4xl font-bold text-gray-900 mb-1">
-            {stats?.tests?.average_score ? `${Math.round(stats.tests.average_score)}%` : '0%'}
-          </div>
-          <div className="text-xs font-medium text-gray-400">
-            {stats?.tests?.average_score ? 'This month' : 'No tests yet'}
-          </div>
+          <div className="text-sm font-medium text-gray-500 mb-1">Tests Tracked</div>
+          <div className="text-4xl font-bold text-gray-900 mb-1">{vision.test_types_tracked || 0}</div>
+          <div className="text-xs font-medium text-gray-400">Each followed in its own units</div>
         </div>
 
         {/* Active Alerts */}
@@ -164,8 +165,8 @@ function Dashboard() {
             <span className="badge badge-neutral group-hover:bg-gray-200 transition-colors">View</span>
           </div>
           <div className="text-sm font-medium text-gray-500 mb-1">Active Alerts</div>
-          <div className="text-4xl font-bold text-gray-900 mb-1">0</div>
-          <div className="text-xs font-medium text-gray-400">All clear</div>
+          <div className="text-4xl font-bold text-gray-900 mb-1">{activeAlerts}</div>
+          <div className="text-xs font-medium text-gray-400">{activeAlerts ? 'Unread' : 'All clear'}</div>
         </Link>
       </div>
 

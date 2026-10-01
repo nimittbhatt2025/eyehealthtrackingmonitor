@@ -38,10 +38,27 @@ const emptySubject = {
   target_screen_hours: 2,
 }
 
-function bandStyles(band) {
-  if (band === 'high') return 'bg-red-50 text-red-800 border-red-200'
-  if (band === 'moderate') return 'bg-amber-50 text-amber-900 border-amber-200'
-  return 'bg-emerald-50 text-emerald-900 border-emerald-200'
+function comparisonStyles(status) {
+  if (status === 'faster_than_typical') return 'bg-red-50 text-red-800 border-red-200'
+  if (status === 'within_typical_range') return 'bg-amber-50 text-amber-900 border-amber-200'
+  if (status === 'slower_than_typical') return 'bg-emerald-50 text-emerald-900 border-emerald-200'
+  return 'bg-gray-50 text-gray-800 border-gray-200'
+}
+
+const COMPARISON_TITLE = {
+  faster_than_typical: 'Faster than typical for age',
+  within_typical_range: 'Typical for age',
+  slower_than_typical: 'Slower than typical for age',
+  no_reference: 'No age reference',
+  insufficient_data: 'Not enough data yet',
+}
+
+const FACTOR_STATUS = {
+  present: { label: 'Present', cls: 'bg-amber-50 text-amber-900 border-amber-200' },
+  protective: { label: 'Protective', cls: 'bg-emerald-50 text-emerald-800 border-emerald-200' },
+  absent: { label: 'Not present', cls: 'bg-gray-50 text-gray-600 border-gray-200' },
+  context: { label: 'Context', cls: 'bg-gray-50 text-gray-600 border-gray-200' },
+  unknown: { label: 'Unknown', cls: 'bg-white text-gray-400 border-gray-200' },
 }
 
 function MyopiaProgression() {
@@ -184,7 +201,7 @@ function MyopiaProgression() {
     )
   }
 
-  const risk = dashboard?.risk
+  const risk = dashboard?.risk_profile
   const subject = dashboard?.subject
 
   return (
@@ -347,11 +364,21 @@ function MyopiaProgression() {
         <>
           {/* Risk + latest SE */}
           <div className="grid lg:grid-cols-3 gap-4 md:gap-6">
-            <div className={`card p-6 border ${bandStyles(risk?.band)}`}>
-              <p className="text-sm font-medium mb-1">Progression risk (educational)</p>
-              <p className="text-4xl font-bold">{risk?.score ?? '—'}</p>
-              <p className="text-sm mt-1 capitalize">{risk?.band || '—'} concern</p>
-              <p className="text-xs mt-3 opacity-80">{risk?.progression?.summary}</p>
+            <div className={`card p-6 border ${comparisonStyles(risk?.comparison?.status)}`}>
+              <p className="text-sm font-medium mb-1">Progression vs age-typical (educational)</p>
+              <p className="text-2xl font-bold">
+                {COMPARISON_TITLE[risk?.comparison?.status] || 'Not enough data yet'}
+              </p>
+              {risk?.observed_progression?.status === 'ok' && (
+                <p className="text-sm mt-1">
+                  Observed {risk.observed_progression.rate_d_per_year.toFixed(2)} D/year
+                  {risk.observed_progression.rate_ci95 &&
+                    ` (95% CI ${risk.observed_progression.rate_ci95[0].toFixed(2)} to ${risk.observed_progression.rate_ci95[1].toFixed(2)})`}
+                  {' · '}
+                  {risk.observed_progression.n_entries} prescriptions over {risk.observed_progression.span_years} y
+                </p>
+              )}
+              <p className="text-xs mt-3 opacity-80">{risk?.comparison?.summary}</p>
             </div>
             <div className="card p-6">
               <p className="text-sm font-medium text-gray-500 mb-1">Latest spherical equivalent</p>
@@ -590,21 +617,43 @@ function MyopiaProgression() {
               </ul>
             </div>
             <div className="card p-6">
-              <h2 className="section-title mb-4">Risk factors scored</h2>
-              {(risk?.factors || []).length === 0 ? (
-                <p className="text-sm text-gray-500">Add age, family history, prescriptions, and lifestyle logs to populate this.</p>
-              ) : (
-                <ul className="space-y-2">
-                  {risk.factors.map((f) => (
-                    <li key={f.id} className="flex justify-between gap-3 text-sm border-b border-gray-100 pb-2">
-                      <span className="text-gray-700">{f.detail}</span>
-                      <span className={`font-semibold ${f.points < 0 ? 'text-emerald-700' : 'text-gray-900'}`}>
-                        {f.points > 0 ? '+' : ''}
-                        {f.points}
-                      </span>
+              <h2 className="section-title mb-1">Risk-factor profile</h2>
+              <p className="text-xs text-gray-500 mb-4">{risk?.composite_note}</p>
+              <ul className="space-y-3">
+                {(risk?.factors || []).map((f) => {
+                  const st = FACTOR_STATUS[f.status] || FACTOR_STATUS.unknown
+                  return (
+                    <li key={f.id} className="text-sm border-b border-gray-100 pb-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="font-medium text-gray-900">
+                          {f.label}
+                          {f.value != null && f.value !== 'unknown' && (
+                            <span className="font-normal text-gray-500"> · {String(f.value).replace(/_/g, ' ')}</span>
+                          )}
+                          {f.modifiable && <span className="ml-2 text-[11px] text-accent-700">modifiable</span>}
+                        </span>
+                        <span className={`shrink-0 rounded-md border px-2 py-0.5 text-xs font-semibold ${st.cls}`}>
+                          {st.label}
+                        </span>
+                      </div>
+                      <p className="text-gray-600 mt-1">{f.evidence}</p>
+                      <p className="text-[11px] text-gray-400 mt-1">
+                        Sources: {f.sources.map((s) => risk.sources?.[s]?.split('.')[0] || s).join('; ')}
+                      </p>
                     </li>
-                  ))}
-                </ul>
+                  )
+                })}
+              </ul>
+              {risk?.sources && (
+                <details className="mt-4 text-xs text-gray-500">
+                  <summary className="cursor-pointer font-medium text-gray-700">References</summary>
+                  <ul className="mt-2 space-y-1 list-disc pl-4">
+                    {Object.entries(risk.sources).map(([key, ref]) => (
+                      <li key={key}>{ref}</li>
+                    ))}
+                  </ul>
+                  <p className="mt-2 italic">{risk.evidence_review_note}</p>
+                </details>
               )}
               <p className="text-xs text-gray-500 mt-4">{risk?.disclaimer}</p>
             </div>

@@ -1,0 +1,75 @@
+{
+  "available": true,
+  "labels": [
+    "cataract",
+    "conjunctivitis",
+    "normal",
+    "other"
+  ],
+  "n_test": 348,
+  "test": {
+    "accuracy": 0.9770114942528736,
+    "macro_f1": 0.9750460797526558,
+    "top_label_ece": 0.015131408627005778,
+    "brier_multiclass": 0.038151191706685135
+  },
+  "test_ci95": {
+    "accuracy": [
+      0.9597701149425287,
+      0.9913793103448276
+    ],
+    "macro_f1": [
+      0.9556351165627918,
+      0.9907283907833963
+    ]
+  },
+  "per_class_recall": {
+    "cataract": 1.0,
+    "conjunctivitis": 0.9272727272727272,
+    "normal": 1.0,
+    "other": 0.9646017699115044
+  },
+  "confusion": [
+    [
+      82,
+      0,
+      0,
+      0
+    ],
+    [
+      2,
+      51,
+      0,
+      2
+    ],
+    [
+      0,
+      0,
+      98,
+      0
+    ],
+    [
+      4,
+      0,
+      0,
+      109
+    ]
+  ],
+  "shortcut_probe": {
+    "accuracy_eye_masked": 0.6867816091954023,
+    "macro_f1_eye_masked": 0.6828344219706128,
+    "chance_macro_f1": 0.25
+  },
+  "leakage": {
+    "test_images": 348,
+    "near_duplicate_of_train": 51,
+    "dhash_max_distance": 6
+  },
+  "calibration_note": "uncalibrated softmax (no temperature scaling applied in production)",
+  "gradcam_central_mass": {
+    "cataract": 0.6111664652824402,
+    "conjunctivitis": 0.6615218639373779,
+    "normal": 0.566535747051239,
+    "other": 0.5608349800109863
+  }
+}

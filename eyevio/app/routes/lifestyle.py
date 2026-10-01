@@ -197,7 +197,7 @@ def get_lifestyle_correlations():
             LifestyleLog.log_date >= cutoff_date.date()
         ).all()
         
-        vision_tests = VisionTest.query.filter(
+        vision_tests = VisionTest.usable().filter(
             VisionTest.user_id == user_id,
             VisionTest.created_at >= cutoff_date
         ).all()

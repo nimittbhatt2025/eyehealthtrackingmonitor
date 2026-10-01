@@ -1,37 +1,138 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { trendAPI, lifestyleAPI } from '../services/api'
 import { toast } from 'react-hot-toast'
 import {
-  LineChart,
+  ComposedChart,
   Line,
+  Area,
+  Scatter,
+  ScatterChart,
   BarChart,
   Bar,
-  AreaChart,
-  Area,
-  RadarChart,
-  Radar,
-  PolarGrid,
-  PolarAngleAxis,
-  PolarRadiusAxis,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
   Legend,
   ResponsiveContainer,
-  ScatterChart,
-  Scatter,
-  ZAxis
 } from 'recharts'
+
+const VERDICT = {
+  worsening: { label: 'Reliable worsening', cls: 'badge-warning' },
+  improving: { label: 'Reliable improvement', cls: 'badge-success' },
+  no_reliable_trend: { label: 'No reliable trend', cls: 'badge-brand' },
+}
+
+const fmtDate = (ms) => new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+const fmtVal = (v) => (v == null ? '—' : Math.abs(v) >= 10 ? v.toFixed(0) : v.toFixed(2))
+
+function buildChartData(series) {
+  const rows = series.points.map((p) => ({ t: new Date(p.date).getTime(), value: p.value }))
+  const fc = series.forecast
+  if (fc?.status === 'ok') {
+    fc.fitted.forEach((p) => rows.push({ t: new Date(p.date).getTime(), fit: p.fit }))
+    fc.forecast.forEach((p) =>
+      rows.push({ t: new Date(p.date).getTime(), fit: p.fit, band: [p.lower, p.upper] })
+    )
+  }
+  return rows.sort((a, b) => a.t - b.t)
+}
+
+function PerTestTrend({ test }) {
+  const [seriesIdx, setSeriesIdx] = useState(0)
+  useEffect(() => setSeriesIdx(0), [test?.test_type])
+  const series = test.series[seriesIdx] || test.series[0]
+  const data = useMemo(() => (series ? buildChartData(series) : []), [series])
+  if (!series) return null
+  const fc = series.forecast
+  const upIsWorse = test.worse_direction === 'up'
+  const verdict = fc?.status === 'ok' ? VERDICT[fc.verdict] : null
+  const lastBand = fc?.status === 'ok' ? fc.forecast[fc.forecast.length - 1] : null
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <div className="flex flex-wrap gap-2">
+          {test.series.length > 1 &&
+            test.series.map((s, i) => (
+              <button
+                key={s.name}
+                type="button"
+                onClick={() => setSeriesIdx(i)}
+                className={`px-3 py-1.5 rounded-full text-xs font-semibold border ${
+                  i === seriesIdx ? 'bg-accent-600 text-white border-accent-600' : 'border-gray-200 text-gray-600'
+                }`}
+              >
+                {s.name}
+              </button>
+            ))}
+        </div>
+        {verdict && <span className={`badge ${verdict.cls}`}>{verdict.label}</span>}
+      </div>
+
+      <ResponsiveContainer width="100%" height={300}>
+        <ComposedChart data={data}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+          <XAxis dataKey="t" type="number" scale="time" domain={['dataMin', 'dataMax']} tickFormatter={fmtDate} stroke="#6b7280" style={{ fontSize: '12px' }} />
+          <YAxis
+            reversed={upIsWorse}
+            domain={['auto', 'auto']}
+            stroke="#6b7280"
+            style={{ fontSize: '12px' }}
+            tickFormatter={fmtVal}
+            label={{ value: `${test.unit} (up = better)`, angle: -90, position: 'insideLeft', style: { fontSize: 11, fill: '#6b7280' } }}
+          />
+          <Tooltip
+            labelFormatter={fmtDate}
+            formatter={(v, name) => [Array.isArray(v) ? `${fmtVal(v[0])} – ${fmtVal(v[1])}` : fmtVal(v), name]}
+            contentStyle={{ backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: '8px' }}
+          />
+          <Legend />
+          <Area dataKey="band" name="95% prediction interval" stroke="none" fill="#7dcab9" fillOpacity={0.3} connectNulls isAnimationActive={false} />
+          <Line dataKey="fit" name="Robust trend (Theil–Sen)" stroke="#267563" strokeDasharray="5 4" dot={false} connectNulls isAnimationActive={false} />
+          <Line dataKey="value" name={series.name} stroke="none" dot={{ fill: '#267563', r: 4 }} isAnimationActive={false} />
+        </ComposedChart>
+      </ResponsiveContainer>
+
+      <div className="mt-4 text-sm text-gray-600 space-y-1">
+        {fc?.status === 'ok' ? (
+          <>
+            <p>
+              Trend: <strong>{fc.slope_per_30d >= 0 ? '+' : ''}{fmtVal(fc.slope_per_30d)} {test.unit} per 30 days</strong>{' '}
+              (95% CI {fmtVal(fc.slope_per_30d_ci95[0])} to {fmtVal(fc.slope_per_30d_ci95[1])}) from {fc.n_sessions} sessions over{' '}
+              {Math.round(fc.span_days)} days.
+            </p>
+            {lastBand && (
+              <p>
+                In {lastBand.days_ahead} days the next result is expected between{' '}
+                <strong>{fmtVal(lastBand.lower)}</strong> and <strong>{fmtVal(lastBand.upper)}</strong> {test.unit}. The forecast
+                stops at half the observed span.
+              </p>
+            )}
+            <p className="text-xs text-gray-500">
+              Called a trend only if the slope&apos;s 95% interval excludes zero and the projected change reaches{' '}
+              {test.mcid} {test.unit}.
+              {test.provisional_repeatability && ' Retest variation for this test is provisional until you have more sessions.'}
+            </p>
+          </>
+        ) : (
+          <p>
+            {fc?.n_sessions ?? series.points.length} of {fc?.required_sessions ?? 6} sessions, spanning{' '}
+            {Math.round(fc?.span_days ?? 0)} of {fc?.required_span_days ?? 28} days, are needed before a trend and forecast are shown.
+          </p>
+        )}
+      </div>
+    </div>
+  )
+}
 
 function Trends() {
   const [loading, setLoading] = useState(true)
-  const [period, setPeriod] = useState('30')
+  const [period, setPeriod] = useState('90')
   const [trendData, setTrendData] = useState(null)
   const [prediction, setPrediction] = useState(null)
-  const [summary, setSummary] = useState(null)
   const [lifestyleData, setLifestyleData] = useState([])
-  const [activeTab, setActiveTab] = useState('overview') // overview, correlations, comparisons
+  const [selectedType, setSelectedType] = useState(null)
 
   useEffect(() => {
     loadData()
@@ -40,41 +141,16 @@ function Trends() {
   const loadData = async () => {
     setLoading(true)
     try {
-      // Load trend data with proper period parameter
-      const trendResponse = await trendAPI.getTrend({ 
-        days: parseInt(period),
-        period: 'daily' // Force daily grouping to show all data points
-      })
-      console.log('Trend data loaded:', trendResponse.data)
+      const [trendResponse, predictionResponse] = await Promise.all([
+        trendAPI.getTrend({ days: parseInt(period), period: 'daily' }),
+        trendAPI.getPrediction(),
+      ])
       setTrendData(trendResponse.data)
-
-      // Load prediction (if enough data)
-      try {
-        const predictionResponse = await trendAPI.getPrediction()
-        console.log(' Prediction data loaded successfully:', predictionResponse.data)
-        setPrediction(predictionResponse.data)
-      } catch (error) {
-        console.error(' Prediction API error:', {
-          status: error.response?.status,
-          statusText: error.response?.statusText,
-          data: error.response?.data,
-          message: error.message
-        })
-        // Not enough data for prediction
-        setPrediction(null)
-      }
-
-      // Load summary
-      const summaryResponse = await trendAPI.getSummary({ days: parseInt(period) })
-      setSummary(summaryResponse.data)
-
-      // Load lifestyle data for correlations
+      setPrediction(predictionResponse.data)
       try {
         const lifestyleResponse = await lifestyleAPI.getTrends({ days: parseInt(period) })
-        console.log(' Lifestyle data loaded:', lifestyleResponse.data)
         setLifestyleData(lifestyleResponse.data.trends || [])
-      } catch (error) {
-        console.error(' Lifestyle data error:', error.response?.data || error.message)
+      } catch {
         setLifestyleData([])
       }
     } catch (error) {
@@ -85,6 +161,21 @@ function Trends() {
     }
   }
 
+  const tests = prediction?.tests || []
+  const selected = tests.find((t) => t.test_type === selectedType) || tests[0]
+
+  const correlation = useMemo(() => {
+    if (!selected || !lifestyleData.length) return []
+    const series = selected.series[0]
+    return series.points
+      .map((p) => {
+        const d = new Date(p.date)
+        const match = lifestyleData.find((l) => Math.abs(d - new Date(l.log_date)) / 86400000 <= 1)
+        return match ? { screen_time: match.screen_time, sleep_hours: match.sleep_hours, value: p.value } : null
+      })
+      .filter(Boolean)
+  }, [selected, lifestyleData])
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -93,30 +184,25 @@ function Trends() {
     )
   }
 
-  const hasData = trendData?.trend_data && trendData.trend_data.length > 0
+  const hasData = tests.length > 0
 
   return (
     <div className="space-y-8">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="page-title">Trends & Predictions</h1>
-          <p className="page-subtitle">Track your vision health over time</p>
+          <p className="page-subtitle">Each test tracked in its own units, with honest uncertainty</p>
         </div>
-
-        {/* Period Selector */}
         <div className="flex space-x-2 bg-white rounded-full p-1 border border-gray-200">
-          {['7', '30', '90'].map((days) => (
+          {['30', '90', '365'].map((days) => (
             <button
               key={days}
               onClick={() => setPeriod(days)}
-              className={`min-h-[44px] px-6 py-2 rounded-full font-medium text-sm transition-colors ${
-                period === days
-                  ? 'bg-accent-600 text-white'
-                  : 'text-gray-600 hover:text-gray-900'
+              className={`min-h-[44px] px-5 py-2 rounded-full font-medium text-sm transition-colors ${
+                period === days ? 'bg-accent-600 text-white' : 'text-gray-600 hover:text-gray-900'
               }`}
             >
-              {days} Days
+              {days === '365' ? '1 Year' : `${days} Days`}
             </button>
           ))}
         </div>
@@ -124,537 +210,95 @@ function Trends() {
 
       {!hasData ? (
         <div className="card p-12 text-center">
-          <div className="w-20 h-20 mx-auto mb-6 bg-gray-100 rounded-full flex items-center justify-center">
-            <svg className="w-12 h-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-            </svg>
-          </div>
           <h3 className="text-xl font-semibold text-gray-900 mb-2">No Trend Data Yet</h3>
-          <p className="text-gray-600 mb-6">Complete more vision tests to see your health trends</p>
+          <p className="text-gray-600 mb-6">Complete vision tests to see how each one changes over time</p>
         </div>
       ) : (
         <>
-          {/* Statistics Cards */}
           <div className="grid md:grid-cols-3 gap-6">
-            {/* Vision Health */}
             <div className="card">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-gray-900">Vision Health</h3>
-                <div className="icon-tile bg-accent-50 text-accent-600">
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                  </svg>
-                </div>
-              </div>
-              {trendData.statistics.vision.avg_score !== null ? (
-                <>
-                  <div className="text-3xl font-bold text-gray-900 mb-1">
-                    {trendData.statistics.vision.avg_score.toFixed(1)}%
-                  </div>
-                  <p className="text-sm text-gray-500">Average Score</p>
-                  <div className="mt-4 pt-4 border-t border-gray-100">
-                    <div className="flex justify-between text-sm mb-1">
-                      <span className="text-gray-500">Min</span>
-                      <span className="font-semibold">{trendData.statistics.vision.min.toFixed(1)}%</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-500">Max</span>
-                      <span className="font-semibold">{trendData.statistics.vision.max.toFixed(1)}%</span>
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <p className="text-gray-500">No data available</p>
-              )}
-            </div>
-
-            {/* Test Count */}
-            <div className="card">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-gray-900">Tests Completed</h3>
-                <div className="icon-tile bg-accent-50 text-accent-600">
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-                  </svg>
-                </div>
-              </div>
-              <div className="text-3xl font-bold text-gray-900 mb-1">
-                {trendData.statistics.vision.test_count}
-              </div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">Tests Completed</h3>
+              <div className="text-3xl font-bold text-gray-900 mb-1">{trendData?.statistics?.vision?.test_count ?? 0}</div>
               <p className="text-sm text-gray-500">Last {period} days</p>
             </div>
-
-            {/* Fatigue Level */}
             <div className="card">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-gray-900">Fatigue Status</h3>
-                <div className="icon-tile bg-amber-50 text-amber-600">
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                </div>
-              </div>
-              {trendData.statistics.fatigue.average !== null ? (
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">Tests Tracked</h3>
+              <div className="text-3xl font-bold text-gray-900 mb-1">{tests.length}</div>
+              <p className="text-sm text-gray-500">
+                {tests.filter((t) => t.series.some((s) => s.forecast?.status === 'ok')).length} with enough data for a trend
+              </p>
+            </div>
+            <div className="card">
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">Fatigue Status</h3>
+              {trendData?.statistics?.fatigue?.average != null ? (
                 <>
-                  <div className="text-3xl font-bold text-gray-900 mb-1">
-                    {trendData.statistics.fatigue.average.toFixed(1)}%
-                  </div>
-                  <p className="text-sm text-gray-500">Average Fatigue</p>
+                  <div className="text-3xl font-bold text-gray-900 mb-1">{trendData.statistics.fatigue.average.toFixed(0)}</div>
+                  <p className="text-sm text-gray-500">Average fatigue index</p>
                 </>
               ) : (
-                <>
-                  <div className="text-gray-500">No data</div>
-                  <p className="text-sm text-gray-500">Complete webcam analysis</p>
-                </>
+                <p className="text-sm text-gray-500">Complete webcam analysis</p>
               )}
             </div>
           </div>
 
-          {/* Vision Score Trend Chart */}
           <div className="card p-8">
-            <h2 className="section-title mb-6">Vision Score Trend</h2>
-            {trendData.trend_data && trendData.trend_data.length > 0 ? (
-              <ResponsiveContainer width="100%" height={300}>
-                <LineChart data={trendData.trend_data}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis
-                    dataKey="date"
-                    stroke="#6b7280"
-                    style={{ fontSize: '12px' }}
-                  />
-                  <YAxis stroke="#6b7280" style={{ fontSize: '12px' }} domain={[0, 100]} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: 'white',
-                      border: '1px solid #e5e7eb',
-                      borderRadius: '8px'
-                    }}
-                  />
-                  <Legend />
-                  <Line
-                    type="monotone"
-                    dataKey="avg_vision_score"
-                    stroke="#267563"
-                    strokeWidth={3}
-                    dot={{ fill: '#267563', r: 4 }}
-                    name="Vision Score"
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="text-center py-12 text-gray-500">
-                <p>No vision test data available for the selected period</p>
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+              <div>
+                <h2 className="section-title">Per-test trend</h2>
+                <p className="text-gray-500 text-sm mt-1">{prediction?.note}</p>
               </div>
-            )}
+              <select
+                value={selected?.test_type || ''}
+                onChange={(e) => setSelectedType(e.target.value)}
+                className="input-field max-w-xs"
+                aria-label="Choose a test"
+              >
+                {tests.map((t) => (
+                  <option key={t.test_type} value={t.test_type}>
+                    {t.label} ({t.n_sessions})
+                  </option>
+                ))}
+              </select>
+            </div>
+            {selected && <PerTestTrend test={selected} />}
           </div>
 
-          {/* Predictions */}
-          {prediction ? (
+          {correlation.length >= 3 && (
             <div className="card p-8">
-              <div className="flex items-center justify-between mb-6">
-                <div>
-                  <h2 className="section-title">AI Predictions</h2>
-                  <p className="text-gray-500 text-sm mt-1">Based on {prediction.data_points_used} test results</p>
-                </div>
-                <div className={`badge ${
-                  prediction.trend === 'improving'
-                    ? 'badge-success'
-                    : prediction.trend === 'declining'
-                    ? 'badge-warning'
-                    : 'badge-brand'
-                }`}>
-                  {prediction.trend === 'improving' ? 'Improving' : prediction.trend === 'declining' ? 'Declining' : 'Stable'} Trend
-                </div>
-              </div>
-
-              <div className="grid md:grid-cols-3 gap-6 mb-6">
-                <div className="bg-brand-soft rounded-xl p-6 border border-gray-100/80">
-                  <div className="text-sm text-gray-500 mb-2">30 Days Prediction</div>
-                  <div className="text-3xl font-bold text-gray-900">
-                    {prediction.predictions['30_days'].score.toFixed(1)}%
-                  </div>
-                  <div className={`text-sm mt-2 font-semibold ${
-                    prediction.predictions['30_days'].change >= 0 ? 'text-green-600' : 'text-red-600'
-                  }`}>
-                    {prediction.predictions['30_days'].change >= 0 ? '↑ +' : '↓ '}
-                    {Math.abs(prediction.predictions['30_days'].change).toFixed(1)}% change
-                  </div>
-                </div>
-
-                <div className="bg-brand-soft rounded-xl p-6 border border-gray-100/80">
-                  <div className="text-sm text-gray-500 mb-2">60 Days Prediction</div>
-                  <div className="text-3xl font-bold text-gray-900">
-                    {prediction.predictions['60_days'].score.toFixed(1)}%
-                  </div>
-                  <div className={`text-sm mt-2 font-semibold ${
-                    prediction.predictions['60_days'].change >= 0 ? 'text-green-600' : 'text-red-600'
-                  }`}>
-                    {prediction.predictions['60_days'].change >= 0 ? '↑ +' : '↓ '}
-                    {Math.abs(prediction.predictions['60_days'].change).toFixed(1)}% change
-                  </div>
-                </div>
-
-                <div className="bg-brand-soft rounded-xl p-6 border border-gray-100/80">
-                  <div className="text-sm text-gray-500 mb-2">90 Days Prediction</div>
-                  <div className="text-3xl font-bold text-gray-900">
-                    {prediction.predictions['90_days'].score.toFixed(1)}%
-                  </div>
-                  <div className={`text-sm mt-2 font-semibold ${
-                    prediction.predictions['90_days'].change >= 0 ? 'text-green-600' : 'text-red-600'
-                  }`}>
-                    {prediction.predictions['90_days'].change >= 0 ? '↑ +' : '↓ '}
-                    {Math.abs(prediction.predictions['90_days'].change).toFixed(1)}% change
-                  </div>
-                </div>
-              </div>
-
-              {prediction.prescription_change_recommended && (
-                <div className="bg-amber-50 border border-amber-200 rounded-xl p-6">
-                  <div className="flex items-start">
-                    <div className="icon-tile bg-amber-100 text-amber-600">
-                      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                      </svg>
-                    </div>
-                    <div className="ml-4">
-                      <h3 className="text-lg font-semibold text-amber-900 mb-1">Prescription Review Recommended</h3>
-                      <p className="text-amber-700">Based on your declining vision trend, we recommend scheduling an eye exam to review your prescription.</p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              <div className="mt-6 text-center">
-                <div className="inline-flex items-center px-4 py-2 bg-gray-100 rounded-full text-sm text-gray-600">
-                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  Confidence Score: {(prediction.confidence_score * 100).toFixed(1)}%
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="card p-8">
-              <h2 className="section-title mb-4">AI Predictions</h2>
-              <div className="text-center py-8">
-                <div className="w-16 h-16 mx-auto mb-4 bg-accent-50 rounded-full flex items-center justify-center text-accent-600">
-                  <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                  </svg>
-                </div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-2">Not Enough Data</h3>
-                <p className="text-gray-600">Complete at least 10 vision tests to unlock AI-powered predictions</p>
-                <p className="text-sm text-gray-500 mt-2">
-                  {trendData?.statistics?.vision?.test_count || 0} / 10 tests completed
-                </p>
+              <h2 className="section-title mb-2">Lifestyle and {selected.label}</h2>
+              <p className="text-gray-500 text-sm mb-6">
+                Sessions matched to a lifestyle log within a day. A handful of points cannot show cause and effect.
+              </p>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {[
+                  { key: 'screen_time', label: 'Screen time (h)', color: '#f59e0b' },
+                  { key: 'sleep_hours', label: 'Sleep (h)', color: '#7dcab9' },
+                ].map((f) => (
+                  <ResponsiveContainer key={f.key} width="100%" height={240}>
+                    <ScatterChart>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                      <XAxis dataKey={f.key} name={f.label} tick={{ fontSize: 11 }} stroke="#6b7280" />
+                      <YAxis dataKey="value" name={selected.unit} reversed={selected.worse_direction === 'up'} tick={{ fontSize: 11 }} stroke="#6b7280" />
+                      <Tooltip cursor={{ strokeDasharray: '3 3' }} />
+                      <Scatter data={correlation.filter((c) => c[f.key] != null)} fill={f.color} name={f.label} />
+                    </ScatterChart>
+                  </ResponsiveContainer>
+                ))}
               </div>
             </div>
           )}
 
-          {/* Enhanced Visualizations Tabs */}
           <div className="card p-8">
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6">
-              <h2 className="section-title mb-4 md:mb-0">Advanced Analytics</h2>
-              <div className="flex space-x-2 bg-accent-50 rounded-full p-1">
-                <button
-                  onClick={() => setActiveTab('overview')}
-                  className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
-                    activeTab === 'overview'
-                      ? 'bg-white text-accent-700 shadow-sm'
-                      : 'text-gray-600 hover:text-gray-900'
-                  }`}
-                >
-                  Overview
-                </button>
-                <button
-                  onClick={() => setActiveTab('correlations')}
-                  className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
-                    activeTab === 'correlations'
-                      ? 'bg-white text-accent-700 shadow-sm'
-                      : 'text-gray-600 hover:text-gray-900'
-                  }`}
-                >
-                  Correlations
-                </button>
-                <button
-                  onClick={() => setActiveTab('comparisons')}
-                  className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
-                    activeTab === 'comparisons'
-                      ? 'bg-white text-accent-700 shadow-sm'
-                      : 'text-gray-600 hover:text-gray-900'
-                  }`}
-                >
-                  Comparisons
-                </button>
-              </div>
-            </div>
-
-            {/* Overview Tab - Radar Chart */}
-            {activeTab === 'overview' && (
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Multi-Metric Health Overview</h3>
-                <p className="text-gray-500 mb-6">Comprehensive view of your health metrics normalized on a 0-100 scale</p>
-                <ResponsiveContainer width="100%" height={400}>
-                  <RadarChart data={(() => {
-                    const avgScore = trendData?.statistics?.vision?.avg_score || 0
-                    const avgScreenTime = lifestyleData.length > 0
-                      ? lifestyleData.reduce((sum, d) => sum + (d.screen_time || 0), 0) / lifestyleData.length
-                      : 0
-                    const avgSleep = lifestyleData.length > 0
-                      ? lifestyleData.reduce((sum, d) => sum + (d.sleep_hours || 0), 0) / lifestyleData.length
-                      : 0
-                    const avgExercise = lifestyleData.length > 0
-                      ? lifestyleData.reduce((sum, d) => sum + (d.exercise_minutes || 0), 0) / lifestyleData.length
-                      : 0
-                    const avgDiet = lifestyleData.length > 0
-                      ? lifestyleData.reduce((sum, d) => sum + (d.diet_quality || 0), 0) / lifestyleData.length
-                      : 0
-                    
-                    return [
-                      { metric: 'Vision Health', value: avgScore, fullMark: 100 },
-                      { metric: 'Screen Time', value: Math.max(0, 100 - (avgScreenTime / 12) * 100), fullMark: 100 },
-                      { metric: 'Sleep Quality', value: (avgSleep / 8) * 100, fullMark: 100 },
-                      { metric: 'Exercise', value: (avgExercise / 60) * 100, fullMark: 100 },
-                      { metric: 'Diet Quality', value: (avgDiet / 5) * 100, fullMark: 100 }
-                    ]
-                  })()}>
-                    <PolarGrid stroke="#e5e7eb" />
-                    <PolarAngleAxis dataKey="metric" tick={{ fill: '#6b7280', fontSize: 12 }} />
-                    <PolarRadiusAxis angle={90} domain={[0, 100]} tick={{ fill: '#6b7280', fontSize: 10 }} />
-                    <Radar name="Your Health" dataKey="value" stroke="#7dcab9" fill="#7dcab9" fillOpacity={0.6} />
-                  </RadarChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-
-            {/* Correlations Tab - Scatter Plot */}
-            {activeTab === 'correlations' && (
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Lifestyle Impact on Vision</h3>
-                <p className="text-gray-500 mb-6">Correlation between lifestyle factors and vision health scores</p>
-                
-                {!lifestyleData || lifestyleData.length === 0 ? (
-                  <div className="text-center py-12 text-gray-500">
-                    <p>No lifestyle data available. Start logging your daily habits to see correlations!</p>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {/* Screen Time vs Vision */}
-                    <div>
-                      <h4 className="text-sm font-medium text-gray-700 mb-3">Screen Time vs Vision Score</h4>
-                      <ResponsiveContainer width="100%" height={250}>
-                        <ScatterChart>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                        <XAxis dataKey="screen_time" name="Screen Time (hrs)" tick={{ fontSize: 11 }} stroke="#6b7280" />
-                        <YAxis dataKey="vision_score" name="Vision Score" tick={{ fontSize: 11 }} stroke="#6b7280" />
-                        <Tooltip
-                          cursor={{ strokeDasharray: '3 3' }}
-                          contentStyle={{
-                            backgroundColor: 'white',
-                            border: '1px solid #e5e7eb',
-                            borderRadius: '8px',
-                            fontSize: '12px'
-                          }}
-                        />
-                        <Scatter
-                          data={(() => {
-                            console.log(' Building screen time correlation:', {
-                              lifestyleCount: lifestyleData.length,
-                              trendCount: trendData?.trend_data?.length,
-                              lifestyleSample: lifestyleData[0],
-                              trendSample: trendData?.trend_data?.[0]
-                            })
-                            
-                            const combined = []
-                            
-                            // Use all vision tests, match to closest lifestyle data
-                            if (trendData?.trend_data) {
-                              trendData.trend_data.forEach(visionPoint => {
-                                if (visionPoint.avg_score) {
-                                  // Find lifestyle data within 3 days
-                                  const visionDate = new Date(visionPoint.date)
-                                  const matchingLifestyle = lifestyleData.find(lifestyle => {
-                                    const lifestyleDate = new Date(lifestyle.log_date)
-                                    const daysDiff = Math.abs((visionDate - lifestyleDate) / (1000 * 60 * 60 * 24))
-                                    return daysDiff <= 3
-                                  })
-                                  
-                                  if (matchingLifestyle && matchingLifestyle.screen_time) {
-                                    combined.push({
-                                      screen_time: matchingLifestyle.screen_time,
-                                      vision_score: visionPoint.avg_score
-                                    })
-                                  }
-                                }
-                              })
-                            }
-                            
-                            console.log(' Screen time correlation points:', combined.length)
-                            return combined
-                          })()}
-                          fill="#f59e0b"
-                        />
-                      </ScatterChart>
-                    </ResponsiveContainer>
-                  </div>
-
-                  {/* Sleep vs Vision */}
-                  <div>
-                    <h4 className="text-sm font-medium text-gray-700 mb-3">Sleep vs Vision Score</h4>
-                    <ResponsiveContainer width="100%" height={250}>
-                      <ScatterChart>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                        <XAxis dataKey="sleep_hours" name="Sleep (hrs)" tick={{ fontSize: 11 }} stroke="#6b7280" />
-                        <YAxis dataKey="vision_score" name="Vision Score" tick={{ fontSize: 11 }} stroke="#6b7280" />
-                        <Tooltip
-                          cursor={{ strokeDasharray: '3 3' }}
-                          contentStyle={{
-                            backgroundColor: 'white',
-                            border: '1px solid #e5e7eb',
-                            borderRadius: '8px',
-                            fontSize: '12px'
-                          }}
-                        />
-                        <Scatter
-                          data={(() => {
-                            const combined = []
-                            
-                            // Use all vision tests, match to closest lifestyle data
-                            if (trendData?.trend_data) {
-                              trendData.trend_data.forEach(visionPoint => {
-                                if (visionPoint.avg_score) {
-                                  // Find lifestyle data within 3 days
-                                  const visionDate = new Date(visionPoint.date)
-                                  const matchingLifestyle = lifestyleData.find(lifestyle => {
-                                    const lifestyleDate = new Date(lifestyle.log_date)
-                                    const daysDiff = Math.abs((visionDate - lifestyleDate) / (1000 * 60 * 60 * 24))
-                                    return daysDiff <= 3
-                                  })
-                                  
-                                  if (matchingLifestyle && matchingLifestyle.sleep_hours) {
-                                    combined.push({
-                                      sleep_hours: matchingLifestyle.sleep_hours,
-                                      vision_score: visionPoint.avg_score
-                                    })
-                                  }
-                                }
-                              })
-                            }
-                            
-                            console.log(' Sleep correlation points:', combined.length)
-                            return combined
-                          })()}
-                          fill="#7dcab9"
-                        />
-                      </ScatterChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-                )}
-              </div>
-            )}
-
-            {/* Comparisons Tab - Area Charts */}
-            {activeTab === 'comparisons' && (
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Trend Comparisons</h3>
-                <p className="text-gray-500 mb-6">Smooth visualization of vision scores and test frequency over time</p>
-                <div className="space-y-6">
-                  {/* Vision Score Area Chart */}
-                  <div>
-                    <h4 className="text-sm font-medium text-gray-700 mb-3">Vision Score Trend</h4>
-                    {trendData?.trend_data && trendData.trend_data.length > 0 ? (
-                      <ResponsiveContainer width="100%" height={200}>
-                        <AreaChart data={trendData.trend_data}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                          <XAxis dataKey="date" stroke="#6b7280" style={{ fontSize: '11px' }} />
-                          <YAxis stroke="#6b7280" style={{ fontSize: '11px' }} />
-                          <Tooltip
-                            contentStyle={{
-                              backgroundColor: 'white',
-                              border: '1px solid #e5e7eb',
-                              borderRadius: '8px',
-                              fontSize: '12px'
-                            }}
-                          />
-                          <Area
-                            type="monotone"
-                            dataKey="avg_score"
-                            stroke="#7dcab9"
-                            fill="#7dcab9"
-                            fillOpacity={0.6}
-                            name="Vision Score"
-                          />
-                        </AreaChart>
-                      </ResponsiveContainer>
-                    ) : (
-                      <div className="text-center py-12 text-gray-500">
-                        <p>No vision test data available</p>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Test Frequency Area Chart */}
-                  <div>
-                    <h4 className="text-sm font-medium text-gray-700 mb-3">Test Activity</h4>
-                    <ResponsiveContainer width="100%" height={200}>
-                      <AreaChart data={trendData.trend_data}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                        <XAxis dataKey="date" stroke="#6b7280" style={{ fontSize: '11px' }} />
-                        <YAxis stroke="#6b7280" style={{ fontSize: '11px' }} />
-                        <Tooltip
-                          contentStyle={{
-                            backgroundColor: 'white',
-                            border: '1px solid #e5e7eb',
-                            borderRadius: '8px',
-                            fontSize: '12px'
-                          }}
-                        />
-                        <Area
-                          type="monotone"
-                          dataKey="vision_test_count"
-                          stackId="1"
-                          stroke="#7dcab9"
-                          fill="#7dcab9"
-                          fillOpacity={0.8}
-                          name="Vision Tests"
-                        />
-                        <Area
-                          type="monotone"
-                          dataKey="fatigue_metric_count"
-                          stackId="1"
-                          stroke="#f59e0b"
-                          fill="#f59e0b"
-                          fillOpacity={0.8}
-                          name="Fatigue Checks"
-                        />
-                      </AreaChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Test Type Distribution */}
-          <div className="card p-8">
-            <h2 className="section-title mb-6">Test Distribution</h2>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={trendData.trend_data}>
+            <h2 className="section-title mb-6">Activity</h2>
+            <ResponsiveContainer width="100%" height={260}>
+              <BarChart data={trendData?.trend_data || []}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                 <XAxis dataKey="date" stroke="#6b7280" style={{ fontSize: '12px' }} />
-                <YAxis stroke="#6b7280" style={{ fontSize: '12px' }} />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: 'white',
-                    border: '1px solid #e5e7eb',
-                    borderRadius: '8px'
-                  }}
-                />
+                <YAxis allowDecimals={false} stroke="#6b7280" style={{ fontSize: '12px' }} />
+                <Tooltip contentStyle={{ backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: '8px' }} />
                 <Legend />
-                <Bar dataKey="vision_test_count" fill="#7dcab9" name="Vision Tests" />
-                <Bar dataKey="fatigue_metric_count" fill="#f59e0b" name="Fatigue Checks" />
+                <Bar dataKey="vision_test_count" fill="#7dcab9" name="Vision tests" />
+                <Bar dataKey="fatigue_metric_count" fill="#f59e0b" name="Fatigue checks" />
               </BarChart>
             </ResponsiveContainer>
           </div>

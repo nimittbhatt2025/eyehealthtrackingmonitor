@@ -22,6 +22,11 @@ import SamdDisclaimer from '../components/SamdDisclaimer'
 import PathologyTriagePanel from '../components/PathologyTriagePanel'
 import { getLightingUiCopy } from '../utils/photoLightingCheck'
 import { formatLocalDate, formatLocalDateTime, getClientLocalDateString } from '../utils/formatDateTime'
+import OnDevicePrivacyToggle from '../components/OnDevicePrivacyToggle'
+import EyeThumbnail from '../components/EyeThumbnail'
+import { analyzeCapturedFrame, describeAnalysisLocation } from '../ml/eyePhotoAnalysis'
+import { prepareImageUpload } from '../utils/imageUpload'
+import { getSavePhotosPreference, setSavePhotosPreference, warmOnDevice } from '../ml/onDeviceInference'
 
 const TIMELINE_METRICS = [
   ['overall', 'Tracking', { baselineOnly: true }],
@@ -148,6 +153,14 @@ export default function EyeHealthMonitor() {
   const [lightingError, setLightingError] = useState(null)
   const [deletingId, setDeletingId] = useState(null)
   const [timelineMetric, setTimelineMetric] = useState('overall')
+  const [savePhotos, setSavePhotos] = useState(getSavePhotosPreference)
+  const [analysisWhere, setAnalysisWhere] = useState(null)
+  const photoTask = conditionType === 'cataract' ? 'cataract' : 'redness'
+
+  const handleSavePhotosChange = (value) => {
+    setSavePhotos(value)
+    setSavePhotosPreference(value)
+  }
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -223,6 +236,10 @@ export default function EyeHealthMonitor() {
   }, [view, initializeCamera, stopCamera])
 
   useEffect(() => {
+    if (view === 'capture' && !savePhotos) warmOnDevice(photoTask)
+  }, [view, savePhotos, photoTask])
+
+  useEffect(() => {
     if (view !== 'capture' || !cameraReady) {
       setLiveLighting(null)
       return undefined
@@ -256,14 +273,21 @@ export default function EyeHealthMonitor() {
     }
   }, [view, cameraReady])
 
-  const submitCapture = async (dataUrl, acknowledgePoorLighting = false) => {
-    const response = await eyePhotoAPI.capture({
-      image: dataUrl,
+  const submitCapture = async (where, canvas, acknowledgePoorLighting = false) => {
+    const common = {
       condition_type: conditionType,
       doctor_visit_interval_months: doctorMonths,
       acknowledge_poor_lighting: acknowledgePoorLighting,
       client_local_date: getClientLocalDateString(),
-    })
+    }
+    let body
+    if (where.mode === 'on_device') {
+      body = { ...common, on_device: where.payload, lighting: lightingPreviewRef.current?.lastUi }
+    } else {
+      const upload = await prepareImageUpload(canvas, where.landmarks)
+      body = { ...common, image: upload.blob, client_crop: upload.meta, store_image: savePhotos }
+    }
+    const response = await eyePhotoAPI.capture(body)
     return response.data
   }
 
@@ -280,7 +304,7 @@ export default function EyeHealthMonitor() {
     } else if (data.comparison?.deteriorated) {
       toast('Changes detected — review your comparison.', { icon: '⚠️' })
     } else {
-      toast.success('Photo saved. Comparison updated.')
+      toast.success(data.photo?.image_thumbnail ? 'Photo saved. Comparison updated.' : 'Result saved. Comparison updated.')
     }
 
     loadData()
@@ -300,6 +324,9 @@ export default function EyeHealthMonitor() {
       setLightingError(lighting)
       setError(copy.message)
       toast.error(copy.label, { duration: 5000 })
+    } else if (err.code === 'no_face' || err.code === 'eye_too_small') {
+      setError(err.message)
+      toast.error(err.message, { duration: 5000 })
     } else {
       const msg = err.response?.data?.message || err.response?.data?.error || 'Analysis failed. Try again in even, bright lighting.'
       setError(msg)
@@ -322,7 +349,6 @@ export default function EyeHealthMonitor() {
     canvas.width = video.videoWidth
     canvas.height = video.videoHeight
     canvas.getContext('2d').drawImage(video, 0, 0)
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.9)
 
     setView('analyzing')
     stopCamera()
@@ -330,7 +356,9 @@ export default function EyeHealthMonitor() {
     setLightingError(null)
 
     try {
-      const data = await submitCapture(dataUrl, acknowledgePoorLighting)
+      const where = await analyzeCapturedFrame(photoTask, canvas, lightingPreviewRef.current, { savePhotos })
+      setAnalysisWhere(where)
+      const data = await submitCapture(where, canvas, acknowledgePoorLighting)
       finishCaptureResult(data)
     } catch (err) {
       handleCaptureError(err, { reopenCamera: true })
@@ -560,7 +588,7 @@ export default function EyeHealthMonitor() {
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                 {allPhotos.map((photo) => (
                   <div key={photo.id} className="rounded-lg border border-gray-200 overflow-hidden bg-gray-50 group relative">
-                    <img
+                    <EyeThumbnail
                       src={photo.image_thumbnail}
                       alt={`Eye photo ${formatLocalDate(photo.captured_at)}`}
                       className="w-full aspect-[4/3] object-cover"
@@ -630,6 +658,7 @@ export default function EyeHealthMonitor() {
             <li>Wait for the green “Good lighting” indicator before capturing</li>
           </ul>
 
+          <OnDevicePrivacyToggle savePhotos={savePhotos} onChange={handleSavePhotosChange} />
           <PhotoLightingBanner lighting={liveLighting} />
           <EyewearReminderBanner />
           {lightingBlock && (
@@ -751,16 +780,26 @@ export default function EyeHealthMonitor() {
             </div>
           </div>
 
-          {/* Saved photo (always show after capture) */}
-          {lastResult.photo?.image_thumbnail && (
+          {lastResult.photo && (
             <div className="card p-5">
-              <h3 className="font-semibold text-gray-900 mb-3">Your saved photo</h3>
+              <h3 className="font-semibold text-gray-900 mb-3">
+                {lastResult.photo.image_thumbnail ? 'Your saved photo' : 'Your saved result'}
+              </h3>
+              {analysisWhere && (
+                <p className="text-xs text-gray-500 mb-3">{describeAnalysisLocation(analysisWhere)}</p>
+              )}
               <div className="grid sm:grid-cols-[200px_1fr] gap-4 items-start">
-                <img
-                  src={lastResult.photo.image_thumbnail}
-                  alt="Saved eye photo"
-                  className="rounded-lg border border-gray-200 w-full aspect-[4/3] object-cover"
-                />
+                {lastResult.photo.image_thumbnail ? (
+                  <img
+                    src={lastResult.photo.image_thumbnail}
+                    alt="Saved eye photo"
+                    className="rounded-lg border border-gray-200 w-full aspect-[4/3] object-cover"
+                  />
+                ) : (
+                  <div className="rounded-lg border border-dashed border-gray-300 w-full aspect-[4/3] flex items-center justify-center text-center text-xs text-gray-500 p-3">
+                    Photo kept on your device — only the scores were saved
+                  </div>
+                )}
                 <div className="text-sm text-gray-700 space-y-1">
                   <p>
                     <strong>Tracking status:</strong>{' '}
@@ -857,7 +896,7 @@ export default function EyeHealthMonitor() {
               <div className="grid sm:grid-cols-2 gap-4 mb-4">
                 <div>
                   <p className="text-xs text-gray-500 mb-1">Previous</p>
-                  <img
+                  <EyeThumbnail
                     src={lastResult.comparison.baseline_thumbnail}
                     alt="Previous month"
                     className="rounded-lg border border-gray-200 w-full aspect-[4/3] object-cover"
@@ -870,7 +909,7 @@ export default function EyeHealthMonitor() {
                 </div>
                 <div>
                   <p className="text-xs text-gray-500 mb-1">Today</p>
-                  <img
+                  <EyeThumbnail
                     src={lastResult.photo?.image_thumbnail}
                     alt="Today"
                     className="rounded-lg border border-gray-200 w-full aspect-[4/3] object-cover"

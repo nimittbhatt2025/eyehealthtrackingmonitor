@@ -1,4 +1,4 @@
-import { FaceMesh } from '@mediapipe/face_mesh'
+import { createFaceMesh } from './mediapipeSolutions'
 import { Camera } from '@mediapipe/camera_utils'
 
 /**
@@ -6,8 +6,12 @@ import { Camera } from '@mediapipe/camera_utils'
  */
 
 const IRIS_SCALE = 18
+// Per-frame EMA weight tuned at 30 fps; rescaled by elapsed time so the lag is rate-independent.
 const SMOOTHING = 0.35
+const SMOOTHING_REF_MS = 1000 / 30
 const FACE_LOSS_GRACE_MS = 300
+// Gaze only gates fixation in the peripheral test, so ~10 fps is ample and frees the main thread.
+const INFERENCE_INTERVAL_MS = 100
 
 class EyeTracker {
   constructor() {
@@ -17,6 +21,8 @@ class EyeTracker {
     this.lastGazePosition = { x: 0.5, y: 0.5 }
     this.isInitialized = false
     this.lastDetectedAt = 0
+    this.lastSentAt = 0
+    this.lastResultAt = 0
 
     this.LEFT_EYE_INDICES = [33, 133, 160, 159, 158, 157, 173, 144]
     this.RIGHT_EYE_INDICES = [362, 263, 387, 386, 385, 384, 398, 373]
@@ -27,11 +33,7 @@ class EyeTracker {
   async initialize(videoElement, onGazeUpdate) {
     this.onGazeUpdate = onGazeUpdate
 
-    this.faceMesh = new FaceMesh({
-      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`,
-    })
-
-    this.faceMesh.setOptions({
+    this.faceMesh = createFaceMesh({
       maxNumFaces: 1,
       refineLandmarks: true,
       minDetectionConfidence: 0.5,
@@ -42,6 +44,9 @@ class EyeTracker {
 
     this.camera = new Camera(videoElement, {
       onFrame: async () => {
+        const now = performance.now()
+        if (now - this.lastSentAt < INFERENCE_INTERVAL_MS) return
+        this.lastSentAt = now
         await this.faceMesh.send({ image: videoElement })
       },
       width: 640,
@@ -70,10 +75,13 @@ class EyeTracker {
     const landmarks = results.multiFaceLandmarks[0]
     const gazePosition = this.calculateGazeFromIris(landmarks)
 
-    this.lastGazePosition.x =
-      this.lastGazePosition.x * SMOOTHING + gazePosition.x * (1 - SMOOTHING)
-    this.lastGazePosition.y =
-      this.lastGazePosition.y * SMOOTHING + gazePosition.y * (1 - SMOOTHING)
+    const t = performance.now()
+    const elapsed = this.lastResultAt ? Math.min(t - this.lastResultAt, 1000) : SMOOTHING_REF_MS
+    this.lastResultAt = t
+    const keep = Math.pow(SMOOTHING, elapsed / SMOOTHING_REF_MS)
+
+    this.lastGazePosition.x = this.lastGazePosition.x * keep + gazePosition.x * (1 - keep)
+    this.lastGazePosition.y = this.lastGazePosition.y * keep + gazePosition.y * (1 - keep)
     this.lastDetectedAt = now
 
     if (this.onGazeUpdate) {
@@ -124,7 +132,7 @@ class EyeTracker {
 
   stop() {
     if (this.camera) this.camera.stop()
-    if (this.faceMesh) this.faceMesh.close()
+    if (this.faceMesh) this.faceMesh.close().catch(() => {})
     this.isInitialized = false
   }
 

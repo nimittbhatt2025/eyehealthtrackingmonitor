@@ -68,8 +68,9 @@ def get_lens_effectiveness():
             return jsonify({'error': 'No active lenses found'}), 404
         
         # Get recent vision tests since lens purchase
-        recent_tests = VisionTest.query.filter(
+        recent_tests = VisionTest.usable().filter(
             VisionTest.user_id == user_id,
+            VisionTest.test_type == 'visual_acuity',
             VisionTest.created_at >= lens_data.purchase_date
         ).order_by(VisionTest.created_at).all()
         

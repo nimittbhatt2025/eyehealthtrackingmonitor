@@ -5,6 +5,7 @@
  */
 
 import { EYE_CONDITIONS, CONDITION_DATABASE } from './comprehensiveEyeConditions';
+import { getConditionIndex, searchConditions } from './conditionRetrieval';
 
 // ============================================================================
 // 1⃣ CONVERSATION MANAGER - Maintains context & conversation flow
@@ -151,8 +152,8 @@ class RedFlagDetector {
       ],
       soonAsPossible: [
         { pattern: /(blurr|blur)(y|ed|ing) (worsening|getting worse|progressing)/i, flag: 'Progressive vision loss' },
-        { pattern: /(persistent|constant|won\'t go away) (pain|ache|discomfort)/i, flag: 'Persistent pain' },
-        { pattern: /(can\'t|cannot|unable to) (focus|read)/i, flag: 'Focus problems' },
+        { pattern: /(persistent|constant|won't go away) (pain|ache|discomfort)/i, flag: 'Persistent pain' },
+        { pattern: /(can't|cannot|unable to) (focus|read)/i, flag: 'Focus problems' },
       ]
     };
   }
@@ -225,87 +226,41 @@ class RedFlagDetector {
 }
 
 // ============================================================================
-// 4⃣ CONDITION LIBRARY RAG - Retrieves relevant condition information
+// 4⃣ CONDITION LIBRARY RAG - BM25F retrieval over the condition library
 // ============================================================================
 
 class ConditionLibraryRAG {
   constructor() {
-    this.conditionIndex = this.buildIndex();
+    this.index = getConditionIndex();
   }
 
-  buildIndex() {
-    const index = [];
-    
-    Object.entries(EYE_CONDITIONS).forEach(([id, condition]) => {
-      // Index by symptoms
-      condition.symptoms?.forEach(symptom => {
-        index.push({
-          type: 'symptom',
-          text: symptom.toLowerCase(),
-          conditionId: id,
-          condition: condition
-        });
-      });
-
-      // Index by description
-      if (condition.description) {
-        index.push({
-          type: 'description',
-          text: condition.description.toLowerCase(),
-          conditionId: id,
-          condition: condition
-        });
-      }
-
-      // Index by name
-      index.push({
-        type: 'name',
-        text: condition.name.toLowerCase(),
-        conditionId: id,
-        condition: condition
-      });
-    });
-
-    return index;
+  /**
+   * Returns { conditions, abstained, reason }. Each condition is the library
+   * entry plus `retrieval` (score, strength, matched terms and the verbatim
+   * library items it was matched on). Abstains rather than guessing when the
+   * query does not match the library well.
+   */
+  retrieve(query) {
+    const out = searchConditions(this.index, query);
+    return {
+      abstained: out.abstained,
+      reason: out.reason,
+      conditions: out.results.map((r) => ({
+        ...r.condition,
+        id: r.id,
+        retrieval: {
+          score: r.score,
+          coverage: r.coverage,
+          strength: r.strength,
+          matchedTerms: r.matchedTerms,
+          citations: r.citations,
+        },
+      })),
+    };
   }
 
   search(query) {
-    const queryLower = query.toLowerCase();
-    const words = queryLower.split(/\s+/);
-    
-    const matches = new Map();
-
-    this.conditionIndex.forEach(entry => {
-      let score = 0;
-      
-      // Exact phrase match
-      if (entry.text.includes(queryLower)) {
-        score += entry.type === 'symptom' ? 10 : 5;
-      }
-
-      // Word matches
-      words.forEach(word => {
-        if (entry.text.includes(word) && word.length > 2) {
-          score += entry.type === 'symptom' ? 3 : 1;
-        }
-      });
-
-      if (score > 0) {
-        const existing = matches.get(entry.conditionId) || { condition: entry.condition, score: 0 };
-        existing.score += score;
-        matches.set(entry.conditionId, existing);
-      }
-    });
-
-    // Sort by score and return top matches
-    return Array.from(matches.values())
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 5)
-      .map(m => ({
-        ...m.condition,
-        id: m.condition.name.toLowerCase().replace(/\s+/g, '_'),
-        confidence: Math.min(0.95, m.score / 20)
-      }));
+    return this.retrieve(query).conditions;
   }
 
   getConditionDetails(conditionId) {
@@ -563,7 +518,7 @@ class StructuredResponseGenerator {
       recommendations,
       followUpQuestions,
       urgencyInfo,
-      personalizedAdvice,
+      retrievalAbstained,
     } = analysisData;
 
     let response = '';
@@ -582,15 +537,23 @@ class StructuredResponseGenerator {
       response += '\n\n';
     }
 
-    // 3. Possible Conditions
+    // 3. Library entries that match what was described, with the library text they matched on
     if (matchedConditions && matchedConditions.length > 0) {
-      response += '** Possible Conditions:**\n\n';
+      response += '**Condition library entries that match your description:**\n\n';
       matchedConditions.forEach((condition, idx) => {
-        const confidence = Math.round(condition.confidence * 100);
-        response += `${idx + 1}. **${condition.name}** (${confidence}% match)\n`;
+        const strength = condition.retrieval?.strength;
+        response += `${idx + 1}. **${condition.name}**${strength ? ` (${strength} match)` : ''}\n`;
         response += `   ${condition.description}\n`;
+        const citations = condition.retrieval?.citations || [];
+        if (citations.length) {
+          response += `   _Matched on library ${citations.map((c) => `${c.label}: "${c.text}"`).join('; ')}_\n`;
+        }
         response += `   *Severity: ${condition.severity}*\n\n`;
       });
+      response += '_Matches are keyword retrieval over the EyeVio condition library, not a likelihood that you have the condition._\n\n';
+    } else if (retrievalAbstained && !(detectedSymptoms && detectedSymptoms.length > 0) && !urgencyInfo) {
+      response += "I couldn't find an entry in the condition library that clearly matches that, so I won't guess. ";
+      response += 'Try describing what your eyes feel or see (for example "dry, gritty eyes after screen use" or "halos around lights at night"), or browse the Eye Conditions library.\n\n';
     }
 
     // 4. Personalized Recommendations
@@ -632,7 +595,7 @@ class StructuredResponseGenerator {
     return {
       name: condition.name,
       severity: condition.severity,
-      confidence: condition.confidence,
+      strength: condition.retrieval?.strength,
       description: condition.description,
       keySymptoms: condition.symptoms?.slice(0, 3) || [],
       topRiskFactors: condition.riskFactors?.slice(0, 2) || [],
@@ -912,11 +875,15 @@ export class AdvancedChatbotEngine {
     const redFlags = this.redFlagDetector.analyze(userInput);
     const urgencyMessage = this.redFlagDetector.getUrgencyMessage(redFlags);
 
-    // 5. Match conditions using RAG
-    const matchedConditions = this.conditionRAG.search(userInput);
+    // 5. Retrieve library entries (abstains on weak matches)
+    const retrieval = this.conditionRAG.retrieve(userInput);
+    const matchedConditions = retrieval.conditions;
+    const nothingToAnswer = retrieval.abstained && symptoms.length === 0 && !urgencyMessage;
 
     // 6. Get personalized recommendations
-    const personalizedRecs = this.profileIntegrator.getPersonalizedRecommendations(matchedConditions);
+    const personalizedRecs = nothingToAnswer
+      ? []
+      : this.profileIntegrator.getPersonalizedRecommendations(matchedConditions);
 
     // 7. Recommend relevant tests
     const recommendedTests = this.testRecommender.recommendTests(symptoms, matchedConditions);
@@ -931,8 +898,8 @@ export class AdvancedChatbotEngine {
     const referralMessage = this.referralLogic.generateReferralMessage(referralAssessment);
 
     // 9. Generate follow-up questions
-    const followUpQuestions = this.conversationManager.needsMoreInfo() 
-      ? this.conversationManager.getFollowUpQuestions() 
+    const followUpQuestions = !nothingToAnswer && this.conversationManager.needsMoreInfo()
+      ? this.conversationManager.getFollowUpQuestions()
       : [];
 
     // 10. Generate structured response
@@ -943,6 +910,7 @@ export class AdvancedChatbotEngine {
       recommendations: personalizedRecs,
       followUpQuestions,
       urgencyInfo: urgencyMessage,
+      retrievalAbstained: retrieval.abstained,
     });
 
     // 11. Apply safety filter
@@ -951,6 +919,7 @@ export class AdvancedChatbotEngine {
     return {
       response: safeResponse,
       conditions: matchedConditions,
+      retrieval: { abstained: retrieval.abstained, reason: retrieval.reason },
       symptoms,
       recommendedTests,
       referralInfo: referralMessage,

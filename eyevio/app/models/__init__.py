@@ -1,10 +1,13 @@
 from datetime import datetime
 
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy.dialects.postgresql import JSONB
 
 from app.utils.datetime_utils import serialize_utc_datetime
 
 db = SQLAlchemy()
+
+JSONDocument = db.JSON().with_variant(JSONB(), 'postgresql')
 
 
 class User(db.Model):
@@ -86,9 +89,16 @@ class User(db.Model):
 class VisionTest(db.Model):
     """Vision test results"""
     __tablename__ = 'vision_tests'
-    
+    __table_args__ = (
+        db.Index('ix_vision_tests_user_id_created_at', 'user_id', 'created_at'),
+        db.Index(
+            'ix_vision_tests_test_details_gin', 'test_details',
+            postgresql_using='gin', postgresql_ops={'test_details': 'jsonb_path_ops'},
+        ),
+    )
+
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     
     # Test Type
     test_type = db.Column(db.String(50), nullable=False)  # acuity, contrast, color
@@ -99,7 +109,7 @@ class VisionTest(db.Model):
     errors = db.Column(db.Integer, default=0)  # Number of errors
     
     # Test Details (JSON for flexibility)
-    test_details = db.Column(db.JSON)  # Store detailed results per test item
+    test_details = db.Column(JSONDocument)  # Store detailed results per test item
     
     # Eye-specific results
     left_eye_score = db.Column(db.Float)
@@ -112,7 +122,16 @@ class VisionTest(db.Model):
     # Metadata
     created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
     notes = db.Column(db.Text)
-    
+
+    # Data integrity: a non-null flag excludes the row from trends, decline alerts and reports.
+    data_quality_flag = db.Column(db.String(50), index=True)
+    data_quality_note = db.Column(db.Text)
+
+    @classmethod
+    def usable(cls):
+        """Query restricted to rows that may feed trends, alerts and reports."""
+        return cls.query.filter(cls.data_quality_flag.is_(None))
+
     def __repr__(self):
         return f'<VisionTest {self.test_type} - Score: {self.score}>'
 
@@ -120,9 +139,10 @@ class VisionTest(db.Model):
 class WebcamMetric(db.Model):
     """Webcam-based eye fatigue and health metrics"""
     __tablename__ = 'webcam_metrics'
-    
+    __table_args__ = (db.Index('ix_webcam_metrics_user_id_created_at', 'user_id', 'created_at'),)
+
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     
     # Blink Analysis
     blink_rate = db.Column(db.Float)  # Blinks per minute
@@ -357,18 +377,20 @@ class VisionTrend(db.Model):
 class EyePhoto(db.Model):
     """Historical eye photos for month-over-month health monitoring"""
     __tablename__ = 'eye_photos'
+    __table_args__ = (db.Index('ix_eye_photos_user_id_captured_at', 'user_id', 'captured_at'),)
 
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
 
     # What the patient is monitoring (dry eye, cornea scar, glaucoma, etc.)
     condition_type = db.Column(db.String(50), nullable=False, default='general', index=True)
 
     # Compressed JPEG thumbnail (data URL) for timeline / side-by-side comparison
-    image_thumbnail = db.Column(db.Text, nullable=False)
+    # NULL when the photo was analysed on-device and never uploaded.
+    image_thumbnail = db.Column(db.Text, nullable=True)
 
-    # Aggregated surface-health metrics from CV analysis
-    health_score = db.Column(db.Float, nullable=False)
+    # Aggregated surface-health metrics from CV analysis (NULL for cataract screening photos)
+    health_score = db.Column(db.Float, nullable=True)
     sclera_redness = db.Column(db.Float)
     tear_film_quality = db.Column(db.Float)
     surface_irregularity = db.Column(db.Float)
@@ -405,6 +427,54 @@ class EyePhoto(db.Model):
 
     def __repr__(self):
         return f'<EyePhoto {self.condition_type} score={self.health_score}>'
+
+
+class AnalysisJob(db.Model):
+    """Server-side photo analysis run off the request thread (202 + polling)."""
+
+    __tablename__ = 'analysis_jobs'
+
+    id = db.Column(db.String(32), primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    kind = db.Column(db.String(32), nullable=False)
+    status = db.Column(db.String(16), nullable=False, default='queued')  # queued|running|done|failed
+    http_status = db.Column(db.Integer)
+    # Response body with image fields stripped; unsaved photos never reach the database.
+    result = db.Column(db.JSON)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    started_at = db.Column(db.DateTime)
+    finished_at = db.Column(db.DateTime)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'kind': self.kind,
+            'status': self.status,
+            'http_status': self.http_status,
+            'result': self.result,
+            'created_at': serialize_utc_datetime(self.created_at),
+            'started_at': serialize_utc_datetime(self.started_at),
+            'finished_at': serialize_utc_datetime(self.finished_at),
+        }
+
+
+class TrendSnapshot(db.Model):
+    """
+    Precomputed full-history trend payload per user (Theil–Sen forecasts and
+    change status), so /trend/prediction and /trend/summary don't refit every
+    session on each read. Marked stale on any vision_tests write for the user.
+    """
+
+    __tablename__ = 'trend_snapshots'
+
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), primary_key=True)
+    algo_version = db.Column(db.Integer, nullable=False)
+    # (usable test count, max usable test id) at compute time; guards writes that bypass the ORM.
+    source_count = db.Column(db.Integer, nullable=False)
+    source_max_id = db.Column(db.Integer)
+    stale = db.Column(db.Boolean, nullable=False, default=False)
+    payload = db.Column(JSONDocument, nullable=False)
+    computed_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
 
 
 class MyopiaSubject(db.Model):

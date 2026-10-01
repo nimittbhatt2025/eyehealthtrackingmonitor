@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { Suspense, useState } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import Navbar from './Navbar'
 import Sidebar from './Sidebar'
+import RouteFallback from '../RouteFallback'
 import { isImmersiveSessionRoute } from '../../utils/visionTestLayout'
 
 function MainLayout() {
@@ -35,7 +36,9 @@ function MainLayout() {
               : 'max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8'
           }
         >
-          <Outlet />
+          <Suspense fallback={<RouteFallback />}>
+            <Outlet />
+          </Suspense>
         </div>
       </main>
     </div>

@@ -1,0 +1,193 @@
+{
+  "opset": 17,
+  "torch": "2.8.0",
+  "onnxruntime": "1.19.2",
+  "cataract": {
+    "clean": {
+      "n": 166,
+      "torch": {
+        "auc": 0.9998499399759904,
+        "abstain_rate": 0.024096385542168676
+      },
+      "wrapper_vs_production_ood_max_abs_diff": 1.6093254089355469e-06,
+      "ort_fp32": {
+        "auc": 0.9998499399759904,
+        "prob_max_abs_diff": 4.7124922275543213e-07,
+        "prob_mean_abs_diff": 4.199329789054745e-08,
+        "ood_max_abs_diff": 1.1920928955078125e-06,
+        "ood_mean_abs_diff": 2.455998616046216e-07,
+        "abstain_rate": 0.024096385542168676,
+        "abstain_agreement": 1.0,
+        "band_agreement_when_both_assessed": 1.0,
+        "cam_max_abs_diff_normalised": 3.975629806518555e-05
+      },
+      "ort_int8": {
+        "auc": 0.9998499399759904,
+        "prob_max_abs_diff": 0.048666419461369514,
+        "prob_mean_abs_diff": 0.0011319748310675904,
+        "ood_max_abs_diff": 0.08877205848693848,
+        "ood_mean_abs_diff": 0.016898231693061,
+        "abstain_rate": 0.024096385542168676,
+        "abstain_agreement": 1.0,
+        "band_agreement_when_both_assessed": 1.0,
+        "cam_max_abs_diff_normalised": 0.9999999403953552
+      }
+    },
+    "webcam_sim": {
+      "n": 166,
+      "torch": {
+        "auc": 0.9864945978391357,
+        "abstain_rate": 0.7228915662650602
+      },
+      "wrapper_vs_production_ood_max_abs_diff": 1.6689300537109375e-06,
+      "ort_fp32": {
+        "auc": 0.9864945978391356,
+        "prob_max_abs_diff": 1.3560056686401367e-06,
+        "prob_mean_abs_diff": 1.2525935428913222e-07,
+        "ood_max_abs_diff": 1.3113021850585938e-06,
+        "ood_mean_abs_diff": 2.0574374371264353e-07,
+        "abstain_rate": 0.7228915662650602,
+        "abstain_agreement": 1.0,
+        "band_agreement_when_both_assessed": 1.0,
+        "cam_max_abs_diff_normalised": 2.4050474166870117e-05
+      },
+      "ort_int8": {
+        "auc": 0.9855942376950779,
+        "prob_max_abs_diff": 0.1683608889579773,
+        "prob_mean_abs_diff": 0.01828649921346039,
+        "ood_max_abs_diff": 0.09655320644378662,
+        "ood_mean_abs_diff": 0.017184033810374248,
+        "abstain_rate": 0.7409638554216867,
+        "abstain_agreement": 0.9698795180722891,
+        "band_agreement_when_both_assessed": 0.9523809523809523,
+        "cam_max_abs_diff_normalised": 0.9999999403953552
+      }
+    }
+  },
+  "redness": {
+    "n": 187,
+    "tta": {
+      "single_pass": {
+        "mae": 0.1340962740826734,
+        "spearman": 0.978549345497686,
+        "auc_conjunctivitis_vs_normal": 1.0,
+        "grade_agreement_vs_tta": 1.0
+      },
+      "tta_5_pass": {
+        "mae": 0.1309011134234342,
+        "spearman": 0.9787437335281782,
+        "auc_conjunctivitis_vs_normal": 1.0,
+        "grade_agreement_vs_tta": 1.0
+      },
+      "mae_single_minus_tta_ci95": [
+        -0.0008514689395134347,
+        0.007136179304377919
+      ],
+      "score_max_abs_diff_single_vs_tta": 0.11758885383605966,
+      "tta_std_vs_abs_error_spearman": 0.9183589910684714,
+      "tta_std_median": 0.0
+    },
+    "ort_fp32": {
+      "mae": 0.13409630659429786,
+      "spearman": 0.978549345497686,
+      "auc_conjunctivitis_vs_normal": 1.0,
+      "grade_agreement_vs_tta": 1.0,
+      "grade_agreement_vs_torch_single": 1.0,
+      "score_max_abs_diff_vs_torch": 2.0265579223632812e-06,
+      "score_mean_abs_diff_vs_torch": 2.7348013485179226e-07
+    },
+    "ort_int8": {
+      "mae": 0.1381482265212319,
+      "spearman": 0.9759693252148594,
+      "auc_conjunctivitis_vs_normal": 1.0,
+      "grade_agreement_vs_tta": 1.0,
+      "grade_agreement_vs_torch_single": 1.0,
+      "score_max_abs_diff_vs_torch": 0.3218953609466553,
+      "score_mean_abs_diff_vs_torch": 0.014850613267663966
+    }
+  },
+  "latency_single_image": {
+    "cataract": {
+      "torch_cpu": {
+        "median_ms": 11.3,
+        "p90_ms": 11.87
+      },
+      "torch_cpu_1thread": {
+        "median_ms": 17.73,
+        "p90_ms": 18.13
+      },
+      "ort_fp32": {
+        "median_ms": 14.16,
+        "p90_ms": 17.12
+      },
+      "ort_fp32_1thread": {
+        "median_ms": 45.46,
+        "p90_ms": 45.6
+      },
+      "ort_int8": {
+        "median_ms": 10.65,
+        "p90_ms": 10.8
+      },
+      "ort_int8_1thread": {
+        "median_ms": 34.08,
+        "p90_ms": 34.57
+      }
+    },
+    "redness": {
+      "torch_cpu": {
+        "median_ms": 11.29,
+        "p90_ms": 11.77
+      },
+      "torch_cpu_1thread": {
+        "median_ms": 17.43,
+        "p90_ms": 17.69
+      },
+      "ort_fp32": {
+        "median_ms": 14.07,
+        "p90_ms": 14.49
+      },
+      "ort_fp32_1thread": {
+        "median_ms": 45.36,
+        "p90_ms": 45.46
+      },
+      "ort_int8": {
+        "median_ms": 10.48,
+        "p90_ms": 10.74
+      },
+      "ort_int8_1thread": {
+        "median_ms": 33.83,
+        "p90_ms": 34.58
+      },
+      "torch_cpu_tta5": {
+        "median_ms": 56.36,
+        "p90_ms": 57.6
+      }
+    }
+  },
+  "files": {
+    "cataract_screen": {
+      "fp32": {
+        "file": "cataract_screen.fp32.onnx",
+        "bytes": 46108919,
+        "sha256": "6829e0263d6acce24f336ba82c3e6dd116f17bb9aac071a97d2faf0fdf8ea5db"
+      },
+      "int8": {
+        "file": "cataract_screen.int8.onnx",
+        "bytes": 12738496,
+        "sha256": "0607af9f0e84a6909e08530cea08f22c50c3a4b0c543921f40fce0438147f111"
+      }
+    },
+    "sclera_redness": {
+      "fp32": {
+        "file": "sclera_redness.fp32.onnx",
+        "bytes": 44701454,
+        "sha256": "6359458b17116184c14e9f4c93e6ea141dc46ec6768a0d020b298b4fd10487c1"
+      },
+      "int8": {
+        "file": "sclera_redness.int8.onnx",
+        "bytes": 11336339,
+        "sha256": "107065b9e79c7231dbf4735787d60b3792833ccb035e976ae0eebc534e43de09"
+      }
+    }
+  }
+}

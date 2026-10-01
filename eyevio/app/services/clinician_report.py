@@ -83,13 +83,22 @@ def assemble_clinician_payload(user: User, days: int = 90) -> Dict[str, Any]:
     cutoff = datetime.utcnow() - timedelta(days=days)
 
     tests = (
-        VisionTest.query.filter_by(user_id=user.id)
+        VisionTest.usable().filter_by(user_id=user.id)
         .order_by(VisionTest.created_at.desc())
         .all()
     )
     tests_in_period = [t for t in tests if t.created_at and t.created_at >= cutoff]
-    # Newest-first list → take 24 most recent, then chronological for the sparkline
-    trend_tests = list(reversed(tests_in_period[:24])) if tests_in_period else []
+    # Sparkline is one test in one unit: better-eye logMAR from the current acuity method.
+    acuity_points = []
+    for t in reversed(tests_in_period):
+        d = t.test_details or {}
+        if t.test_type != 'visual_acuity' or d.get('method_version') != 2:
+            continue
+        vals = [(d.get(k) or {}).get('logMAR') for k in ('right_eye', 'left_eye')]
+        vals = [v for v in vals if isinstance(v, (int, float))]
+        if vals:
+            acuity_points.append({'date': t.created_at, 'score': min(vals)})
+    acuity_points = acuity_points[-24:]
 
     latest_by_type: List[Dict[str, Any]] = []
     seen = set()
@@ -266,7 +275,7 @@ def assemble_clinician_payload(user: User, days: int = 90) -> Dict[str, Any]:
         'generated_at': datetime.utcnow(),
         'days': days,
         'latest_by_type': latest_by_type,
-        'trend': [{'date': t.created_at, 'score': t.score} for t in trend_tests],
+        'trend': acuity_points,
         'tests_in_period': len(tests_in_period),
         'latest_fatigue': latest_fatigue.fatigue_score if latest_fatigue else None,
         'avg_fatigue': avg_fatigue,
@@ -284,19 +293,20 @@ def _draw_sparkline(c: canvas.Canvas, x: float, y: float, w: float, h: float, po
     if len(points) < 2:
         c.setFillColor(MUTED)
         c.setFont('Times-Italic', 9)
-        c.drawCentredString(x + w / 2, y + h / 2 - 3, 'Need ≥2 tests in window')
+        c.drawCentredString(x + w / 2, y + h / 2 - 3, 'Need ≥2 acuity tests in window')
         return
 
     scores = [p['score'] for p in points]
-    lo = min(min(scores), 40)
-    hi = max(max(scores), 100)
+    lo = min(min(scores), -0.1)
+    hi = max(max(scores), 0.5)
     span = hi - lo or 1
     pad = 8
     xs, ys = [], []
     for i, p in enumerate(points):
         t = i / (len(points) - 1)
         xs.append(x + pad + t * (w - 2 * pad))
-        ys.append(y + pad + ((p['score'] - lo) / span) * (h - 2 * pad))
+        # logMAR: lower is better, so better acuity plots higher.
+        ys.append(y + pad + ((hi - p['score']) / span) * (h - 2 * pad))
 
     c.setStrokeColor(TEAL)
     c.setLineWidth(1.6)
@@ -311,8 +321,8 @@ def _draw_sparkline(c: canvas.Canvas, x: float, y: float, w: float, h: float, po
 
     c.setFillColor(MUTED)
     c.setFont('Helvetica', 7)
-    c.drawString(x + 4, y + 3, f'{lo:.0f}')
-    c.drawRightString(x + w - 4, y + h - 10, f'{hi:.0f}')
+    c.drawString(x + 4, y + 3, f'{hi:+.1f}')
+    c.drawRightString(x + w - 4, y + h - 10, f'{lo:+.1f}')
 
 
 def render_clinician_pdf(payload: Dict[str, Any]) -> BytesIO:
@@ -365,7 +375,7 @@ def render_clinician_pdf(payload: Dict[str, Any]) -> BytesIO:
     c.setFillColor(TEAL_DARK)
     c.setFont('Times-Bold', 11)
     c.drawString(ml, y, 'Latest home-check scores')
-    c.drawString(ml + content_w * 0.58, y, 'Vision score trend')
+    c.drawString(ml + content_w * 0.58, y, 'Acuity trend')
 
     y -= 12
     table_top = y
@@ -417,7 +427,7 @@ def render_clinician_pdf(payload: Dict[str, Any]) -> BytesIO:
     _draw_sparkline(c, spark_x, spark_y, spark_w, spark_h, payload['trend'])
     c.setFillColor(MUTED)
     c.setFont('Helvetica', 7)
-    c.drawString(spark_x, spark_y - 11, 'Home screening %  ·  last 24 tests in window  ·  higher is better')
+    c.drawString(spark_x, spark_y - 11, 'Better-eye logMAR (home chart)  ·  up to 24 acuity tests  ·  plotted up = better')
 
     y = min(table_bottom, spark_y) - 26
 

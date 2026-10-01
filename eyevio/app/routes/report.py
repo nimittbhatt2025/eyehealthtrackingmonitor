@@ -31,7 +31,7 @@ def generate_report():
         cutoff_date = datetime.utcnow() - timedelta(days=days)
         
         # Gather data
-        vision_tests = VisionTest.query.filter(
+        vision_tests = VisionTest.usable().filter(
             VisionTest.user_id == user_id,
             VisionTest.created_at >= cutoff_date
         ).order_by(VisionTest.created_at).all()

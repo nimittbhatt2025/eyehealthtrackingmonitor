@@ -61,13 +61,19 @@ self.addEventListener('fetch', (event) => {
     return
   }
 
+  // Cross-origin assets (MediaPipe wasm/data on jsDelivr) are fetched by emscripten loaders
+  // that need the untouched network response
+  if (url.origin !== self.location.origin) {
+    return
+  }
+
   // Skip API calls from caching
   if (url.pathname.startsWith('/api/')) {
     return
   }
 
   // Network-first strategy for HTML
-  if (request.headers.get('accept').includes('text/html')) {
+  if ((request.headers.get('accept') || '').includes('text/html')) {
     event.respondWith(
       fetch(request)
         .then((response) => {

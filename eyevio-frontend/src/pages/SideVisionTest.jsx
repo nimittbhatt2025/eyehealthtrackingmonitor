@@ -37,6 +37,8 @@ const THRESHOLD_TRIALS_PER_QUADRANT = 6
 const FALSE_POSITIVE_CATCHES = 4
 const FALSE_NEGATIVE_CATCHES = 4
 const FALSE_NEGATIVE_LOGCS = 0.1 // ~80% contrast — should always be seen
+const PRACTICE_LOGCS = 0.3
+const PRACTICE_FEEDBACK_MS = 2200
 const STIM_MS = 200
 const FIXATE_MIN_MS = 700
 const FIXATE_MAX_MS = 1200
@@ -62,6 +64,15 @@ function shuffle(list) {
   return out
 }
 
+// Unscored rounds before the first eye: one clear spot, one with no spot.
+function buildPracticeTrials() {
+  const quadrant = QUADRANTS[Math.floor(Math.random() * QUADRANTS.length)].id
+  return [
+    { kind: 'practice', quadrant, logCS: PRACTICE_LOGCS },
+    { kind: 'practice', quadrant: null, logCS: null },
+  ]
+}
+
 function buildEyeTrials() {
   const trials = []
   for (const q of QUADRANTS) {
@@ -85,9 +96,10 @@ const SideVisionTest = () => {
   const [eyeIndex, setEyeIndex] = useState(0)
   const [trials, setTrials] = useState([])
   const [trialIdx, setTrialIdx] = useState(0)
-  const [step, setStep] = useState('fixate') // fixate, stim, center, location
+  const [step, setStep] = useState('fixate') // fixate, stim, center, location, feedback (practice only)
   const [stimulus, setStimulus] = useState(null)
   const [centerAnswer, setCenterAnswer] = useState(null)
+  const [practiceFeedback, setPracticeFeedback] = useState(null)
   const [eyeResults, setEyeResults] = useState({})
   const [saveState, setSaveState] = useState(null) // saved | not_saved | error
 
@@ -100,10 +112,11 @@ const SideVisionTest = () => {
   useEffect(() => () => clearTimeout(timerRef.current), [])
 
   const currentEye = eyePlan[eyeIndex]
+  const practiceCount = trials.filter((t) => t.kind === 'practice').length
 
   const presentTrial = useCallback((idx, list) => {
     const trial = list[idx]
-    let logCS = null
+    let logCS = trial.logCS ?? null
     if (trial.kind === 'threshold') logCS = questsRef.current[trial.quadrant].next()
     if (trial.kind === 'fn_catch') logCS = FALSE_NEGATIVE_LOGCS
 
@@ -123,7 +136,7 @@ const SideVisionTest = () => {
   }, [step, stimulus])
 
   const startEye = () => {
-    const list = buildEyeTrials()
+    const list = eyeIndex === 0 ? [...buildPracticeTrials(), ...buildEyeTrials()] : buildEyeTrials()
     questsRef.current = Object.fromEntries(QUADRANTS.map((q) => [q.id, createQuest(QUEST_SETTINGS)]))
     responsesRef.current = []
     setTrials(list)
@@ -209,10 +222,29 @@ const SideVisionTest = () => {
     }
   }
 
+  const advance = () => {
+    const next = trialIdx + 1
+    setTrialIdx(next)
+    presentTrial(next, trials)
+  }
+
   const recordAndAdvance = (reported) => {
     const trial = stimulus
     const fixationLoss = centerAnswer !== trial.digit
     const correctLocation = trial.quadrant != null && reported === trial.quadrant
+
+    if (trial.kind === 'practice') {
+      const spotQuadrant = QUADRANTS.find((q) => q.id === trial.quadrant)
+      setPracticeFeedback({
+        numberCorrect: !fixationLoss,
+        digit: trial.digit,
+        spotCorrect: trial.quadrant ? correctLocation : reported === 'none',
+        spotText: spotQuadrant ? `The spot was in the ${spotQuadrant.label.toLowerCase()} corner.` : 'There was no spot this round.',
+      })
+      setStep('feedback')
+      timerRef.current = setTimeout(advance, PRACTICE_FEEDBACK_MS)
+      return
+    }
 
     if (trial.kind === 'threshold' && !fixationLoss) {
       questsRef.current[trial.quadrant].update(trial.logCS, correctLocation)
@@ -290,10 +322,10 @@ const SideVisionTest = () => {
             <div className="space-y-4 text-sm text-gray-700 mb-6">
               {[
                 ['1', <>Cover one eye. Keep the other eye on the <strong>white dot in the centre</strong>.</>],
-                ['2', <>A tiny <strong>number flashes in the centre</strong> at the same moment a faint dark spot may appear in a corner.</>],
-                ['3', <>First tap the <strong>number</strong> you saw in the centre. This proves your eye stayed on the centre.</>],
-                ['4', <>Then tap the <strong>corner where the spot appeared</strong>, or <strong>No spot</strong>. Some rounds have no spot on purpose.</>],
-                ['5', <>{THRESHOLD_TRIALS_PER_QUADRANT * 4 + FALSE_POSITIVE_CATCHES + FALSE_NEGATIVE_CATCHES} rounds per eye, about 2–3 minutes each. Sit about 50 cm from the screen.</>],
+                ['2', <>The centre dot briefly turns into a small <strong>number</strong>. At the same moment a faint dark spot may appear in a corner.</>],
+                ['3', <>Every round asks two questions, always in this order: first the <strong>number</strong> (this shows your eye stayed on the centre), then <strong>where the spot was</strong>.</>],
+                ['4', <>Many rounds have <strong>no visible spot</strong>: the test makes the spot fainter until it is hard to see, and some rounds have none on purpose. Then choose <strong>No spot</strong>.</>],
+                ['5', <>Two practice rounds come first. Then {THRESHOLD_TRIALS_PER_QUADRANT * 4 + FALSE_POSITIVE_CATCHES + FALSE_NEGATIVE_CATCHES} rounds per eye, about 2–3 minutes each. Sit about 50 cm from the screen.</>],
               ].map(([n, text]) => (
                 <div key={n} className="flex gap-3">
                   <span className="flex-shrink-0 w-7 h-7 bg-accent-50 text-accent-700 rounded-full flex items-center justify-center font-bold text-xs">{n}</span>
@@ -356,10 +388,17 @@ const SideVisionTest = () => {
           <div className="test-panel overflow-hidden p-0">
             <div className="px-6 py-3 border-b border-gray-100 flex items-center justify-between text-xs text-gray-500">
               <span className="font-medium">Side Vision — {eyeName(currentEye)}</span>
-              <span>{trialIdx + 1} / {trials.length}</span>
+              <span>
+                {stimulus.kind === 'practice'
+                  ? `Practice ${trialIdx + 1} / ${practiceCount}`
+                  : `${trialIdx - practiceCount + 1} / ${trials.length - practiceCount}`}
+              </span>
             </div>
             <div className="h-1.5 bg-gray-100">
-              <div className="h-1.5 bg-accent-500 transition-all duration-300" style={{ width: `${(trialIdx / trials.length) * 100}%` }} />
+              <div
+                className="h-1.5 bg-accent-500 transition-all duration-300"
+                style={{ width: `${(Math.max(0, trialIdx - practiceCount) / (trials.length - practiceCount)) * 100}%` }}
+              />
             </div>
 
             <div className="relative select-none" style={{ backgroundColor: `rgb(${BACKGROUND},${BACKGROUND},${BACKGROUND})`, height: '480px' }}>
@@ -388,6 +427,7 @@ const SideVisionTest = () => {
 
               {step === 'center' && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/20">
+                  <p className="text-white/80 text-xs font-semibold uppercase tracking-wide">Step 1 of 2</p>
                   <p className="text-white font-semibold text-sm">Which number flashed in the centre?</p>
                   <div className="flex gap-2">
                     {CENTER_DIGITS.map((d) => (
@@ -413,8 +453,12 @@ const SideVisionTest = () => {
 
               {step === 'location' && (
                 <>
-                  <p className="absolute top-3 inset-x-0 text-center text-white font-semibold text-sm pointer-events-none">
-                    Where was the dark spot?
+                  <div className="absolute top-3 inset-x-0 text-center text-white pointer-events-none">
+                    <p className="text-white/80 text-xs font-semibold uppercase tracking-wide">Step 2 of 2</p>
+                    <p className="font-semibold text-sm">Did a dark spot appear in a corner? Where?</p>
+                  </div>
+                  <p className="absolute left-1/2 top-1/2 translate-y-10 -translate-x-1/2 w-56 text-center text-xs text-white/85 pointer-events-none">
+                    Often there is no spot, or it is too faint to see. That is expected.
                   </p>
                   {QUADRANTS.map((q) => (
                     <button
@@ -435,6 +479,22 @@ const SideVisionTest = () => {
                     No spot
                   </button>
                 </>
+              )}
+
+              {step === 'feedback' && practiceFeedback && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                  <div className="bg-white rounded-2xl px-6 py-5 max-w-sm text-center text-sm text-gray-800 space-y-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-accent-700">Practice round</p>
+                    <p>
+                      <strong>{practiceFeedback.numberCorrect ? 'Number: correct.' : 'Number: missed.'}</strong>{' '}
+                      It was {practiceFeedback.digit}.
+                    </p>
+                    <p>
+                      <strong>{practiceFeedback.spotCorrect ? 'Spot: correct.' : 'Spot: not quite.'}</strong>{' '}
+                      {practiceFeedback.spotText}
+                    </p>
+                  </div>
+                </div>
               )}
             </div>
 

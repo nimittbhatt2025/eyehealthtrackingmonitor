@@ -1,12 +1,17 @@
 """
-Cataract opacity screening from anterior eye photos.
+Cataract screening from front-facing eye photos.
 
-Estimates lens opacity grade from pupil-centered eye crops using MediaPipe
-landmarks + computer-vision heuristics. When local ResNet-18 weights are present
-(cataract_detection_resnet18.pth), P(cataract) maps to opacity 0–100 and drives
-the grade; otherwise CV heuristics are used.
+Each eye crop goes through the calibrated ResNet-18 screener
+(cataract_resnet.screen_cataract), which returns either a calibrated
+likelihood with a low / indeterminate / elevated band, or "cannot assess"
+when the crop is out of the training distribution.
 
-Screening only — not a clinical LOCS III diagnosis or mm size measurement.
+No 0–100 opacity score or opacity grade is produced: a binary classifier's
+probability is not a severity measurement, and graded training labels are not
+available yet (see train_cataract_corn.py). Pupil-region image measurements
+are kept as descriptive metadata only.
+
+Screening only — not LOCS III grading and not a millimetre size measurement.
 """
 
 from __future__ import annotations
@@ -24,42 +29,16 @@ from app.ai_models.dry_eye_analysis import (
     decode_base64_image,
 )
 from app.ai_models.eye_analysis import get_face_landmarker
-from app.ai_models.eye_crop_alignment import (
-    build_aligned_crops,
-    encode_crop_data_url,
-    eye_asymmetry_metrics,
-)
+from app.ai_models.eye_crop_alignment import build_aligned_crops, encode_crop_data_url
 from app.ai_models.eyewear_detection import detect_eyewear
 
-# Grade thresholds on opacity_score 0–100 (higher = more opaque)
-GRADE_THRESHOLDS = (
-    (20, 'clear', 0),
-    (40, 'mild', 1),
-    (65, 'moderate', 2),
-    (100, 'dense', 3),
+BAND_ORDER = {'low': 0, 'indeterminate': 1, 'elevated': 2}
+
+KNOWN_LIMITATION = (
+    'Known limitation: in the training data, cataract and normal photos came from different sources, '
+    'and the model can partly tell them apart from background and framing alone. '
+    'Treat any result as a prompt for an eye exam, never as reassurance.'
 )
-
-GRADE_LABELS = {
-    'clear': 'Clear / minimal opacity',
-    'mild': 'Mild opacity signs',
-    'moderate': 'Moderate opacity signs',
-    'dense': 'Dense opacity signs',
-}
-
-
-def _score_to_grade(opacity_score: float) -> Dict[str, Any]:
-    for upper, name, level in GRADE_THRESHOLDS:
-        if opacity_score <= upper:
-            return {
-                'opacity_grade': name,
-                'grade_level': level,
-                'grade_label': GRADE_LABELS[name],
-            }
-    return {
-        'opacity_grade': 'dense',
-        'grade_level': 3,
-        'grade_label': GRADE_LABELS['dense'],
-    }
 
 
 def _pupil_roi(eye_bgr: np.ndarray) -> Optional[np.ndarray]:
@@ -122,142 +101,73 @@ def build_pupil_crops(left_bgr: np.ndarray, right_bgr: np.ndarray) -> Dict[str, 
     }
 
 
-def estimate_pupil_opacity(eye_bgr: np.ndarray) -> Dict[str, float]:
+def pupil_image_metrics(eye_bgr: np.ndarray) -> Dict[str, Optional[float]]:
     """
-    Heuristic opacity score 0–100 from an eye patch.
+    Descriptive pupil-region measurements (not a score).
 
-    Uses:
-    - Brightness of central pupil zone (whiteness / milkiness)
-    - Texture uniformity (dense cataracts look flatter)
-    - Blue-yellow cast and loss of dark pupil contrast
+    Useful for checking capture consistency between visits; none of these is
+    validated as a cataract measure on webcam images.
     """
     roi = _pupil_roi(eye_bgr)
     if roi is None or roi.size == 0:
-        return {
-            'opacity_score': 50.0,
-            'mean_brightness': 0.0,
-            'texture_energy': 0.0,
-            'dark_pupil_ratio': 0.0,
-        }
-
+        return {'mean_brightness': None, 'texture_energy': None, 'dark_pupil_ratio': None, 'red_minus_blue': None}
     gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
     gray_f = gray.astype(np.float32)
-    mean_brightness = float(np.mean(gray_f))
-    std = float(np.std(gray_f))
-    lap_var = float(cv2.Laplacian(gray, cv2.CV_64F).var())
-
-    # Dark pupil ratio — healthy undilated pupils are relatively dark
-    dark_pupil_ratio = float(np.mean(gray_f < 70))
-
-    # Whiteness / opacity proxy
-    brightness_term = float(np.clip((mean_brightness - 45) / 120.0 * 100, 0, 100))
-    # Low texture + brighter center suggests denser media opacity
-    texture_energy = float(np.clip(lap_var / 80.0, 0, 1))
-    flatness_term = float(np.clip((1.0 - texture_energy) * 55 + max(0, 25 - std) * 1.2, 0, 70))
-    # Missing dark pupil pushes score up; strong dark pupil pulls it down
-    missing_dark = float(np.clip((0.35 - dark_pupil_ratio) / 0.35 * 40, 0, 40))
-    dark_credit = float(np.clip(dark_pupil_ratio * 28, 0, 28))
-
-    # Mild yellowing (nuclear cataract proxy) via BGR: higher R vs B
-    b, g, r = cv2.split(roi)
-    yellow_cast = float(np.clip(np.mean(r.astype(np.float32) - b.astype(np.float32)) / 40.0 * 20, 0, 25))
-
-    opacity = (
-        0.40 * brightness_term
-        + 0.30 * flatness_term
-        + 0.20 * missing_dark
-        + 0.10 * yellow_cast
-        - dark_credit
-    )
-    opacity = float(np.clip(opacity, 0, 100))
-
+    b, _, r = cv2.split(roi)
     return {
-        'opacity_score': round(opacity, 1),
-        'mean_brightness': round(mean_brightness, 1),
-        'texture_energy': round(texture_energy, 3),
-        'dark_pupil_ratio': round(dark_pupil_ratio, 3),
-        'yellow_cast': round(yellow_cast, 1),
+        'mean_brightness': round(float(np.mean(gray_f)), 1),
+        'texture_energy': round(float(np.clip(cv2.Laplacian(gray, cv2.CV_64F).var() / 80.0, 0, 1)), 3),
+        'dark_pupil_ratio': round(float(np.mean(gray_f < 70)), 3),
+        'red_minus_blue': round(float(np.mean(r.astype(np.float32) - b.astype(np.float32))), 1),
     }
 
 
-def try_resnet_cataract_score(eye_bgr: np.ndarray) -> Optional[Dict[str, Any]]:
-    """
-    Optional ResNet-18 cataract classifier (binary → opacity 0–100).
-
-    Prefers the pupil/lens ROI; falls back to the full eye crop.
-    Offline-safe: returns None unless repo weights, CATARACT_MODEL_PATH, or HF are available.
-    """
+def _screen(eye_bgr: np.ndarray) -> Dict[str, Any]:
     try:
-        from app.ai_models.cataract_resnet import predict_cataract_opacity
-    except Exception:
-        return None
-
-    roi = _pupil_roi(eye_bgr)
-    for crop, crop_source in ((roi, 'pupil_roi'), (eye_bgr, 'eye_crop')):
-        if crop is None or crop.size == 0:
-            continue
-        try:
-            result = predict_cataract_opacity(crop)
-        except Exception:
-            result = None
-        if result and result.get('opacity_score') is not None:
-            return {**result, 'crop_source': crop_source}
-    return None
-
-
-def _aggregate_method(left: Dict[str, Any], right: Dict[str, Any]) -> str:
-    methods = {left.get('method'), right.get('method')}
-    if 'resnet_v1' in methods:
-        return 'resnet_v1'
-    return 'cv_heuristic_v1'
+        from app.ai_models.cataract_resnet import screen_cataract
+    except Exception as exc:  # noqa: BLE001
+        return {'status': 'model_unavailable', 'reason': f'import_failed: {exc.__class__.__name__}'}
+    try:
+        return screen_cataract(eye_bgr)
+    except Exception as exc:  # noqa: BLE001
+        return {'status': 'cannot_assess', 'reason': f'inference_error: {exc.__class__.__name__}'}
 
 
 def _resnet_model_status() -> Dict[str, Any]:
     try:
-        from app.ai_models.cataract_resnet import model_status as resnet_status
-        status = resnet_status()
-        if status.get('available'):
-            return {
-                'available': True,
-                'active': 'resnet_v1',
-                'weights_path': status.get('weights_path'),
-                'labels': status.get('labels'),
-                'enabled_via': status.get('enabled_via') or 'default_weights',
-            }
-        return {
-            'available': False,
-            'active': 'cv_heuristic_v1',
-            'enabled_via': None,
-        }
-    except Exception:
-        return {'available': False, 'active': 'cv_heuristic_v1', 'enabled_via': None}
+        from app.ai_models.cataract_resnet import model_status
+        return model_status()
+    except Exception:  # noqa: BLE001
+        return {'available': False, 'calibrated': False, 'reason': 'import_failed', 'method': None}
 
 
 def _analyze_eye(eye_bgr: np.ndarray) -> Dict[str, Any]:
-    cv_metrics = estimate_pupil_opacity(eye_bgr)
-    dl = try_resnet_cataract_score(eye_bgr)
-
-    if dl and dl.get('opacity_score') is not None:
-        opacity = float(dl['opacity_score'])
-        method = 'resnet_v1'
-    else:
-        opacity = float(cv_metrics['opacity_score'])
-        method = 'cv_heuristic_v1'
-
-    grade = _score_to_grade(opacity)
-    # health_score: higher = clearer lens (compatible with EyePhoto health_score)
-    health = round(float(np.clip(100.0 - opacity, 0, 100)), 1)
-
     return {
-        'health_score': health,
-        'opacity_score': round(opacity, 1),
-        'opacity_grade': grade['opacity_grade'],
-        'grade_level': grade['grade_level'],
-        'grade_label': grade['grade_label'],
-        'method': method,
-        'cv_metrics': cv_metrics,
-        'dl_metrics': dl,
+        'screening': _screen(eye_bgr),
+        'image_metrics': pupil_image_metrics(eye_bgr),
     }
+
+
+def combine_eyes(left: Dict[str, Any], right: Dict[str, Any]) -> Dict[str, Any]:
+    """Person-level screening = the eye with the higher calibrated likelihood."""
+    per_eye = {'left': left.get('screening') or {}, 'right': right.get('screening') or {}}
+    assessed = {k: v for k, v in per_eye.items() if v.get('status') == 'assessed'}
+    if assessed:
+        side, s = max(assessed.items(), key=lambda kv: kv[1]['likelihood'])
+        return {
+            'status': 'assessed',
+            'coverage': 'both_eyes' if len(assessed) == 2 else 'one_eye',
+            'driving_eye': side,
+            'likelihood': s['likelihood'],
+            'band': s['band'],
+            'band_level': BAND_ORDER[s['band']],
+            'thresholds': s.get('thresholds'),
+            'method': s.get('method'),
+        }
+    statuses = {v.get('status') for v in per_eye.values()}
+    status = 'model_unavailable' if 'model_unavailable' in statuses else 'cannot_assess'
+    reasons = sorted({v.get('reason') for v in per_eye.values() if v.get('reason')})
+    return {'status': status, 'coverage': 'none', 'reasons': reasons, 'likelihood': None, 'band': None, 'band_level': None}
 
 
 def _crop_eyes(frame: np.ndarray) -> Dict[str, Any]:
@@ -290,8 +200,26 @@ def _crop_eyes(frame: np.ndarray) -> Dict[str, Any]:
     return {'crops': crops, 'landmarks': landmarks, 'face_detected': True}
 
 
+RISK_BY_BAND = {
+    'elevated': (
+        'elevated',
+        'The model found features similar to the cataract photos it was trained on. '
+        'This is a screening flag, not a diagnosis — please book an eye exam.',
+    ),
+    'indeterminate': (
+        'uncertain',
+        'Inconclusive. Retake in even front lighting; if it stays inconclusive, mention it at your next eye exam.',
+    ),
+    'low': (
+        'low',
+        'No cataract-like pattern was detected in this photo. This does not rule out cataract — '
+        'early cataracts are often not visible on a webcam.',
+    ),
+}
+
+
 def analyze_cataract_frame(frame: np.ndarray) -> Dict[str, Any]:
-    """Full cataract opacity analysis on a BGR frame (ResNet when weights present)."""
+    """Cataract screening on a BGR frame: calibrated likelihood per eye or cannot-assess."""
     if frame is None or frame.size == 0:
         return {'error': 'Invalid image'}
 
@@ -299,105 +227,16 @@ def analyze_cataract_frame(frame: np.ndarray) -> Dict[str, Any]:
     if crop_result.get('error'):
         return crop_result
 
-    lighting = assess_anatomical_lighting(frame, crop_result.get('landmarks'))
-    eyewear = detect_eyewear(frame, crop_result.get('landmarks'))
     crops = crop_result['crops']
-    left = _analyze_eye(crops['left'])
-    right = _analyze_eye(crops['right'])
-    aligned = build_aligned_crops(crops['left'], crops['right'])
-    pupil_crops = build_pupil_crops(crops['left'], crops['right'])
-    asymmetry = eye_asymmetry_metrics(
-        {
-            'health_score': left['health_score'],
-            'sclera_redness': left['opacity_score'] * 0.35,
-            'surface_irregularity': left['opacity_score'] * 0.55,
-            'tear_film_quality': left['health_score'],
-        },
-        {
-            'health_score': right['health_score'],
-            'sclera_redness': right['opacity_score'] * 0.35,
-            'surface_irregularity': right['opacity_score'] * 0.55,
-            'tear_film_quality': right['health_score'],
-        },
+    result = assemble_cataract_result(
+        _analyze_eye(crops['left']),
+        _analyze_eye(crops['right']),
+        lighting=assess_anatomical_lighting(frame, crop_result.get('landmarks')),
+        eyewear=detect_eyewear(frame, crop_result.get('landmarks')),
+        aligned_crops=build_aligned_crops(crops['left'], crops['right']),
+        pupil_crops=build_pupil_crops(crops['left'], crops['right']),
+        model_status=_resnet_model_status(),
     )
-
-    avg_opacity = round((left['opacity_score'] + right['opacity_score']) / 2, 1)
-    avg_health = round((left['health_score'] + right['health_score']) / 2, 1)
-    grade = _score_to_grade(avg_opacity)
-    method = _aggregate_method(left, right)
-    model_status = _resnet_model_status()
-
-    findings: List[str] = []
-    if avg_opacity <= 20:
-        findings.append('Pupil region looks relatively clear in this photo')
-    elif avg_opacity <= 40:
-        findings.append('Mild cloudiness / reduced dark-pupil contrast may be present')
-    elif avg_opacity <= 65:
-        findings.append('Moderate opacity signs in the pupil region')
-    else:
-        findings.append('Dense opacity signs — please schedule a clinical eye exam')
-
-    if abs(left['opacity_score'] - right['opacity_score']) >= 15:
-        findings.append('Noticeable left/right opacity difference')
-
-    if method == 'resnet_v1':
-        findings.append(
-            'Opacity grade uses a ResNet-18 cataract classifier on pupil-region crops '
-            '(screening only — not LOCS III, not a millimeter size measurement).'
-        )
-    else:
-        findings.append(
-            'Opacity grade uses computer-vision heuristics on the pupil region '
-            '(ResNet weights unavailable — not LOCS III, not a millimeter size measurement).'
-        )
-
-    left_p = (left.get('dl_metrics') or {}).get('cataract_probability')
-    right_p = (right.get('dl_metrics') or {}).get('cataract_probability')
-    probs = [p for p in (left_p, right_p) if p is not None]
-    avg_prob = round(sum(probs) / len(probs), 4) if probs else None
-
-    result = {
-        'score': avg_health,  # EyePhoto.health_score (higher = clearer)
-        'opacity_score': avg_opacity,
-        'opacity_grade': grade['opacity_grade'],
-        'grade_level': grade['grade_level'],
-        'grade_label': grade['grade_label'],
-        'risk_level': 'low' if grade['grade_level'] <= 1 else ('moderate' if grade['grade_level'] == 2 else 'elevated'),
-        'risk_message': (
-            'Lens region looks relatively clear in this screening photo.'
-            if grade['grade_level'] <= 1
-            else 'Opacity signs look stronger than last ideal. Share results with your eye doctor.'
-            if grade['grade_level'] == 2
-            else 'Dense opacity signs detected in this photo. Please book a dilated eye exam soon.'
-        ),
-        'findings': findings,
-        'left_eye': left,
-        'right_eye': right,
-        'eye_asymmetry': asymmetry,
-        'lighting': lighting,
-        'eyewear': eyewear,
-        'aligned_crops': aligned,
-        'pupil_crops': pupil_crops,
-        'metrics': {
-            'avg_opacity_score': avg_opacity,
-            'avg_clarity_score': avg_health,
-            'grade_level': grade['grade_level'],
-            'avg_cataract_probability': avg_prob,
-            # Map into EyePhoto columns for trend compatibility
-            'avg_sclera_redness': round(avg_opacity * 0.35, 1),
-            'avg_tear_film_quality': avg_health,
-            'avg_surface_irregularity': round(avg_opacity * 0.55, 1),
-        },
-        'analysis_type': 'cataract_opacity',
-        'method': method,
-        'model_status': model_status,
-        'cataract_probability': avg_prob,
-        'disclaimer': (
-            'Screening only — not a medical diagnosis. Cataract size cannot be measured in millimeters '
-            'from a phone selfie. This tool estimates an opacity grade for month-over-month trends. '
-            'A dilated slit-lamp exam remains the clinical standard (LOCS III).'
-        ),
-    }
     try:
         from app.ai_models.pathology_classifier import attach_pathology_triage
         attach_pathology_triage(
@@ -407,6 +246,86 @@ def analyze_cataract_frame(frame: np.ndarray) -> Dict[str, Any]:
         )
     except Exception:
         result['pathology_triage'] = {'available': False, 'reason': 'attach_error'}
+    return result
+
+
+def assemble_cataract_result(
+    left: Dict[str, Any],
+    right: Dict[str, Any],
+    *,
+    lighting: Dict[str, Any],
+    eyewear: Dict[str, Any],
+    aligned_crops: Optional[Dict[str, Any]],
+    pupil_crops: Optional[Dict[str, Any]],
+    model_status: Dict[str, Any],
+    photo_saved: bool = True,
+) -> Dict[str, Any]:
+    """Person-level screening, findings and risk text — shared by server and on-device analysis."""
+    screening = combine_eyes(left, right)
+    aligned = aligned_crops
+    photo_note = (
+        'The photo is still saved for side-by-side comparison.'
+        if photo_saved
+        else 'Your photo stayed on this device; only the screening result was saved.'
+    )
+
+    ls, rs = left['screening'], right['screening']
+    asymmetry = None
+    if ls.get('status') == 'assessed' and rs.get('status') == 'assessed':
+        asymmetry = {'likelihood_difference': round(abs(ls['likelihood'] - rs['likelihood']), 4)}
+
+    findings: List[str] = []
+    if screening['status'] == 'assessed':
+        risk_level, risk_message = RISK_BY_BAND[screening['band']]
+        findings.append(
+            f"Calibrated likelihood {screening['likelihood']:.0%} ({screening['band']}) — "
+            f"{screening['driving_eye']} eye"
+            + (' (other eye could not be assessed)' if screening['coverage'] == 'one_eye' else '')
+        )
+        if asymmetry and asymmetry['likelihood_difference'] >= 0.3:
+            findings.append('Left and right eyes gave noticeably different results')
+    elif screening['status'] == 'cannot_assess':
+        risk_level = 'unknown'
+        risk_message = (
+            'Cannot assess: this photo does not look like the images the model was trained on '
+            '(lighting, focus, framing or camera). No result is shown rather than a guess. '
+            + photo_note
+        )
+        findings.append('Model abstained on both eyes (out of distribution)')
+    else:
+        risk_level = 'unknown'
+        risk_message = 'Cataract screening model is unavailable. ' + photo_note
+        findings.append('Screening model unavailable')
+    findings.append(KNOWN_LIMITATION)
+
+    result = {
+        'score': None,
+        'screening': screening,
+        'risk_level': risk_level,
+        'risk_message': risk_message,
+        'findings': findings,
+        'left_eye': left,
+        'right_eye': right,
+        'eye_asymmetry': asymmetry,
+        'lighting': lighting,
+        'eyewear': eyewear,
+        'aligned_crops': aligned,
+        'pupil_crops': pupil_crops,
+        'metrics': {
+            'screening_status': screening['status'],
+            'cataract_likelihood': screening['likelihood'],
+            'screening_band': screening['band'],
+        },
+        'analysis_type': 'cataract_screening',
+        'method': screening.get('method') or model_status.get('method'),
+        'model_status': model_status,
+        'disclaimer': (
+            'Screening only — not a medical diagnosis and not a severity grade. The likelihood says how much '
+            'this photo resembles the cataract photos in the training set; it does not measure how dense a '
+            'cataract is. Cataract size cannot be measured from a selfie. A dilated slit-lamp exam remains '
+            'the clinical standard (LOCS III).'
+        ),
+    }
     return result
 
 

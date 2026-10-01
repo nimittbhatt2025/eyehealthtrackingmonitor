@@ -1,140 +1,63 @@
 """
-Time-series prediction models for vision drift prediction
+Time-series helpers for vision drift and lens replacement.
 
-This module contains models for:
-1. Vision score prediction using multiple time-series methods
-2. Prescription change prediction
-3. Lens effectiveness prediction
-4. Health score calculation
+Vision drift uses a robust Theil–Sen line with a prediction interval, a minimum
+number of sessions, and a forecast horizon capped at half the observed span
+(see app.utils.trend_forecast). Polynomial / exponential extrapolation, the
+prescription-change estimate and the weighted "health score" composite were
+removed: extrapolating curves from a handful of noisy points produced confident
+but unfounded predictions.
 """
 
-import numpy as np
-import pandas as pd
-from typing import List, Dict, Any, Tuple, Optional
 from datetime import datetime, timedelta
+from typing import Any, Dict, List, Tuple
+
+import numpy as np
+
+from app.utils.change_detection import DEFAULT_METRIC, MetricSpec
+from app.utils.trend_forecast import forecast_series
 
 
 def predict_vision_drift_advanced(
     test_dates: List[datetime],
     test_scores: List[float],
     days_ahead: int = 30,
-    method: str = 'auto'
+    method: str = 'theil_sen',
+    spec: MetricSpec = DEFAULT_METRIC,
 ) -> Dict[str, Any]:
     """
-    Advanced vision drift prediction using multiple methods
-    
-    Args:
-        test_dates: List of test dates
-        test_scores: List of corresponding vision scores
-        days_ahead: Number of days to predict ahead
-        method: Prediction method ('linear', 'polynomial', 'exponential', 'auto')
-        
-    Returns:
-        Dictionary with predictions
+    Robust drift estimate for one test series in a single unit.
+
+    `days_ahead` is honoured only up to the capped horizon; the response always
+    carries a prediction interval rather than a single number.
     """
-    if len(test_dates) < 3:
-        return {'error': 'Need at least 3 data points for prediction'}
-    
-    try:
-        # Convert to pandas for easier manipulation
-        df = pd.DataFrame({
-            'date': pd.to_datetime(test_dates),
-            'score': test_scores
-        }).sort_values('date')
-        
-        # Calculate days since first test
-        df['days'] = (df['date'] - df['date'].iloc[0]).dt.days
-        
-        X = df['days'].values
-        y = df['score'].values
-        
-        # Choose prediction method
-        predictions = {}
-        
-        # Linear regression
-        linear_coeffs = np.polyfit(X, y, deg=1)
-        future_day = X[-1] + days_ahead
-        linear_pred = np.polyval(linear_coeffs, future_day)
-        predictions['linear'] = linear_pred
-        
-        # Polynomial regression (degree 2)
-        if len(X) >= 4:
-            poly_coeffs = np.polyfit(X, y, deg=2)
-            poly_pred = np.polyval(poly_coeffs, future_day)
-            predictions['polynomial'] = poly_pred
-        
-        # Exponential smoothing
-        if len(y) >= 5:
-            try:
-                from statsmodels.tsa.holtwinters import SimpleExpSmoothing
-                model = SimpleExpSmoothing(y)
-                fitted = model.fit()
-                exp_pred = fitted.forecast(1)[0]
-                predictions['exponential'] = exp_pred
-            except ImportError:
-                pass
-        
-        # Auto: use average of available methods
-        if method == 'auto':
-            predicted_score = np.mean(list(predictions.values()))
-            method_used = 'ensemble'
-        else:
-            predicted_score = predictions.get(method, linear_pred)
-            method_used = method
-        
-        # Calculate confidence metrics
-        linear_preds = np.polyval(linear_coeffs, X)
-        ss_res = np.sum((y - linear_preds) ** 2)
-        ss_tot = np.sum((y - np.mean(y)) ** 2)
-        r_squared = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0
-        
-        # Calculate standard error
-        mse = ss_res / len(y)
-        std_error = np.sqrt(mse)
-        
-        # Predict confidence interval
-        confidence_interval = {
-            'lower': predicted_score - (1.96 * std_error),
-            'upper': predicted_score + (1.96 * std_error)
-        }
-        
-        # Trend analysis
-        slope = linear_coeffs[0]
-        if slope < -0.05:
-            trend = 'declining'
-            severity = 'significant' if slope < -0.1 else 'moderate'
-        elif slope > 0.05:
-            trend = 'improving'
-            severity = 'significant' if slope > 0.1 else 'moderate'
-        else:
-            trend = 'stable'
-            severity = 'minimal'
-        
-        # Anomaly detection
-        deviations = np.abs(y - linear_preds)
-        anomalies = deviations > (2 * np.std(deviations))
-        
-        return {
-            'predicted_score': float(predicted_score),
-            'current_score': float(y[-1]),
-            'score_change': float(predicted_score - y[-1]),
-            'confidence_interval': {
-                'lower': float(confidence_interval['lower']),
-                'upper': float(confidence_interval['upper'])
-            },
-            'trend': trend,
-            'severity': severity,
-            'slope': float(slope),
-            'r_squared': float(r_squared),
-            'std_error': float(std_error),
-            'method_used': method_used,
-            'days_predicted': days_ahead,
-            'anomalies_detected': int(np.sum(anomalies)),
-            'data_quality': 'good' if r_squared > 0.7 else 'fair' if r_squared > 0.4 else 'poor'
-        }
-        
-    except Exception as e:
-        return {'error': str(e)}
+    if not test_dates or len(test_dates) != len(test_scores):
+        return {'error': 'test_dates and test_scores must be the same non-zero length'}
+    order = sorted(range(len(test_dates)), key=lambda i: test_dates[i])
+    t0 = test_dates[order[0]]
+    days = [(test_dates[i] - t0).total_seconds() / 86400.0 for i in order]
+    values = [float(test_scores[i]) for i in order]
+
+    fc = forecast_series(days, values, spec)
+    if fc['status'] != 'ok':
+        return {'error': 'insufficient_data', **fc}
+
+    horizon = min(int(days_ahead), fc['horizon_days'])
+    point = min(fc['forecast'], key=lambda p: abs(p['days_ahead'] - horizon))
+    return {
+        'method_used': 'theil_sen',
+        'current_score': values[-1],
+        'days_predicted': point['days_ahead'],
+        'requested_days': days_ahead,
+        'horizon_cap_days': fc['horizon_days'],
+        'predicted_score': point['fit'],
+        'prediction_interval_95': {'lower': point['lower'], 'upper': point['upper']},
+        'slope_per_30d': fc['slope_per_30d'],
+        'slope_per_30d_ci95': fc['slope_per_30d_ci95'],
+        'trend': fc['verdict'],
+        'n_sessions': fc['n_sessions'],
+        'span_days': fc['span_days'],
+    }
 
 
 def predict_vision_drift(
@@ -142,64 +65,7 @@ def predict_vision_drift(
     test_scores: List[float],
     days_ahead: int = 30
 ) -> Dict[str, Any]:
-    """
-    Simple vision drift prediction (backward compatible)
-    
-    Args:
-        test_dates: List of test dates
-        test_scores: List of corresponding vision scores
-        days_ahead: Number of days to predict ahead
-        
-    Returns:
-        Dictionary with predictions
-    """
-    # Use advanced method under the hood
-    return predict_vision_drift_advanced(test_dates, test_scores, days_ahead, method='auto')
-
-
-def predict_prescription_change(
-    current_prescription: Dict[str, float],
-    vision_trend: Dict[str, Any]
-) -> Dict[str, Any]:
-    """
-    Predict if prescription change is needed based on vision trend
-    
-    Args:
-        current_prescription: Current prescription values (sph, cyl, axis for each eye)
-        vision_trend: Vision trend data
-        
-    Returns:
-        Dictionary with prescription change predictions
-    """
-    if vision_trend.get('error'):
-        return vision_trend
-    
-    change_needed = False
-    recommended_change = {}
-    
-    # If vision is declining significantly, suggest prescription change
-    if vision_trend.get('trend') == 'declining':
-        score_change = abs(vision_trend.get('score_change', 0))
-        
-        if score_change > 5:  # 5% decline
-            change_needed = True
-            
-            # Estimate prescription change (simplified)
-            # In reality, this would use more sophisticated models
-            change_magnitude = score_change / 20  # Rough estimate: 0.25D per 5% decline
-            
-            recommended_change = {
-                'od_sph': current_prescription.get('od_sph', 0) + change_magnitude,
-                'os_sph': current_prescription.get('os_sph', 0) + change_magnitude,
-                'change_magnitude': change_magnitude
-            }
-    
-    return {
-        'change_needed': change_needed,
-        'recommended_change': recommended_change,
-        'confidence': vision_trend.get('confidence', 0),
-        'reason': 'Vision score declining' if change_needed else 'Vision stable'
-    }
+    return predict_vision_drift_advanced(test_dates, test_scores, days_ahead)
 
 
 def predict_lens_replacement_date(
@@ -263,78 +129,3 @@ def predict_lens_replacement_date(
         
     except Exception as e:
         return {'error': str(e)}
-
-
-def generate_health_score(
-    vision_score: float,
-    fatigue_score: float,
-    lens_effectiveness: float,
-    lifestyle_factors: Dict[str, float]
-) -> Dict[str, Any]:
-    """
-    Generate an overall eye health score
-    
-    Args:
-        vision_score: Current vision score (0-100)
-        fatigue_score: Current fatigue score (0-100, higher is worse)
-        lens_effectiveness: Lens effectiveness (0-100)
-        lifestyle_factors: Dict with screen_time, sleep, etc.
-        
-    Returns:
-        Dictionary with overall health score and breakdown
-    """
-    # Weight factors
-    weights = {
-        'vision': 0.35,
-        'fatigue': 0.25,
-        'lens': 0.20,
-        'lifestyle': 0.20
-    }
-    
-    # Calculate component scores
-    vision_component = vision_score * weights['vision']
-    fatigue_component = (100 - fatigue_score) * weights['fatigue']  # Invert fatigue
-    lens_component = lens_effectiveness * weights['lens']
-    
-    # Lifestyle score
-    lifestyle_score = 100
-    if lifestyle_factors.get('screen_time', 0) > 8:
-        lifestyle_score -= 20
-    if lifestyle_factors.get('sleep_hours', 8) < 7:
-        lifestyle_score -= 20
-    if lifestyle_factors.get('breaks_taken', 5) < 3:
-        lifestyle_score -= 15
-    
-    lifestyle_component = lifestyle_score * weights['lifestyle']
-    
-    # Total score
-    total_score = vision_component + fatigue_component + lens_component + lifestyle_component
-    
-    # Determine grade
-    if total_score >= 90:
-        grade = 'Excellent'
-    elif total_score >= 80:
-        grade = 'Good'
-    elif total_score >= 70:
-        grade = 'Fair'
-    elif total_score >= 60:
-        grade = 'Poor'
-    else:
-        grade = 'Critical'
-    
-    return {
-        'total_score': round(total_score, 1),
-        'grade': grade,
-        'breakdown': {
-            'vision': round(vision_component, 1),
-            'fatigue': round(fatigue_component, 1),
-            'lens': round(lens_component, 1),
-            'lifestyle': round(lifestyle_component, 1)
-        },
-        'components': {
-            'vision_score': vision_score,
-            'fatigue_score': fatigue_score,
-            'lens_effectiveness': lens_effectiveness,
-            'lifestyle_score': lifestyle_score
-        }
-    }

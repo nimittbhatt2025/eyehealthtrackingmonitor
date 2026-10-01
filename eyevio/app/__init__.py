@@ -51,6 +51,7 @@ def create_app(config_name='development'):
     from app.routes.myopia import myopia_bp
     from app.routes.wellbeing import wellbeing_bp
     from app.routes.family import family_bp
+    from app.routes.jobs import jobs_bp
     
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(vision_test_bp, url_prefix='/api/vision-test')
@@ -66,23 +67,27 @@ def create_app(config_name='development'):
     app.register_blueprint(myopia_bp, url_prefix='/api/myopia')
     app.register_blueprint(wellbeing_bp, url_prefix='/api/wellbeing')
     app.register_blueprint(family_bp, url_prefix='/api/family')
+    app.register_blueprint(jobs_bp, url_prefix='/api/jobs')
+
+    from app.services import trend_aggregates
+    trend_aggregates.register_cli(app)
     
-    # Health check endpoint
+    from app.ai_models.warmup import start_background_warmup, warmup_state
+
     @app.route('/health')
     def health_check():
-        return {'status': 'healthy', 'message': 'EyeVio API is running'}, 200
-    
-    # Request logging for debugging
+        return {'status': 'healthy', 'message': 'EyeVio API is running', 'models': warmup_state()}, 200
+
+    # Never log headers (bearer tokens) or bodies (base64 photos can be megabytes).
     @app.before_request
     def log_request_info():
         from flask import request
         if request.path.startswith('/api/'):
-            print(f"\n=== Incoming Request ===")
-            print(f"Path: {request.path}")
-            print(f"Method: {request.method}")
-            print(f"Headers: {dict(request.headers)}")
-            if request.method in ['POST', 'PUT', 'PATCH']:
-                print(f"Body: {request.get_json(silent=True)}")
-            print("========================\n")
-    
+            app.logger.info('%s %s (%s bytes)', request.method, request.path, request.content_length or 0)
+
+    # Skip under the flask CLI (db upgrade, aggregate-trends, …): only servers need warm models.
+    import click
+    if app.config.get('WARM_MODELS') and click.get_current_context(silent=True) is None:
+        start_background_warmup()
+
     return app

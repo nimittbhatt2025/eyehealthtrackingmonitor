@@ -6,7 +6,17 @@ val.csv
 test.csv
 cataract_detection_resnet18.pth
 cataract_class_names.json
+cataract_detection_resnet18.v1.pth
+cataract_ood_stats.npz
+cataract_corn_resnet18.pth
+.mplcache/
 pathology_resnet18.pth
 pathology_class_names.json
 best_unfrozen_ordinal.pth
 sclera_redness_ordinal.pth
+# ONNX exports (regenerate with scripts/export_onnx.py); manifest.json stays tracked
+onnx_models/*.onnx
+eyevio-frontend/public/models/*.onnx
+# Parity fixtures built from dataset images stay local (synthetic ones are committed)
+eyevio-frontend/tests/fixtures/ondevice-local/
+eyevio-frontend/tests/golden/__diff__/

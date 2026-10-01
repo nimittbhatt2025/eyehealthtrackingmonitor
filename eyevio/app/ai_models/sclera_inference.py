@@ -1,5 +1,5 @@
 """
-Production sclera redness inference — bounded ordinal ResNet-18 + smart-crop ROI + TTA.
+Production sclera redness inference — bounded ordinal ResNet-18 + smart-crop ROI.
 
 Drop-in module for upload routes and standalone scoring. Dual-eye clinical analysis
 continues through dry_eye_analysis + ocular_ml_preprocess for webcam captures.
@@ -121,7 +121,7 @@ def predict_sclera_redness_production(image_bytes: bytes) -> Dict[str, Any]:
     """
     Main production entry point for API upload ingestion.
 
-    Accepts raw bytes (JPEG/PNG/WebP), smart-crops ROI, runs TTA, returns score + σ.
+    Accepts raw bytes (JPEG/PNG/WebP), smart-crops ROI, returns score (+ σ when SCLERA_TTA=1).
     """
     try:
         img = bytes_to_rgb_pil(image_bytes)
@@ -131,19 +131,14 @@ def predict_sclera_redness_production(image_bytes: bytes) -> Dict[str, Any]:
         if not bundle.get('available'):
             return {'status': 'error', 'message': bundle.get('error', 'Model unavailable')}
 
-        mean_score, std_score, pass_scores = _predict_pil(
-            bundle['model'],
-            bundle['device'],
-            processed,
-            use_tta=True,
-        )
+        mean_score, std_score, pass_scores = _predict_pil(bundle['model'], bundle['device'], processed)
         mean_score = float(np.clip(mean_score, 0.0, 4.0))
         discretized_grade = int(max(0, min(4, round(mean_score))))
 
         return {
             'status': 'success',
             'continuous_score': round(mean_score, 4),
-            'uncertainty_sigma': round(std_score, 4),
+            'uncertainty_sigma': round(std_score, 4) if std_score is not None else None,
             'grade': discretized_grade,
             'raw_pass_scores': pass_scores,
             'model_version': MODEL_VERSION,

@@ -7,7 +7,7 @@
  * Shared by the Eye Glow (red reflex) test and near-work pupil sampling.
  */
 
-import { FaceMesh } from '@mediapipe/face_mesh'
+import { createFaceMesh } from './mediapipeSolutions'
 
 // refineLandmarks adds iris points 468-477 (centre + 4 cardinal points per eye).
 // MediaPipe's groups are anatomical: 468-472 is the subject's right eye, 473-477 the left.
@@ -37,24 +37,23 @@ function getFaceMesh() {
   if (sharedFaceMesh) return Promise.resolve(sharedFaceMesh)
   if (meshInitPromise) return meshInitPromise
 
-  meshInitPromise = new Promise((resolve, reject) => {
-    const faceMesh = new FaceMesh({
-      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`,
-    })
-    faceMesh.setOptions({
-      maxNumFaces: 1,
-      refineLandmarks: true,
-      minDetectionConfidence: 0.5,
-      minTrackingConfidence: 0.5,
-    })
-    faceMesh
-      .initialize()
-      .then(() => {
-        sharedFaceMesh = faceMesh
-        resolve(faceMesh)
-      })
-      .catch(reject)
+  const faceMesh = createFaceMesh({
+    maxNumFaces: 1,
+    refineLandmarks: true,
+    minDetectionConfidence: 0.5,
+    minTrackingConfidence: 0.5,
   })
+  meshInitPromise = faceMesh.initialize().then(
+    () => {
+      sharedFaceMesh = faceMesh
+      return faceMesh
+    },
+    (err) => {
+      meshInitPromise = null
+      faceMesh.close().catch(() => {})
+      throw err
+    }
+  )
 
   return meshInitPromise
 }

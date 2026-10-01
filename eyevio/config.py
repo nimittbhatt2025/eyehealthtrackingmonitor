@@ -34,6 +34,10 @@ class Config:
     
     # AI Model Configuration
     MODEL_PATH = os.getenv('MODEL_PATH', './app/ai_models/trained_models/')
+    # Load models in a background thread at startup instead of on the first request.
+    WARM_MODELS = os.getenv('WARM_MODELS', 'true').lower() in ('1', 'true', 'yes')
+    # In-process analysis job pool (POST ...?async=1 returns 202 + job id).
+    ANALYSIS_WORKERS = int(os.getenv('ANALYSIS_WORKERS', 2))
     
     # Vision Test Configuration
     VISION_TEST_BASELINE_THRESHOLD = 0.8  # 80% accuracy for baseline
@@ -78,7 +82,8 @@ class ProductionConfig(Config):
 class TestingConfig(Config):
     """Testing configuration"""
     TESTING = True
-    SQLALCHEMY_DATABASE_URI = 'postgresql://localhost/eyevio_test_db'
+    WARM_MODELS = False
+    SQLALCHEMY_DATABASE_URI = os.getenv('TEST_DATABASE_URL', 'postgresql://localhost/eyevio_test_db')
 
 
 config = {

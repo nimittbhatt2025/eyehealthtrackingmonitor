@@ -310,6 +310,9 @@ export function scoreSideVisionAsymmetry(maxAsymmetry, ceiling = 0.6) {
  * The 0–100 index is only a display/trend mapping: Δ ≤ 0 → 100, Δ ≥ 0.5 → 0.
  */
 export const GLARE_DELTA_CEILING = 0.5
+// QUEST's grid tops out at 2.2 logCS; ten all-correct trials settle around 2.1, so a threshold
+// this high means the staircase ran out of room rather than finding a limit.
+export const GLARE_CEILING_LOGCS = 2.05
 
 export function glareDeltaLogCS(logCSNoGlare, logCSGlare) {
   if (!Number.isFinite(logCSNoGlare) || !Number.isFinite(logCSGlare)) return null
@@ -328,13 +331,24 @@ export function scoreGlareDelta(deltaLogCS) {
  */
 export function interpretGlareDelta({ logCSNoGlare, logCSGlare, deltaLogCS, sdNoGlare, sdGlare }) {
   const lowConfidence = (sdNoGlare ?? 0) > 0.3 || (sdGlare ?? 0) > 0.3
+  const ceilingNoGlare = logCSNoGlare >= GLARE_CEILING_LOGCS
+  const ceilingGlare = logCSGlare >= GLARE_CEILING_LOGCS
   let band
   let color
   let status
   let headline
   let detail
+  let ceilingNote = null
 
-  if (logCSNoGlare < 1.2) {
+  if (ceilingNoGlare && ceilingGlare) {
+    band = 'good'
+    color = 'green'
+    status = 'No measurable contrast loss under glare'
+    headline = 'You saw the faintest stripes this test can show, both with and without glare.'
+    detail =
+      'The test reached its limit in both conditions, so glare made no difference it can measure. A reassuring home check — not proof the lens is clear, and not a cataract exam.'
+    ceilingNote = 'Both results are at the limit of this test; your true sensitivity may be even better.'
+  } else if (logCSNoGlare < 1.2) {
     band = 'poor'
     color = 'red'
     status = 'Low contrast sensitivity even without glare'
@@ -363,6 +377,9 @@ export function interpretGlareDelta({ logCSNoGlare, logCSGlare, deltaLogCS, sdNo
     detail =
       'A large drop is the main signal this home check looks for. Many things can cause it, including lens cloudiness. Please book a full eye exam — this is not a cataract diagnosis.'
   }
+  if (!ceilingNote && ceilingNoGlare) {
+    ceilingNote = 'Your no-glare result reached the limit of this test, so the true loss under glare may be slightly larger.'
+  }
 
   return {
     band,
@@ -371,11 +388,16 @@ export function interpretGlareDelta({ logCSNoGlare, logCSGlare, deltaLogCS, sdNo
     headline,
     detail,
     lowConfidence,
+    ceilingNoGlare,
+    ceilingGlare,
+    ceilingNote,
     logCSNoGlare: Number(logCSNoGlare.toFixed(2)),
     logCSGlare: Number(logCSGlare.toFixed(2)),
     deltaLogCS,
+    // How many times more contrast the stripes needed with glare on (1 = no change).
+    contrastFactor: Number((10 ** Math.max(0, deltaLogCS ?? 0)).toFixed(2)),
     scoreMeaning:
-      'Δ logCS = your contrast sensitivity without glare minus with glare. 0 means glare had no effect; each 0.3 means you needed twice the contrast. The 0–100 index maps Δ 0 → 100 and Δ 0.5 or more → 0.',
+      'Higher is better. 100 means glare did not change the faintest stripes you could see; 0 means glare made you need about 3× the contrast or more.',
   }
 }
 

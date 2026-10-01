@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Camera, Eye, Check, AlertCircle, RefreshCw } from 'lucide-react'
 import { toast } from 'react-hot-toast'
 import { calibrationAPI } from '../services/api'
+import { videoFrameBlob } from '../utils/imageUpload'
 
 const CalibrationSteps = {
   WELCOME: 'welcome',
@@ -105,30 +106,13 @@ export default function BlinkCalibration() {
     }
   }
 
-  // Capture frame as base64
-  const captureFrame = () => {
+  // Capture frame as a JPEG Blob (sent as multipart)
+  const captureFrame = async () => {
     if (!videoRef.current || !canvasRef.current) {
       console.log('captureFrame: Missing video or canvas ref')
       return null
     }
-    
-    const canvas = canvasRef.current
-    const video = videoRef.current
-    
-    // Check if video has valid dimensions
-    if (video.videoWidth === 0 || video.videoHeight === 0) {
-      console.log('captureFrame: Video dimensions are 0')
-      return null
-    }
-    
-    canvas.width = video.videoWidth
-    canvas.height = video.videoHeight
-    const ctx = canvas.getContext('2d')
-    ctx.drawImage(video, 0, 0)
-    
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.8)
-    console.log('captureFrame: Captured frame, length:', dataUrl.length)
-    return dataUrl
+    return videoFrameBlob(videoRef.current, canvasRef.current)
   }
 
   // Start calibration
@@ -264,14 +248,9 @@ export default function BlinkCalibration() {
     const maxSamples = 150 // 5 seconds at 30fps
     
     captureIntervalRef.current = setInterval(async () => {
-      const frame = captureFrame()
+      const frame = await captureFrame()
       if (!frame) {
         console.log('Baseline: Skipping frame (null or invalid)')
-        return
-      }
-      
-      if (frame === 'data:,') {
-        console.log('Baseline: Skipping empty frame')
         return
       }
       
@@ -324,14 +303,9 @@ export default function BlinkCalibration() {
         return
       }
       
-      const frame = captureFrame()
+      const frame = await captureFrame()
       if (!frame) {
         console.log('Blink: Skipping frame (null or invalid)')
-        return
-      }
-      
-      if (frame === 'data:,') {
-        console.log('Blink: Skipping empty frame')
         return
       }
       
@@ -477,8 +451,8 @@ export default function BlinkCalibration() {
     
     captureIntervalRef.current = setInterval(async () => {
       frameCount++
-      const frame = captureFrame()
-      if (!frame || frame === 'data:,') {
+      const frame = await captureFrame()
+      if (!frame) {
         if (frameCount % 10 === 0) console.log('Test: No valid frame (attempt', frameCount, ')')
         return
       }

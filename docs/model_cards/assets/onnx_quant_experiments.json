@@ -1,0 +1,78 @@
+{
+  "static_minmax_128": {
+    "cataract_bytes": 12710817,
+    "cataract_abstain_agreement": 0.8765060240963856,
+    "cataract_band_agreement_both_assessed": 0.994475138121547,
+    "cataract_prob_max_abs_diff": 0.4224514961242676,
+    "redness_bytes": 11310915,
+    "redness_grade_agreement": 0.9893048128342246,
+    "redness_score_max_abs_diff": 0.8674700856208801,
+    "cataract_latency": {
+      "median_ms": 10.11,
+      "p90_ms": 10.33
+    },
+    "cataract_latency_1thread": {
+      "median_ms": 31.96,
+      "p90_ms": 32.73
+    }
+  },
+  "static_percentile_400": {
+    "cataract_bytes": 12710819,
+    "cataract_abstain_agreement": 0.9578313253012049,
+    "cataract_band_agreement_both_assessed": 0.9847715736040609,
+    "cataract_prob_max_abs_diff": 0.24282079935073853,
+    "redness_bytes": 11310918,
+    "redness_grade_agreement": 0.9946524064171123,
+    "redness_score_max_abs_diff": 0.8279914855957031,
+    "cataract_latency": {
+      "median_ms": 10.16,
+      "p90_ms": 10.32
+    },
+    "cataract_latency_1thread": {
+      "median_ms": 31.83,
+      "p90_ms": 32.43
+    }
+  },
+  "static_percentile_400_keep_first_last_fp32": {
+    "cataract_bytes": 12738496,
+    "cataract_abstain_agreement": 0.9849397590361446,
+    "cataract_band_agreement_both_assessed": 0.9901960784313726,
+    "cataract_prob_max_abs_diff": 0.16836047172546387,
+    "redness_bytes": 11336339,
+    "redness_grade_agreement": 1.0,
+    "redness_score_max_abs_diff": 0.3218953609466553,
+    "cataract_latency": {
+      "median_ms": 10.73,
+      "p90_ms": 10.98
+    },
+    "cataract_latency_1thread": {
+      "median_ms": 34.08,
+      "p90_ms": 34.5
+    }
+  },
+  "dynamic_uint8": {
+    "cataract_bytes": 11598952,
+    "cataract_abstain_agreement": 0.7620481927710844,
+    "cataract_band_agreement_both_assessed": 1.0,
+    "cataract_prob_max_abs_diff": 0.25779056549072266,
+    "redness_bytes": 11240075,
+    "redness_grade_agreement": 1.0,
+    "redness_score_max_abs_diff": 0.1721397042274475,
+    "cataract_latency": {
+      "median_ms": 21.19,
+      "p90_ms": 22.08
+    },
+    "cataract_latency_1thread": {
+      "median_ms": 62.65,
+      "p90_ms": 62.95
+    }
+  },
+  "fp32_reference_latency": {
+    "median_ms": 14.42,
+    "p90_ms": 14.73
+  },
+  "fp32_reference_latency_1thread": {
+    "median_ms": 45.28,
+    "p90_ms": 45.48
+  }
+}

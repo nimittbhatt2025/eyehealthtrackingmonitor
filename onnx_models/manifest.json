@@ -1,0 +1,101 @@
+{
+  "cataract_screen": {
+    "browser_variant": "fp32",
+    "files": {
+      "fp32": {
+        "file": "cataract_screen.fp32.onnx",
+        "bytes": 46108919,
+        "sha256": "6829e0263d6acce24f336ba82c3e6dd116f17bb9aac071a97d2faf0fdf8ea5db"
+      },
+      "int8": {
+        "file": "cataract_screen.int8.onnx",
+        "bytes": 12738496,
+        "sha256": "0607af9f0e84a6909e08530cea08f22c50c3a4b0c543921f40fce0438147f111"
+      }
+    },
+    "outputs": [
+      "prob",
+      "logits",
+      "ood_score",
+      "cam"
+    ],
+    "input": {
+      "shape": [
+        1,
+        3,
+        224,
+        224
+      ],
+      "mean": [
+        0.48500001430511475,
+        0.4560000002384186,
+        0.4059999883174896
+      ],
+      "std": [
+        0.2290000021457672,
+        0.2240000069141388,
+        0.22499999403953552
+      ],
+      "resize": "bilinear_antialias_224"
+    },
+    "method": "resnet_v2_calibrated",
+    "temperature": 1.6237069368362427,
+    "thresholds": {
+      "rule_out": 0.2,
+      "rule_in": 0.8
+    },
+    "ood_threshold": 1.1089695692062378,
+    "crop": {
+      "landmarks": "LEFT/RIGHT_EYE_REGION",
+      "pad_x": 0.45,
+      "pad_y": 0.55
+    },
+    "model_card": "docs/model_cards/cataract_resnet18.md"
+  },
+  "sclera_redness": {
+    "browser_variant": "int8",
+    "files": {
+      "fp32": {
+        "file": "sclera_redness.fp32.onnx",
+        "bytes": 44701454,
+        "sha256": "6359458b17116184c14e9f4c93e6ea141dc46ec6768a0d020b298b4fd10487c1"
+      },
+      "int8": {
+        "file": "sclera_redness.int8.onnx",
+        "bytes": 11336339,
+        "sha256": "107065b9e79c7231dbf4735787d60b3792833ccb035e976ae0eebc534e43de09"
+      }
+    },
+    "outputs": [
+      "score"
+    ],
+    "input": {
+      "shape": [
+        1,
+        3,
+        224,
+        224
+      ],
+      "mean": [
+        0.48500001430511475,
+        0.4560000002384186,
+        0.4059999883174896
+      ],
+      "std": [
+        0.2290000021457672,
+        0.2240000069141388,
+        0.22499999403953552
+      ],
+      "resize": "bilinear_antialias_224"
+    },
+    "method": "bounded_ordinal_resnet18_v1",
+    "weights": "sclera_redness_ordinal.pth",
+    "crop": {
+      "landmarks": "LEFT/RIGHT_EYE_REGION",
+      "pad_x": 0.1,
+      "pad_y": 0.15,
+      "then": "prepare_ocular_patch"
+    },
+    "model_card": "docs/model_cards/sclera_redness_resnet18.md"
+  }
+}

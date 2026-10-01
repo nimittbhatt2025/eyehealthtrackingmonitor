@@ -21,6 +21,10 @@ const SIGMA_ARCMIN = 0.8
 const FIXATE_MS = 500
 const STIM_MS = 300
 const FEEDBACK_MS = 2000
+// Later pairs look identical, so each answer needs a visible acknowledgement before the next flash.
+const ACK_MS = 600
+const ANSWER_LABELS = { left: 'Lower line is left', aligned: 'Looks aligned', right: 'Lower line is right' }
+const answerKey = (right) => (right == null ? 'aligned' : right ? 'right' : 'left')
 
 /** Exaggerated picture of the two lines; `shift` is -1 (lower left), 0 or 1 (lower right). */
 function LinePairIcon({ shift, size = 36, color = 'currentColor' }) {
@@ -55,8 +59,9 @@ export default function VernierTask({ eye, distanceMm, pxPerMm, onDone, onSkip }
 
   const [stage, setStage] = useState('intro') // intro, running
   const [index, setIndex] = useState(0)
-  const [step, setStep] = useState('fixate') // fixate, stim, respond, feedback
+  const [step, setStep] = useState('fixate') // fixate, stim, respond, feedback, ack
   const [feedback, setFeedback] = useState(null)
+  const [lastAnswer, setLastAnswer] = useState(null)
 
   const canvasRef = useRef(null)
   const trialRef = useRef(null)
@@ -106,6 +111,7 @@ export default function VernierTask({ eye, distanceMm, pxPerMm, onDone, onSkip }
         offset: practice ? PRACTICE[i].offset : psiRef.current[location].next(),
       }
       setFeedback(null)
+      setLastAnswer(null)
       setStep('fixate')
       draw(false)
       timerRef.current = setTimeout(() => {
@@ -157,11 +163,13 @@ export default function VernierTask({ eye, distanceMm, pxPerMm, onDone, onSkip }
     })
   }
 
+  /** `right`: true, false, or null for "looks aligned". */
   const respond = (right) => {
     if (step !== 'respond' && step !== 'stim') return
     const t = trialRef.current
     clearTimeout(timerRef.current)
-    const correct = right === t.offset > 0
+    const correct = right != null && right === t.offset > 0
+    setLastAnswer(answerKey(right))
     if (t.practice) {
       // Hold the lines on screen so the user can see what the answer looked like.
       draw(true)
@@ -175,13 +183,19 @@ export default function VernierTask({ eye, distanceMm, pxPerMm, onDone, onSkip }
     }
     draw(false)
     psiRef.current[t.location].update(t.offset, right)
-    responsesRef.current = [...responsesRef.current, { location: t.location, offset_arcsec: t.offset, answered_right: right }]
+    responsesRef.current = [
+      ...responsesRef.current,
+      { location: t.location, offset_arcsec: t.offset, answer: answerKey(right) },
+    ]
     if (index + 1 >= total) {
       finish()
       return
     }
-    setIndex(index + 1)
-    present(index + 1)
+    setStep('ack')
+    timerRef.current = setTimeout(() => {
+      setIndex(index + 1)
+      present(index + 1)
+    }, ACK_MS)
   }
 
   const respondRef = useRef(respond)
@@ -193,6 +207,9 @@ export default function VernierTask({ eye, distanceMm, pxPerMm, onDone, onSkip }
       if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
         e.preventDefault()
         respondRef.current(e.key === 'ArrowRight')
+      } else if (e.key === 'ArrowDown' || e.key === ' ') {
+        e.preventDefault()
+        respondRef.current(null)
       }
     }
     window.addEventListener('keydown', onKey)
@@ -227,11 +244,12 @@ export default function VernierTask({ eye, distanceMm, pxPerMm, onDone, onSkip }
         </div>
         <p className="text-sm text-gray-600 mb-5">
           These examples are exaggerated. The first {PRACTICE.length} flashes are practice with big, easy shifts and show you the answer.
-          After that the shifts get tiny — the two lines will often look perfectly lined up. That&apos;s expected: just
-          take your best guess. This measures hyperacuity, which picks up small distortions of the retina better than a grid does.
+          After that the shifts get tiny, and the two lines will often look perfectly lined up. That&apos;s expected.
+          If you have even a slight impression of a shift, pick that side; if they truly look lined up, choose{' '}
+          <strong>Looks aligned</strong>. This measures hyperacuity, which picks up small distortions of the retina better than a grid does.
         </p>
         <p className="text-xs text-gray-500 mb-5">
-          {total} flashes, about 2 minutes. Answer with ← / → or the buttons.
+          {total} flashes, about 2 minutes. Answer with the buttons, or ← / → and ↓ (or the space bar) for &quot;Looks aligned&quot;.
         </p>
         <div className="flex gap-4">
           <button type="button" onClick={onSkip} className="flex-1 px-5 py-3 border-2 border-gray-300 rounded-full font-semibold text-gray-700 hover:bg-gray-50">
@@ -247,7 +265,22 @@ export default function VernierTask({ eye, distanceMm, pxPerMm, onDone, onSkip }
     <div className="test-panel overflow-hidden p-0 max-w-2xl mx-auto">
       <div className="px-6 py-3 border-b border-gray-100 flex items-center justify-between text-xs text-gray-500">
         <span className="font-medium">Line alignment — {eye} eye</span>
-        <span>{index < PRACTICE.length ? `Practice ${index + 1}/${PRACTICE.length}` : `${index - PRACTICE.length + 1} / ${schedule.length}`}</span>
+        <span className="flex items-center gap-4">
+          <span>{index < PRACTICE.length ? `Practice ${index + 1}/${PRACTICE.length}` : `${index - PRACTICE.length + 1} / ${schedule.length}`}</span>
+          <button
+            type="button"
+            onClick={() => {
+              clearTimeout(timerRef.current)
+              onSkip()
+            }}
+            className="underline hover:text-gray-700"
+          >
+            Skip this part
+          </button>
+        </span>
+      </div>
+      <div className="h-1 bg-gray-100">
+        <div className="h-full bg-accent-500 transition-all duration-300" style={{ width: `${(index / total) * 100}%` }} />
       </div>
       <div className="relative bg-white flex items-center justify-center" style={{ minHeight: Math.max(280, sizeCss + 60) }}>
         <canvas ref={canvasRef} width={sizeDevice} height={sizeDevice} style={{ width: sizeCss, height: sizeCss }} />
@@ -256,23 +289,35 @@ export default function VernierTask({ eye, distanceMm, pxPerMm, onDone, onSkip }
             {feedback.correct ? 'Correct' : 'Not quite'} — the lower line was shifted {feedback.answer}
           </div>
         )}
+        {step === 'ack' && lastAnswer && (
+          <div className="absolute bottom-3 px-4 py-2 rounded-full text-sm font-semibold text-white bg-gray-800">
+            ✓ Answer recorded: {ANSWER_LABELS[lastAnswer]}
+          </div>
+        )}
       </div>
       <p className="px-4 pt-3 text-center text-sm text-gray-600 border-t border-gray-100">
         {step === 'feedback'
           ? 'Practice: here is the pair you just saw.'
-          : 'Compare the lower line with the upper line — ignore where the pair is relative to the dot.'}
+          : step === 'fixate' || step === 'ack'
+            ? 'Look at the red dot — the next pair is coming.'
+            : 'Which way was the lower line shifted, compared with the upper line? Ignore where the pair was relative to the dot.'}
       </p>
-      <div className="p-4 grid grid-cols-2 gap-3">
+      <div className="p-4 grid grid-cols-3 gap-3">
         {[
           { right: false, shift: -1, label: '← Lower line is left' },
+          { right: null, shift: 0, label: '↓ Looks aligned' },
           { right: true, shift: 1, label: 'Lower line is right →' },
         ].map((b) => (
           <button
             key={b.label}
             type="button"
             onClick={() => respond(b.right)}
-            disabled={step === 'fixate' || step === 'feedback'}
-            className="rounded-xl border-2 border-gray-200 px-3 py-2 text-sm font-semibold text-gray-800 hover:border-accent-500 disabled:opacity-50 flex flex-col items-center gap-1"
+            disabled={step === 'fixate' || step === 'feedback' || step === 'ack'}
+            className={`rounded-xl border-2 px-3 py-2 text-sm font-semibold text-gray-800 hover:border-accent-500 disabled:opacity-50 flex flex-col items-center gap-1 ${
+              (step === 'ack' || step === 'feedback') && lastAnswer === answerKey(b.right)
+                ? 'border-accent-500 bg-accent-50 disabled:opacity-100'
+                : 'border-gray-200'
+            }`}
           >
             <LinePairIcon shift={b.shift} size={32} />
             {b.label}
