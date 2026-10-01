@@ -1,18 +1,20 @@
 # Model card — Cataract screening ResNet-18 (`resnet_v2_calibrated`)
 
-**One-line summary:** a binary cataract-vs-normal image classifier with temperature-scaled probabilities, a three-way screening band, an out-of-distribution abstain path and Grad-CAM. It does **not** grade severity. Held-out numbers look excellent, but that is mostly because it has learned a **dataset shortcut**: it separates the two classes nearly as well with the eye masked out. Treat every output as a prompt for an eye exam, never as reassurance.
+**One-line summary:** a binary cataract-vs-normal image classifier with temperature-scaled probabilities, a three-way screening band, an out-of-distribution abstain path and Grad-CAM. It does **not** grade severity. Held-out numbers look excellent, but that is mostly because it has learned a **dataset shortcut**: it separates the two classes nearly as well with the eye masked out. High test accuracy did not demonstrate clinical validity. Occlusion testing revealed that the model learned dataset-specific shortcuts rather than ocular features. **Its outputs are withheld from users**; it is studied in the AI Research Lab only.
 
 | | |
 |---|---|
 | Code | `train_cataract_resnet.py`, `eyevio/app/ai_models/cataract_resnet.py`, `eyevio/app/ai_models/cnn_explain.py` |
 | Artifacts | `cataract_detection_resnet18.pth`, `cataract_model_meta.json`, `cataract_ood_stats.npz` (repo root) |
 | Evaluation dump | [`assets/cataract_eval.json`](assets/cataract_eval.json) |
-| Owner / status | EyeVio; research screening feature, not a medical device |
+| Owner / status | EyeVio research and educational prototype; **research lab only, not active**. Not clinically validated and not a medical device |
 
 ## Intended use
 
-- **Use:** a home screening prompt. Given a front-facing webcam photo, it flags whether each eye crop resembles the "cataract" class of the training images (low / indeterminate / elevated), or says **cannot assess**.
+- **Use:** research only, studied in the in-app AI Research Lab (`/research-lab`). In the main app the model may run, but its likelihood, band, "cannot assess" decision and Grad-CAM are withheld (`withhold_model_outputs()`); the user sees only "Experimental analysis completed", "Result is not clinically interpretable" and "This model is currently being evaluated for dataset shortcuts".
+- **Original design (not deployed):** given a front-facing webcam photo, flag whether each eye crop resembles the "cataract" class of the training images (low / indeterminate / elevated), or say **cannot assess**.
 - **Out of scope:**
+  - any user-facing result
   - diagnosis
   - severity or LOCS III grading
   - cataract size
@@ -98,7 +100,13 @@ The full-frame thumbnails would have scored calibrated p ≈ 0.50–0.89 (five o
 
 1. **Shortcut / source confound.** Webcam crops resemble the "normal" source, so a real cataract photographed on a webcam will tend to score low. **A low band is not reassurance.**
 2. **Domain gap.** It was trained on external clinical photos and runs on webcam eye crops, with different optics, resolution, lighting and framing. The webcam simulation only models part of this gap (it does not model framing).
-3. **No severity.** Binary labels cannot give a grade. The CORN ordinal pipeline (`train_cataract_corn.py`) is ready for graded normal / immature / mature data. LOCS III (Chylack et al., 1993) needs slit-lamp images and cannot come from a selfie.
+3. **No severity.** Binary labels cannot give a grade. The CORN ordinal pipeline (`train_cataract_corn.py`) is ready for graded normal / immature / mature data. Trained files never switch it on by themselves. `eyevio/app/ai_models/corn_gate.py` loads it only when all of these hold:
+   - the explicit toggle `CATARACT_CORN_ENABLED=1` is set;
+   - the `cataract_corn` entry in [`approvals.json`](approvals.json) is set to approved (it currently is not);
+   - the meta's version, levels, dataset name/version and weights SHA-256 match that entry;
+   - the held-out test set meets the thresholds: n ≥ 150, QWK ≥ 0.70 with lower 95% CI ≥ 0.60, MAE ≤ 0.35, and per-threshold ECE ≤ 0.05.
+
+   Approval also requires a masked-eye shortcut control recorded in this card. LOCS III (Chylack et al., 1993) needs slit-lamp images and cannot come from a selfie.
 4. **Label noise and possible synthetic samples** in the source data.
 5. **Small real-world probe set** (4 app crops), so the abstain rate on real users is not yet well estimated.
 

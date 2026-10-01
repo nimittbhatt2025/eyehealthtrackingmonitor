@@ -3,7 +3,7 @@ PyTorch sclera redness model for web capture inference.
 
 Supports BoundedOrdinalScleraModel (clamp 0–4, TTA) and legacy OrdinalScleraModel
 (sigmoid head). Ocular crops are prepared upstream in ocular_ml_preprocess.py.
-Wellness tracking only — not a diagnosis.
+Experimental research model: outputs are withheld from users (see experimental_models.withhold_model_outputs).
 """
 
 from __future__ import annotations

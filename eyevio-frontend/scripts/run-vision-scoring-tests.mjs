@@ -10,7 +10,6 @@ import {
   logCSToScore,
   computeEyeLogMAR,
   findThresholdLineIndex,
-  scoreAmslerEye,
   amslerMarkedAreaDeg2,
   etdrsNextLine,
   etdrsScore,
@@ -18,6 +17,10 @@ import {
   logMARToSnellen,
   detectConvergenceBreak,
   scoreNearPointConvergence,
+  assessNpcCamera,
+  combineNpcApproach,
+  yawProxy,
+  NPC_CAMERA_LIMITS,
   quadrantAsymmetry,
   scoreSideVisionAsymmetry,
   sideVisionReliability,
@@ -27,6 +30,8 @@ import {
   summarizePupilReflex,
   medianPupilReflex,
   redReflexSymmetry,
+  eyeGlowOutcome,
+  needsAnotherGlowCapture,
   estimatePhoneCameraDistanceCm,
   scorePeripheralAwareness,
   eccentricityDeg,
@@ -34,6 +39,14 @@ import {
   fitReactionTimeVsEccentricity,
 } from '../src/utils/visionTestScoring.js'
 import { createQuest, weibullPCorrect } from '../src/utils/psychophysics.js'
+import {
+  NEAR_BLUR,
+  blurAtTime,
+  buildRunPlan,
+  letterHeightPx,
+  nearBlurIndex,
+  summarizeNearBlur,
+} from '../src/utils/nearBlur.js'
 import { createVernierPsi, pRight, summarizeVernier } from '../src/utils/vernier.js'
 import { blinkBand, breakDue, rollingBlinkRate, summarizeBlinkSession } from '../src/utils/blinkCoach.js'
 import {
@@ -51,7 +64,6 @@ import {
   linearRgbToXyz,
   xyzToUv,
   axisPlan,
-  axisScore,
   displacedUv,
   dotRgb,
   summarizeColorThresholds,
@@ -61,8 +73,7 @@ import {
   NOT_APPLICABLE,
   calculateOsdi,
   osdiSeverity,
-  summarizeTearBreakup,
-  combineDryEyeScores,
+  summarizeBlurReportTime,
 } from '../src/utils/dryEyeQuestionnaire.js'
 
 let passed = 0
@@ -114,11 +125,6 @@ assert(findThresholdLineIndex(lineResponses, 5) === 2, 'threshold line is last p
   const exact = 255 * (1.055 * xyzToLinearRgb(uvYToXyz(target.u, target.v, 0.2))[0] ** (1 / 2.4) - 0.055)
   assert(Math.abs(mean - exact) < 0.1, 'stochastic rounding reproduces sub-code-value colour on average')
 
-  assert(axisScore(0.008, 'protan', 0.15) === 100, 'colour threshold within typical limit → 100')
-  assert(axisScore(0.15, 'protan', 0.15) === 0, 'colour threshold at screen gamut limit → 0')
-  const mid = axisScore(0.04, 'protan', 0.15)
-  assert(mid > 20 && mid < 60, 'raised colour threshold scores in between')
-
   const axes = (p, d, t) => ({
     protan: { threshold: p, sd: 0.1, maxDistance: 0.15, beyondGamut: p >= 0.15 },
     deutan: { threshold: d, sd: 0.1, maxDistance: 0.15, beyondGamut: d >= 0.15 },
@@ -130,7 +136,15 @@ assert(findThresholdLineIndex(lineResponses, 5) === 2, 'threshold line is last p
   assert(summarizeColorThresholds(axes(0.006, 0.007, 0.05)).pattern === 'tritan', 'tritan-only pattern')
   assert(summarizeColorThresholds(axes(0.03, 0.03, 0.05)).pattern === 'generalised', 'all axes raised → generalised')
   assert(summarizeColorThresholds(axes(0.15, 0.15, 0.13)).pattern === 'unreliable', 'nothing seen on any axis → unreliable')
-  assert(rg.score === rg.perAxis.protan.score, 'colour test score is the worst axis')
+  assert(!('score' in rg) && !('score' in rg.perAxis.protan), 'no worst-axis score until reference data exist')
+  const guesser = summarizeColorThresholds(axes(0.006, 0.007, 0.01), { catchCorrect: 1, catchTotal: 4 })
+  assert(guesser.pattern === 'unreliable' && guesser.reliability.catch_failed, 'failed catch trials → unreliable')
+  assert(summarizeColorThresholds(axes(0.006, 0.007, 0.01), { catchCorrect: 3, catchTotal: 4 }).reliable, '3 of 4 catch trials → reliable')
+  const narrow = summarizeColorThresholds({ ...axes(0.006, 0.007, 0.05), tritan: { threshold: 0.05, sd: 0.1, maxDistance: 0.05, beyondGamut: true } })
+  assert(!narrow.perAxis.tritan.testable && narrow.pattern === 'none', 'an axis the screen cannot test is reported, not counted as raised')
+  const vague = summarizeColorThresholds({ ...axes(0.006, 0.007, 0.01), protan: { threshold: 0.03, sd: 0.45, maxDistance: 0.15, beyondGamut: false } })
+  assert(vague.perAxis.protan.uncertain && vague.pattern === 'none', 'an uncertain axis is flagged, not counted as raised')
+  assert(!summarizeColorThresholds(axes(0.006, 0.007, 0.01), { displayCoversSrgb: false }).perAxis.protan.testable, 'a display below sRGB cannot test any axis')
 }
 
 {
@@ -152,11 +166,6 @@ assert(findThresholdLineIndex(lineResponses, 5) === 2, 'threshold line is last p
   assert(fitHitRateVsEccentricity([{ ecc: 5, hit: true }]) === null, 'too few trials → no fit')
 }
 
-assert(scoreAmslerEye({ standardIssues: false, lowIssues: false }) === 100, 'amsler clean eye → 100')
-assert(scoreAmslerEye({ standardIssues: true, lowIssues: true, standardAreaDeg2: 0 }) === 50, 'amsler full-contrast defect → 50')
-assert(scoreAmslerEye({ standardIssues: true, lowIssues: true, standardAreaDeg2: 400 }) === 20, 'amsler large full-contrast defect floors at 20')
-assert(scoreAmslerEye({ standardIssues: false, lowIssues: true, lowAreaDeg2: 20 }) === 75, 'amsler low-contrast-only defect is milder')
-assert(scoreAmslerEye({ standardIssues: false, lowIssues: false, vernierFlags: 1 }) === 85, 'vernier bias caps a clean eye at 85')
 assert(amslerMarkedAreaDeg2([], 0.05) === 0, 'no marks → no area')
 {
   const area = amslerMarkedAreaDeg2([{ x: 0.5, y: 0.5 }], 0.1)
@@ -210,6 +219,15 @@ assert(amslerMarkedAreaDeg2([], 0.05) === 0, 'no marks → no area')
   assert(s.flags.some((f) => f.location === 'up' && f.kind === 'bias'), 'vernier flags a shifted location')
   assert(s.flags.some((f) => f.location === 'right' && f.kind === 'threshold'), 'vernier flags a raised parafoveal threshold')
   assert(!s.flags.some((f) => f.location === 'center'), 'vernier does not flag an aligned centre')
+  assert(s.reliable && s.uncertainLocations.length === 0, 'vernier result with tight bias estimates is reliable')
+  const noisy = summarizeVernier({
+    center: { bias: 0, biasSd: 40, threshold: 15 },
+    up: { bias: 120, biasSd: 45, threshold: 30 },
+    down: { bias: 5, biasSd: 15, threshold: 30 },
+    left: { bias: -5, biasSd: 15, threshold: 30 },
+    right: { bias: 0, biasSd: 15, threshold: 30 },
+  })
+  assert(!noisy.reliable && !noisy.flags.some((f) => f.location === 'up'), 'uncertain locations are not flagged and make the eye unreliable')
 }
 
 {
@@ -250,10 +268,11 @@ assert(amslerMarkedAreaDeg2([], 0.05) === 0, 'no marks → no area')
   assert(r.osdiScore === 50 && r.answeredCount === 10, 'OSDI N/A items are excluded from the denominator')
   assert(calculateOsdi({ ...all(1), gritty: null }).osdiScore === null, 'OSDI needs all core symptom items')
   assert(osdiSeverity(12).severity === 'normal' && osdiSeverity(13).severity === 'mild' && osdiSeverity(33).severity === 'severe', 'OSDI bands')
-  const tbu = summarizeTearBreakup([{ seconds: 4 }, { seconds: 12 }, { seconds: 7 }])
-  assert(tbu.medianSeconds === 7 && tbu.band === 'borderline', 'tear break-up proxy median + band')
-  assert(combineDryEyeScores(80, 80, 20).combinedScore === 68, 'dry eye blend with tear proxy (0.4/0.4/0.2)')
-  assert(combineDryEyeScores(80, 60).combinedScore === 70, 'dry eye blend without tear proxy (0.5/0.5)')
+  const blur = summarizeBlurReportTime([
+    { seconds: 4, endedBy: 'blur' }, { seconds: 12, endedBy: 'blink' }, { seconds: 7, endedBy: 'blur' },
+  ])
+  assert(blur.medianSeconds === 7 && blur.endedByBlur === 2 && blur.endedByBlink === 1, 'blur-report time median + end reasons')
+  assert(!('band' in blur) && !('score' in blur), 'blur-report time has no bands or score')
 }
 
 {
@@ -281,6 +300,40 @@ assert(amslerMarkedAreaDeg2([], 0.05) === 0, 'no marks → no area')
 }
 
 {
+  const steady = Array.from({ length: 40 }, (_, i) => ({
+    span: 150 + i, right: 0.5, left: 0.5, yaw: 0.02, rollDeg: 1,
+  }))
+  const baselineSpans = [150, 151, 149, 150]
+  const ok = assessNpcCamera({ samples: steady, frames: 45, baselineSpans })
+  assert(ok.status === 'ok' && ok.reasons.length === 0, 'NPC camera ok when tracked, large and steady')
+
+  const lost = assessNpcCamera({ samples: steady.slice(0, 25), frames: 60, baselineSpans })
+  assert(lost.status === 'unable_to_measure' && lost.reasons.includes('pupils_not_located'), 'NPC camera: pupils not located')
+
+  const small = assessNpcCamera({ samples: steady.map((s) => ({ ...s, span: 40 })), frames: 40, baselineSpans: [40, 41] })
+  assert(small.reasons.includes('eye_corner_span_too_small'), 'NPC camera: eye-corner span too small')
+
+  const jitter = assessNpcCamera({ samples: steady, frames: 40, baselineSpans: [130, 170, 140, 165] })
+  assert(jitter.reasons.includes('eye_corner_span_unstable'), 'NPC camera: unstable baseline span')
+
+  const turning = assessNpcCamera({
+    samples: steady.map((s, i) => ({ ...s, yaw: i % 2 ? 0.2 : -0.2 })), frames: 40, baselineSpans,
+  })
+  assert(turning.reasons.includes('face_angle_unstable'), 'NPC camera: face angle unstable')
+  assert(yawProxy({ right: 30, left: 30 }) === 0 && yawProxy({ right: 0, left: 30 }) === null, 'yaw proxy')
+
+  const both = combineNpcApproach({ reportedCm: 9, cameraBreakCm: 7.5, cameraOk: true })
+  assert(both.npcCm === 9 && both.source === 'reported_first' && both.agreementCm === 1.5 && both.agree, 'NPC: first break wins, agreement kept')
+  const camFirst = combineNpcApproach({ reportedCm: 8, cameraBreakCm: 14, cameraOk: true })
+  assert(camFirst.npcCm === 14 && camFirst.source === 'camera_first' && camFirst.agree === false, 'NPC: camera break first, disagreement flagged')
+  const camBad = combineNpcApproach({ reportedCm: 8, cameraBreakCm: 14, cameraOk: false })
+  assert(camBad.npcCm === 8 && camBad.cameraBreakCm === null && camBad.agreementCm === null, 'NPC: unconfident camera break ignored')
+  const nothing = combineNpcApproach({ reportedCm: null, cameraBreakCm: 14, cameraOk: false })
+  assert(nothing.npcCm === null && nothing.source === 'none', 'NPC: unable to measure')
+  assert(NPC_CAMERA_LIMITS.agreementCm === 3, 'NPC agreement limit')
+}
+
+{
   const asym = quadrantAsymmetry({ UL: 1.2, UR: 1.0, LL: 1.15, LR: 0.7 })
   assert(asym.weakest === 'LR' && asym.maxAsymmetry === 0.5, 'quadrant asymmetry = best − worst')
   assert(asym.relative.UL === 0, 'best quadrant is relative 0')
@@ -289,6 +342,12 @@ assert(amslerMarkedAreaDeg2([], 0.05) === 0, 'no marks → no area')
   assert(ok.reliable, 'reliable session passes')
   const bad = sideVisionReliability({ fixationLosses: 10, totalTrials: 32, falsePositives: 2, falseNegatives: 2 })
   assert(!bad.reliable && bad.reasons.length === 3, 'unreliable session reports all three reasons')
+  const rated = sideVisionReliability({
+    fixationLosses: 4, totalTrials: 32, falsePositives: 1, falseNegatives: 0, fpCatches: 3, fnCatches: 4,
+  })
+  assert(rated.fixationLossRate === 0.13 && rated.falsePositiveRate === 0.33 && rated.falseNegativeRate === 0,
+    'side vision saves FP/FN rates over valid catch trials')
+  assert(ok.falsePositiveRate === null, 'no catch denominator → no rate')
 }
 assert(glareDeltaLogCS(1.6, 1.3) === 0.3, 'glare Δ logCS = no-glare − glare')
 assert(scoreGlareDelta(0) === 100, 'no glare loss → 100')
@@ -339,12 +398,27 @@ const dimPupil = summarizePupilReflex(fill(40, { r: 100, g: 30, b: 20 }))
 const darkPupil = summarizePupilReflex(fill(40, { r: 20, g: 10, b: 10 }))
 assert(summarizePupilReflex(fill(3, { r: 1, g: 1, b: 1 })) === null, 'too few pupil pixels → null')
 assert(glintPupil.whiteFraction === 0, 'corneal glint trimmed from reflex colour')
-assert(redReflexSymmetry(redPupil, redPupil).symmetryScore === 100, 'identical reflexes → 100')
+const same = redReflexSymmetry(redPupil, redPupil)
+assert(same.flags.length === 0 && !('symmetryScore' in same), 'identical reflexes → no flags and no symmetry score')
 const leuko = redReflexSymmetry(redPupil, whitePupil)
-assert(leuko.symmetryScore <= 30 && leuko.flags.some((f) => f.type === 'white_reflex' && f.eye === 'left' && f.severity === 'critical'), 'one-sided white reflex flagged critical on that eye')
+assert(leuko.flags.some((f) => f.type === 'white_reflex' && f.eye === 'left' && f.severity === 'critical'), 'one-sided white reflex flagged critical on that eye')
 const dull = redReflexSymmetry(dimPupil, redPupil)
 assert(dull.flags.some((f) => f.type === 'brightness' && f.eye === 'right'), 'dimmer eye flagged')
-assert(dull.symmetryScore === 0, 'half-brightness reflex → 0 symmetry')
+{
+  const none = redReflexSymmetry(darkPupil, darkPupil)
+  assert(eyeGlowOutcome([leuko]).outcome === 'capture_unsuccessful', 'one capture is never enough for an asymmetry prompt')
+  assert(needsAnotherGlowCapture([leuko]), 'a single flagged capture asks for another')
+  assert(eyeGlowOutcome([leuko, leuko]).outcome === 'asymmetry_observed', 'same flag in two captures → asymmetry observed')
+  assert(eyeGlowOutcome([leuko, same]).outcome === 'no_repeated_asymmetry' && needsAnotherGlowCapture([leuko, same]),
+    'disagreeing captures are not an asymmetry and ask for a third')
+  assert(eyeGlowOutcome([leuko, same, leuko]).outcome === 'asymmetry_observed', 'flag repeated in 2 of 3 → asymmetry observed')
+  assert(!needsAnotherGlowCapture([same, same]) && eyeGlowOutcome([same, same]).outcome === 'no_repeated_asymmetry',
+    'two clean captures stop, with no "normal" outcome')
+  assert(eyeGlowOutcome([none, none]).outcome === 'no_usable_reflex', 'no glow in any capture → no usable reflex')
+  assert(eyeGlowOutcome([]).outcome === 'capture_unsuccessful', 'no captures → capture unsuccessful')
+  assert(eyeGlowOutcome([dull, redReflexSymmetry(redPupil, dimPupil)]).outcome === 'no_repeated_asymmetry',
+    'a dimmer eye that switches sides is not a repeated asymmetry')
+}
 assert(redReflexSymmetry(darkPupil, darkPupil).reflexVisible === false, 'no reflex in either eye → not scored')
 assert(redReflexSymmetry(whitePupil, whitePupil).flags.some((f) => f.type === 'pale_both'), 'both pale reflexes flagged')
 const med = medianPupilReflex([redPupil, dimPupil, redPupil, null])
@@ -388,7 +462,7 @@ assert(scorePeripheralAwareness(80, 50) >= scorePeripheralAwareness(80, 500), 'f
   assert(rollingBlinkRate(every3s, 45000, { startedAt: start }) === 20, 'blink rate scales a partial window to per-minute')
   assert(rollingBlinkRate(every3s, 120000, { startedAt: 90000 }) === 20, 'blink rate window starts at the last restart')
   assert(rollingBlinkRate([], 60000, { startedAt: 0 }) === 0, 'no blinks is a rate of zero, not null')
-  assert(blinkBand(null) === 'warming_up' && blinkBand(5) === 'low' && blinkBand(10) === 'reduced' && blinkBand(16) === 'healthy', 'blink bands')
+  assert(blinkBand(null) === 'warming_up' && blinkBand(5) === 'lower' && blinkBand(10) === 'intermediate' && blinkBand(16) === 'higher', 'blink coaching categories')
   assert(!breakDue(19 * 60000, 20 * 60000) && breakDue(20 * 60000, 20 * 60000), '20-20-20 break due at the interval')
   const s = summarizeBlinkSession(
     [{ rate: null }, { rate: 6 }, { rate: 6 }, { rate: 14 }, { rate: 14 }],
@@ -428,6 +502,33 @@ assert(scorePeripheralAwareness(80, 50) >= scorePeripheralAwareness(80, 500), 'f
     total += etdrsScore(t, four).logMAR
   }
   assert(total / runs > 0.95, `guessing on a 4-choice chart scores ≈ chart top (${(total / runs).toFixed(2)})`)
+}
+
+{
+  const mm = letterHeightPx(400, 1)
+  assert(Math.abs(mm - 5.82) < 0.01, `near blur letters are 1.0 logMAR at 40 cm ≈ 5.8 mm (${mm.toFixed(2)})`)
+  assert(blurAtTime(1.5, 2) === 0 && Math.abs(blurAtTime(4.5, 2) - 1.0) < 1e-9, 'blur holds at 0, then ramps 0.4 arcmin/s')
+  assert(blurAtTime(100, 2) === NEAR_BLUR.capArcmin, 'blur ramp stops at the cap')
+  const plan = buildRunPlan()
+  assert(plan[0].kind === 'practice' && plan.filter((r) => r.kind === 'scored').length === 4 && plan.filter((r) => r.kind === 'catch').length === 1,
+    'near blur plan: 1 practice, 4 scored, 1 catch')
+  assert(plan.every((r) => r.holdS >= 2 && r.holdS <= 4), 'random hold 2–4 s')
+  const scored = (vals) => vals.map((v) => ({ kind: 'scored', thresholdArcmin: v, censored: false }))
+  const ok = summarizeNearBlur([{ kind: 'practice', thresholdArcmin: 5 }, ...scored([1.0, 1.2, 1.1, 0.9]), { kind: 'catch', falseAlarm: false }])
+  assert(ok.status === 'ok' && ok.thresholdArcmin === 1.05 && ok.repeatable && ok.index != null, 'repeatable session → median threshold + index')
+  const fa = summarizeNearBlur([...scored([1, 1, 1, 1]), { kind: 'catch', falseAlarm: true }])
+  assert(fa.status === 'unreliable_catch' && fa.index === null, 'catch false alarm → not scored')
+  const spread = summarizeNearBlur([...scored([0.5, 3, 1, 6]), { kind: 'catch', falseAlarm: false }])
+  assert(spread.status === 'not_repeatable' && spread.needsExtraRun && spread.index === null, 'unrepeatable runs ask for an extra run')
+  const capped = summarizeNearBlur([...scored([0.5, 3, 1, 6, 0.4, 5]), { kind: 'catch', falseAlarm: false }])
+  assert(capped.status === 'not_repeatable' && !capped.needsExtraRun, 'extra runs stop after 2')
+  const censored = summarizeNearBlur([
+    ...scored([1, 1.1]),
+    { kind: 'scored', thresholdArcmin: 8, censored: true },
+    { kind: 'scored', thresholdArcmin: 8, censored: true },
+  ])
+  assert(censored.status === 'beyond_range' && censored.thresholdArcmin === null, 'two capped runs → beyond range')
+  assert(nearBlurIndex(0.5) === 100 && nearBlurIndex(8) === 0 && nearBlurIndex(2) === 50, 'near blur index is log-linear 0.5→100, 8→0')
 }
 
 console.log(`Vision scoring tests: ${passed} passed, ${failed} failed`)

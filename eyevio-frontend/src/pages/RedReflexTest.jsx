@@ -8,6 +8,10 @@ import {
   medianPupilReflex,
   redReflexSymmetry,
   estimatePhoneCameraDistanceCm,
+  eyeGlowOutcome,
+  needsAnotherGlowCapture,
+  EYE_GLOW_CAPTURES,
+  RED_REFLEX_LIMITS,
 } from '../utils/visionTestScoring'
 import { PupilRegionTracker, sampleRegionPixels } from '../utils/pupilRegionDetector'
 import { lockCameraColour, torchSupported, setTorch, cameraFacing } from '../utils/cameraControls'
@@ -19,6 +23,10 @@ import { lockCameraColour, torchSupported, setTorch, cameraFacing } from '../uti
  * red reflex. This test runs only on a phone's rear camera with its torch (or a
  * second light held against the lens) in a dark room at about 1 m, and reports
  * only how the two eyes' reflexes differ from each other.
+ *
+ * An asymmetry is reported only when it repeats across captures. There is no
+ * "normal" outcome and no symmetry score, and results never feed alerts,
+ * trends, or the clinician report.
  */
 
 // Centre square handed to the face model — at 1 m the face is too small in the full frame.
@@ -72,6 +80,9 @@ const RedReflexTest = () => {
   const [captureProgress, setCaptureProgress] = useState(0)
   const [error, setError] = useState(null)
   const [result, setResult] = useState(null)
+  const [captureCount, setCaptureCount] = useState(0)
+  const capturesRef = useRef([])
+  const failedAttemptsRef = useRef(0)
 
   const stopCamera = useCallback(() => {
     runIdRef.current += 1
@@ -173,34 +184,58 @@ const RedReflexTest = () => {
   const lightReady = torchOn || externalLight
   const canCapture = cameraReady && framing.faceFound && distanceStatus === 'ok' && pupilsResolvable && lightReady
 
-  const submitResults = async (summary) => {
+  const submitResults = async (session) => {
     try {
       await visionTestAPI.submit({
         test_type: 'red_reflex',
-        score: summary.symmetry.symmetryScore,
+        score: null,
         test_details: {
-          method: 'phone_rear_torch_bruckner_symmetry',
-          method_version: 2,
-          symmetry_score: summary.symmetry.symmetryScore,
-          brightness_asymmetry: summary.symmetry.brightnessAsymmetry,
-          colour_asymmetry: summary.symmetry.colourAsymmetry,
-          white_asymmetry: summary.symmetry.whiteAsymmetry,
-          flags: summary.symmetry.flags,
-          right_eye: summary.right,
-          left_eye: summary.left,
-          illumination: summary.illumination,
-          dark_phase: summary.darkPhase,
-          exposure_lock: summary.exposureLock,
-          frames_used: summary.framesUsed,
-          frames_captured: summary.framesCaptured,
-          distance_cm: summary.distanceCm,
-          reporting: 'inter_ocular_symmetry_only',
+          method: 'phone_rear_torch_bruckner_repeated_captures',
+          method_version: 3,
+          reporting: 'repeated_inter_ocular_asymmetry_only',
+          outcome: session.outcome,
+          required_captures: EYE_GLOW_CAPTURES.required,
+          usable_captures: session.usableCaptures,
+          total_captures: session.totalCaptures,
+          failed_attempts: session.failedAttempts,
+          repeated_flags: session.repeatedFlags,
+          unrepeated_flags: session.unrepeatedFlags,
+          captures: session.captures.map((c) => ({
+            reflex_visible: c.symmetry.reflexVisible,
+            brightness_asymmetry: c.symmetry.brightnessAsymmetry,
+            colour_asymmetry: c.symmetry.colourAsymmetry,
+            white_asymmetry: c.symmetry.whiteAsymmetry,
+            flags: c.symmetry.flags,
+            right_eye: c.right,
+            left_eye: c.left,
+            illumination: c.illumination,
+            dark_phase: c.darkPhase,
+            exposure_lock: c.exposureLock,
+            frames_used: c.framesUsed,
+            frames_captured: c.framesCaptured,
+            distance_cm: c.distanceCm,
+          })),
+          excluded_from: ['alerts', 'trends', 'clinician_report'],
+          scoring_note:
+            'No symmetry score. An asymmetry is reported only when the same flag (same eye for one-sided flags) repeats in at least 2 captures. None of the outcomes means normal; problems affecting both eyes equally cannot be detected.',
           timestamp: new Date().toISOString(),
         },
       })
     } catch (err) {
       console.error('Failed to submit results:', err)
     }
+  }
+
+  const finishSession = (captures) => {
+    const session = {
+      ...eyeGlowOutcome(captures.map((c) => c.symmetry)),
+      captures,
+      failedAttempts: failedAttemptsRef.current,
+    }
+    stopCamera()
+    setResult(session)
+    setTestState('results')
+    if (session.usableCaptures >= EYE_GLOW_CAPTURES.required) submitResults(session)
   }
 
   const analyzeFrames = async (frames, context) => {
@@ -225,6 +260,11 @@ const RedReflexTest = () => {
     const framesUsed = Math.min(right?.frames ?? 0, left?.frames ?? 0)
 
     if (framesUsed < MIN_VALID_FRAMES) {
+      failedAttemptsRef.current += 1
+      if (failedAttemptsRef.current >= EYE_GLOW_CAPTURES.maxFailedAttempts) {
+        finishSession(capturesRef.current)
+        return
+      }
       setError(`Both pupils were found in only ${framesUsed} of ${frames.length} photos. Hold the phone steadier, keep the face in the square and try again.`)
       if (torchAvailable) setTorchOn(await setTorch(streamRef.current, true))
       setTestState('camera')
@@ -236,23 +276,24 @@ const RedReflexTest = () => {
       red_chroma: Number(s.redChroma.toFixed(3)),
       white_fraction: Number(s.whiteFraction.toFixed(3)),
     })
-    const summary = {
+    const capture = {
       ...context,
       symmetry: redReflexSymmetry(right, left),
       right: round(right),
       left: round(left),
-      relativeBrightness: {
-        right: Math.round((right.luminance / Math.max(right.luminance, left.luminance)) * 100),
-        left: Math.round((left.luminance / Math.max(right.luminance, left.luminance)) * 100),
-      },
       framesUsed,
       framesCaptured: frames.length,
     }
 
-    stopCamera()
-    setResult(summary)
-    setTestState('results')
-    if (summary.symmetry.reflexVisible) submitResults(summary)
+    const captures = [...capturesRef.current, capture]
+    capturesRef.current = captures
+    setCaptureCount(captures.length)
+    if (needsAnotherGlowCapture(captures.map((c) => c.symmetry))) {
+      if (torchAvailable) setTorchOn(await setTorch(streamRef.current, true))
+      setTestState('camera')
+      return
+    }
+    finishSession(captures)
   }
 
   const runCapture = async () => {
@@ -300,6 +341,9 @@ const RedReflexTest = () => {
 
   const startTest = () => {
     setResult(null)
+    capturesRef.current = []
+    failedAttemptsRef.current = 0
+    setCaptureCount(0)
     setExternalLight(false)
     setTestState('camera')
     initializeCamera()
@@ -341,7 +385,8 @@ const RedReflexTest = () => {
             <li><strong>2.</strong> Your helper holds the phone at your eye level, about 1 m away, back camera facing you, and puts your face in the square on screen.</li>
             <li><strong>3.</strong> Look straight at the phone&apos;s light with both eyes open.</li>
             <li><strong>4.</strong> The light turns off for {RELAX_SECONDS} seconds so your pupils can widen, then flashes back on while the phone takes a burst of photos.</li>
-            <li><strong>5.</strong> You get a left-versus-right comparison. There is no absolute &quot;glow score&quot;.</li>
+            <li><strong>5.</strong> This is repeated at least {EYE_GLOW_CAPTURES.required} times (up to {EYE_GLOW_CAPTURES.max}). A difference is only reported if it shows up again.</li>
+            <li><strong>6.</strong> You get a left-versus-right comparison. There is no glow score and no &quot;normal&quot; result.</li>
           </ol>
 
           <p className="text-sm text-gray-600">
@@ -429,6 +474,12 @@ const RedReflexTest = () => {
               </div>
             </div>
 
+            {captureCount > 0 && (
+              <div className="bg-gray-800 rounded-xl p-3 text-center text-sm">
+                Capture {captureCount} done. Take capture {captureCount + 1} (up to {EYE_GLOW_CAPTURES.max}) so the
+                result can be checked for consistency. Keep the same setup.
+              </div>
+            )}
             <p className="text-center text-gray-200">{framingMessage()}</p>
             <p className="text-center text-xs text-gray-500">Distance is estimated assuming a typical phone camera; ±15 cm is fine.</p>
 
@@ -447,12 +498,16 @@ const RedReflexTest = () => {
               <button
                 type="button"
                 onClick={() => {
+                  if (capturesRef.current.length > 0) {
+                    finishSession(capturesRef.current)
+                    return
+                  }
                   stopCamera()
                   setTestState('instructions')
                 }}
                 className="flex-1 px-6 py-3 bg-gray-700 hover:bg-gray-600 rounded-full font-semibold min-h-[44px]"
               >
-                Cancel
+                {captureCount > 0 ? 'Stop here' : 'Cancel'}
               </button>
               {!cameraReady && error ? (
                 <button type="button" onClick={initializeCamera} className="flex-1 px-6 py-3 bg-red-600 hover:bg-red-700 rounded-full font-semibold min-h-[44px]">
@@ -477,108 +532,116 @@ const RedReflexTest = () => {
 
   const FLAG_TEXT = {
     white_reflex: (f) =>
-      `The ${f.eye} eye's glow looked white or yellow while the other looked red. Looking slightly off-centre or a reflection can cause this, so retake once. If it shows again, book an eye doctor visit promptly — especially for a child.`,
+      `In ${f.captures} captures the ${f.eye} eye's glow looked white or yellow while the other looked red. Looking slightly off-centre or a reflection can cause this. This app cannot tell what causes it; eye-health organisations advise that a white pupil glow seen repeatedly in photos, especially in a child, be checked by an eye doctor.`,
     brightness: (f) =>
-      `The ${f.eye} eye's glow was noticeably dimmer. Common causes are looking off-centre or pupils of different sizes; it can also come from a big difference in glasses prescription between the eyes or cloudiness in the lens.`,
-    colour: () =>
-      'The two glows were noticeably different colours. This is often lighting or gaze, but a repeated difference is worth mentioning at an eye exam.',
-    pale_both: () =>
-      'Both glows looked pale. This is usually room light — retake in a darker room.',
+      `In ${f.captures} captures the ${f.eye} eye's glow was noticeably dimmer. Looking off-centre or pupils of different sizes can cause this; so can a big difference in glasses prescription between the eyes or cloudiness in the lens. Mention it at an eye exam.`,
+    colour: (f) =>
+      `In ${f.captures} captures the two glows were noticeably different colours. Lighting or gaze can cause this. Mention it at an eye exam.`,
+  }
+
+  const OUTCOME = {
+    asymmetry_observed: {
+      title: 'Asymmetry observed',
+      body: 'The same left-right difference appeared in repeated captures.',
+      tone: 'bg-yellow-50 border-yellow-300 text-yellow-900',
+    },
+    no_repeated_asymmetry: {
+      title: 'No repeated asymmetry measured',
+      body: 'No left-right difference repeated across captures. This is not a normal result and does not rule out an eye problem: this check cannot see problems that affect both eyes equally, and it is not a clinical red-reflex exam.',
+      tone: 'bg-gray-50 border-gray-300 text-gray-800',
+    },
+    no_usable_reflex: {
+      title: 'No usable reflex',
+      body: 'No glow could be measured. This usually means the setup, not the eyes: the room was not dark enough, the light was not right beside the lens, or the eyes were not looking at the light.',
+      tone: 'bg-gray-50 border-gray-300 text-gray-800',
+    },
+    capture_unsuccessful: {
+      title: 'Capture unsuccessful',
+      body: `Fewer than ${EYE_GLOW_CAPTURES.required} usable captures were taken, so nothing can be reported. Try again with the phone held steady about 1 m away in a dark room.`,
+      tone: 'bg-gray-50 border-gray-300 text-gray-800',
+    },
   }
 
   const renderResults = () => {
     if (!result) return null
-    const { symmetry } = result
-    const score = symmetry.symmetryScore
-    const concerns = symmetry.flags.filter((f) => FLAG_TEXT[f.type])
-    const critical = concerns.some((f) => f.severity === 'critical')
-    const tone = !symmetry.reflexVisible ? 'gray' : critical || score < 50 ? 'red' : score < 75 ? 'yellow' : 'green'
-    const toneClass = {
-      gray: 'bg-gray-50 border-gray-300 text-gray-800',
-      red: 'bg-red-50 border-red-300 text-red-800',
-      yellow: 'bg-yellow-50 border-yellow-300 text-yellow-800',
-      green: 'bg-green-50 border-green-300 text-green-800',
-    }[tone]
+    const view = OUTCOME[result.outcome]
+    const saved = result.usableCaptures >= EYE_GLOW_CAPTURES.required
+    const pct = (v) => `${Math.round(v * 100)}%`
 
     return (
       <div className="test-shell">
         <div className="max-w-3xl mx-auto test-panel p-6 md:p-10 space-y-6">
           <div className="text-center">
             <h1 className="page-title mb-1">Eye Glow Result</h1>
-            <p className="text-gray-600">Left-versus-right comparison only</p>
+            <p className="text-gray-600">Left-versus-right comparison only · {result.usableCaptures} usable of {result.totalCaptures} captures</p>
           </div>
 
-          {!symmetry.reflexVisible ? (
-            <div className={`border-2 rounded-2xl p-6 ${toneClass}`}>
-              <h2 className="text-xl font-bold mb-2">No glow seen in either eye — not scored</h2>
-              <p className="mb-2">This usually means the setup, not the eyes:</p>
-              <ul className="list-disc pl-5 space-y-1">
-                <li>the room was not dark enough, so the pupils were small;</li>
-                <li>the light was not right beside the camera lens;</li>
-                <li>the eyes were not looking straight at the light.</li>
-              </ul>
-              <p className="mt-2 text-sm">Nothing was saved. Try again in a darker room.</p>
-            </div>
-          ) : (
-            <div className={`border-2 rounded-2xl p-6 text-center ${toneClass}`}>
-              <h2 className="text-sm font-semibold uppercase tracking-wide mb-1">Glow symmetry</h2>
-              <div className="text-6xl font-bold">
-                {score}
-                <span className="text-2xl">/100</span>
-              </div>
-              <p className="mt-2">
-                {critical
-                  ? 'One eye looked very different from the other'
-                  : score >= 75
-                    ? 'Both eyes glowed about the same'
-                    : score >= 50
-                      ? 'A mild difference between the eyes'
-                      : 'A clear difference between the eyes'}
-              </p>
-            </div>
-          )}
+          <div className={`border-2 rounded-2xl p-6 ${view.tone}`}>
+            <h2 className="text-xl font-bold mb-2">{view.title}</h2>
+            <p>{view.body}</p>
+            {result.outcome === 'no_repeated_asymmetry' && result.unrepeatedFlags && (
+              <p className="mt-2 text-sm">One capture showed a difference that did not repeat. It is not reported as an asymmetry.</p>
+            )}
+            {!saved && <p className="mt-2 text-sm">Nothing was saved.</p>}
+          </div>
 
-          {symmetry.reflexVisible && (
-            <div className="bg-gray-50 rounded-2xl p-5">
-              <h3 className="font-bold text-gray-900 mb-3">Relative glow brightness</h3>
-              {['right', 'left'].map((eye) => (
-                <div key={eye} className="mb-3">
-                  <div className="flex justify-between text-sm mb-1">
-                    <span className="capitalize">{eye} eye</span>
-                    <span>{result.relativeBrightness[eye]}% of the brighter eye</span>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div className="bg-red-600 h-2 rounded-full" style={{ width: `${result.relativeBrightness[eye]}%` }} />
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {concerns.length > 0 && (
-            <div className={`border-l-4 p-5 rounded-r-xl ${critical ? 'bg-red-50 border-red-600 text-red-900' : 'bg-yellow-50 border-yellow-500 text-yellow-900'}`}>
-              <h3 className="font-bold mb-2">What we noticed</h3>
+          {result.outcome === 'asymmetry_observed' && (
+            <div className="border-l-4 p-5 rounded-r-xl bg-yellow-50 border-yellow-500 text-yellow-900">
+              <h3 className="font-bold mb-2">What repeated</h3>
               <ul className="space-y-2">
-                {concerns.map((f) => (
-                  <li key={f.type}>• {FLAG_TEXT[f.type](f)}</li>
+                {result.repeatedFlags.filter((f) => FLAG_TEXT[f.type]).map((f) => (
+                  <li key={`${f.type}-${f.eye}`}>• {FLAG_TEXT[f.type](f)}</li>
                 ))}
               </ul>
             </div>
           )}
 
+          {result.captures.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm text-left">
+                <thead className="text-xs text-gray-500">
+                  <tr>
+                    <th className="py-1 pr-2">Capture</th>
+                    <th className="py-1 pr-2">Brightness diff. (flag {pct(RED_REFLEX_LIMITS.brightnessAsymmetry)})</th>
+                    <th className="py-1 pr-2">Red-colour diff. (flag {RED_REFLEX_LIMITS.colourAsymmetry.toFixed(2)})</th>
+                    <th className="py-1">White-glow diff. (flag {pct(RED_REFLEX_LIMITS.whiteAsymmetry)})</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {result.captures.map((c, i) => (
+                    <tr key={i} className="border-t border-gray-100">
+                      <td className="py-1 pr-2">{i + 1}</td>
+                      {c.symmetry.reflexVisible ? (
+                        <>
+                          <td className="py-1 pr-2">{pct(c.symmetry.brightnessAsymmetry)}</td>
+                          <td className="py-1 pr-2">{c.symmetry.colourAsymmetry.toFixed(3)}</td>
+                          <td className="py-1">{pct(c.symmetry.whiteAsymmetry)}</td>
+                        </>
+                      ) : (
+                        <td className="py-1 text-gray-500" colSpan={3}>No usable reflex</td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
           <div className="bg-blue-50 rounded-2xl p-5 text-blue-900 text-sm space-y-1">
             <h3 className="font-bold text-base mb-1">What this can&apos;t tell you</h3>
-            <p>• It only looks for differences between your eyes. An even result does not rule out a problem that affects both eyes equally.</p>
+            <p>• It only looks for differences between your eyes. It cannot detect a problem that affects both eyes equally, so none of these outcomes means your eyes are normal.</p>
             <p>• It is not a clinical red-reflex exam with an ophthalmoscope. Babies and young children still need their routine checks.</p>
             <p>• The glow&apos;s absolute brightness depends on the phone, the light and pupil size, so it is not reported.</p>
+            <p>• Eye Glow results are not used for alerts, trends, or the clinician report.</p>
           </div>
 
-          <div className="text-xs text-gray-500 space-y-0.5">
-            <p>Photos used: {result.framesUsed} of {result.framesCaptured}</p>
-            <p>Light: {result.illumination === 'phone_torch' ? 'phone flashlight' : 'external light beside the lens'}{result.darkPhase ? `, ${RELAX_SECONDS}s dark pause` : ', no dark pause'}</p>
-            <p>Exposure lock: {result.exposureLock?.locked ? 'on' : 'not supported by this browser'}</p>
-            {result.distanceCm && <p>Estimated distance: {result.distanceCm} cm</p>}
-          </div>
+          {result.captures[0] && (
+            <div className="text-xs text-gray-500 space-y-0.5">
+              <p>Light: {result.captures[0].illumination === 'phone_torch' ? 'phone flashlight' : 'external light beside the lens'}{result.captures[0].darkPhase ? `, ${RELAX_SECONDS}s dark pause` : ', no dark pause'}</p>
+              <p>Exposure lock: {result.captures[0].exposureLock?.locked ? 'on' : 'not supported by this browser'}</p>
+              {result.failedAttempts > 0 && <p>Attempts where both pupils could not be found: {result.failedAttempts}</p>}
+            </div>
+          )}
 
           <SamdDisclaimer testType="red_reflex" />
 

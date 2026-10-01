@@ -441,7 +441,6 @@ export function analyzeUserRiskProfile(userData) {
   const risks = []
 
   const {
-    fatigue_score = 0,
     blink_rate = 15,
     avg_blink_duration = 250,
     screen_time_hours = 0,
@@ -528,15 +527,6 @@ export function analyzeUserRiskProfile(userData) {
       })
     }
 
-    // Additional checks based on test results
-    if (fatigue_score > 60) {
-      riskScore += 15
-      triggers.push(`High fatigue: score ${fatigue_score}`)
-    } else if (fatigue_score > 40) {
-      riskScore += 10
-      triggers.push(`Elevated fatigue: score ${fatigue_score}`)
-    }
-
     if (blink_rate < 10) {
       riskScore += 15
       triggers.push(`Very low blink rate: ${blink_rate}/min`)
@@ -601,30 +591,24 @@ export function generatePersonalizedFeedback(testResult, userProfile) {
 
   // Eye Tracking specific feedback
   if (test_type === 'eye_tracking') {
+    // The fatigue score is a display index, so feedback is driven by the measured blink rate.
     const fatigueScore = metadata.fatigueScore || 0
     const blinkRate = metadata.blinkRate || 15
-    const totalBlinks = metadata.totalBlinks || 0
 
-    // Title based on severity
-    if (fatigueScore < 30) {
-      feedback.title = ' Excellent Eye Health!'
+    if (blinkRate >= 12) {
+      feedback.title = 'Blink rate in the typical range'
       feedback.severity = 'normal'
-    } else if (fatigueScore < 60) {
-      feedback.title = ' Mild Eye Strain Detected'
+    } else if (blinkRate >= 10) {
+      feedback.title = 'Blink rate a little low'
       feedback.severity = 'caution'
     } else {
-      feedback.title = ' High Eye Fatigue - Action Needed'
-      feedback.severity = 'concern'
+      feedback.title = 'Blink rate low during this session'
+      feedback.severity = 'caution'
     }
 
-    // Personalized assessment
-    const assessmentParts = []
-    
-    if (fatigueScore < 30) {
-      assessmentParts.push('Your eyes are showing healthy patterns.')
-    } else {
-      assessmentParts.push(`Your fatigue score of ${fatigueScore} indicates ${fatigueScore < 60 ? 'mild' : 'significant'} eye strain.`)
-    }
+    const assessmentParts = [
+      `You blinked about ${blinkRate} times per minute (typical while reading a screen: 12–20).`,
+    ]
 
     // Context from screen time
     if (screen_time_hours > 8) {
@@ -635,12 +619,11 @@ export function generatePersonalizedFeedback(testResult, userProfile) {
     }
 
     // Blink rate analysis
-    if (blinkRate < 10) {
-      assessmentParts.push(`Your blink rate of ${blinkRate}/min is critically low (normal: 12-20/min), which can lead to dry eyes.`)
+    if (blinkRate < 12) {
+      assessmentParts.push('Blinking less while concentrating on a screen is common and can leave eyes feeling dry.')
       feedback.relatedConditions.push('dry_eye')
-    } else if (blinkRate < 12) {
-      assessmentParts.push(`Your blink rate of ${blinkRate}/min is slightly low. Aim for 12-20/min.`)
     }
+    assessmentParts.push(`Fatigue index ${fatigueScore}/100 (display index, not clinically validated).`)
 
     feedback.assessment = assessmentParts.join(' ')
 
@@ -651,7 +634,7 @@ export function generatePersonalizedFeedback(testResult, userProfile) {
     feedback.recommendations = generateRecommendations(testResult, userProfile)
 
     // Next steps
-    feedback.nextSteps = generateNextSteps(fatigueScore, blinkRate, userProfile)
+    feedback.nextSteps = generateNextSteps(blinkRate, userProfile)
   }
 
   // Acuity test feedback
@@ -697,7 +680,7 @@ export function generatePersonalizedFeedback(testResult, userProfile) {
 function generateInsights(testResult, userProfile) {
   const insights = []
   const metadata = testResult.metadata || {}
-  const fatigueScore = metadata.fatigueScore || 0
+  const blinkRate = metadata.blinkRate || 15
 
   // Sleep impact
   if (userProfile.avg_sleep_hours < 7) {
@@ -710,12 +693,12 @@ function generateInsights(testResult, userProfile) {
   }
 
   // Lens impact
-  if (userProfile.lens_type !== 'none' && fatigueScore > 40) {
+  if (userProfile.lens_type !== 'none' && blinkRate < 12) {
     insights.push(`👓 Prescription Check: Consider updating your ${userProfile.lens_type} prescription if it's been >1 year.`)
   }
 
   // Activity level
-  if (userProfile.activity_level === 'sedentary' && fatigueScore > 50) {
+  if (userProfile.activity_level === 'sedentary' && blinkRate < 12) {
     insights.push('🏃 Movement Matters: Sedentary lifestyle reduces circulation. Take movement breaks every hour.')
   }
 
@@ -733,15 +716,13 @@ function generateInsights(testResult, userProfile) {
 function generateRecommendations(testResult, userProfile) {
   const recommendations = []
   const metadata = testResult.metadata || {}
-  const fatigueScore = metadata.fatigueScore || 0
   const blinkRate = metadata.blinkRate || 15
 
-  // Immediate actions
-  if (fatigueScore > 60) {
+  if (blinkRate < 10) {
     recommendations.push({
-      priority: 'urgent',
-      action: 'Take a 15-minute break immediately',
-      reason: 'High fatigue requires rest now',
+      priority: 'high',
+      action: 'Take a short screen break and blink fully a few times',
+      reason: 'Your blink rate was low during this session',
     })
   }
 
@@ -764,7 +745,7 @@ function generateRecommendations(testResult, userProfile) {
   }
 
   // Screen setup
-  if (fatigueScore > 40) {
+  if (blinkRate < 12) {
     recommendations.push({
       priority: 'medium',
       action: 'Optimize screen position: 20-26 inches away, slightly below eye level',
@@ -772,12 +753,11 @@ function generateRecommendations(testResult, userProfile) {
     })
   }
 
-  // Artificial tears
-  if (blinkRate < 10 || fatigueScore > 50) {
+  if (blinkRate < 10) {
     recommendations.push({
       priority: 'medium',
-      action: 'Use preservative-free artificial tears 3-4x daily',
-      reason: 'Helps maintain tear film',
+      action: 'If your eyes often feel dry, ask a pharmacist or eye doctor about lubricating drops',
+      reason: 'Low blink rates can leave the eye surface dry',
     })
   }
 
@@ -790,14 +770,11 @@ function generateRecommendations(testResult, userProfile) {
     })
   }
 
-  // Doctor visit
-  if (fatigueScore > 70 || blinkRate < 8) {
-    recommendations.push({
-      priority: 'urgent',
-      action: 'Schedule eye exam within 2 weeks',
-      reason: 'Persistent symptoms need professional evaluation',
-    })
-  }
+  recommendations.push({
+    priority: 'medium',
+    action: 'If eye discomfort or blurred vision persists, see an eye care professional',
+    reason: 'This session measures blinking only and cannot assess eye health',
+  })
 
   return recommendations
 }
@@ -805,10 +782,10 @@ function generateRecommendations(testResult, userProfile) {
 /**
  * Generate next steps
  */
-function generateNextSteps(fatigueScore, blinkRate, userProfile) {
+function generateNextSteps(blinkRate, userProfile) {
   const steps = []
 
-  if (fatigueScore > 50) {
+  if (blinkRate < 12) {
     steps.push({
       step: 'Complete blink calibration',
       reason: 'Get personalized blink detection',
@@ -842,50 +819,14 @@ function generateNextSteps(fatigueScore, blinkRate, userProfile) {
 /**
  * Assess if user should see a doctor
  */
-export function assessDoctorVisit(userData, testResults = []) {
+export function assessDoctorVisit(userData) {
   let urgency = 'green' // green, yellow, red
   let reasons = []
 
-  // Check recent tests
-  const recentEyeTracking = testResults
-    .filter((t) => t.test_type === 'eye_tracking')
-    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0]
-
-  if (recentEyeTracking?.metadata?.fatigueScore > 70) {
-    urgency = 'red'
-    reasons.push('Persistently high fatigue score')
-  } else if (recentEyeTracking?.metadata?.fatigueScore > 50) {
+  // 0–100 fatigue and acuity scores are display indices, so only measured blink rate is considered.
+  if (userData.blink_rate < 10) {
     urgency = 'yellow'
-    reasons.push('Elevated fatigue levels')
-  }
-
-  // Check vision decline
-  const acuityTests = testResults
-    .filter((t) => t.test_type === 'acuity')
-    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
-    .slice(0, 3)
-
-  if (acuityTests.length >= 2) {
-    const recent = acuityTests[0].score
-    const older = acuityTests[acuityTests.length - 1].score
-    const decline = older - recent
-
-    if (decline > 15) {
-      urgency = 'red'
-      reasons.push(`Vision decline: ${decline}% decrease`)
-    } else if (decline > 8) {
-      if (urgency === 'green') urgency = 'yellow'
-      reasons.push('Mild vision changes detected')
-    }
-  }
-
-  // Blink rate concerns
-  if (userData.blink_rate < 8) {
-    urgency = 'red'
-    reasons.push('Critically low blink rate')
-  } else if (userData.blink_rate < 10) {
-    if (urgency === 'green') urgency = 'yellow'
-    reasons.push('Low blink rate may indicate dry eye')
+    reasons.push('Low blink rate during screen use')
   }
 
   return {

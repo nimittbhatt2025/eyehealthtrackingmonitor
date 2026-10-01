@@ -3,10 +3,12 @@
  *
  * Relaxed blink rate is roughly 15–20 per minute and typically falls by half
  * or more during screen work (Patel et al. 1991; Tsubota & Nakamori 1993),
- * which dries the tear film. Bands below are for feedback, not diagnosis.
+ * which dries the tear film. The categories below describe the observed rate
+ * for coaching only; they are not health classifications and camera blink
+ * counts vary with lighting, glasses and face angle.
  */
 
-export const BLINK_BANDS = { low: 8, healthy: 12 }
+export const BLINK_BANDS = { lowerBelow: 8, higherFrom: 12 }
 export const BLINK_WARMUP_MS = 30000
 export const BLINK_WINDOW_MS = 60000
 export const BLINK_NUDGE_COOLDOWN_MS = 120000
@@ -33,9 +35,9 @@ export function rollingBlinkRate(timestamps, nowMs, { startedAt, windowMs = BLIN
 
 export function blinkBand(rate) {
   if (rate == null) return 'warming_up'
-  if (rate < BLINK_BANDS.low) return 'low'
-  if (rate < BLINK_BANDS.healthy) return 'reduced'
-  return 'healthy'
+  if (rate < BLINK_BANDS.lowerBelow) return 'lower'
+  if (rate < BLINK_BANDS.higherFrom) return 'intermediate'
+  return 'higher'
 }
 
 /** Whether a 20-20-20 break is due, given active (unpaused) time since the last break. */
@@ -46,7 +48,7 @@ export function breakDue(activeMsSinceBreak, intervalMs) {
 /** Session summary of blink-rate samples taken once per second. */
 export function summarizeBlinkSession(samples, blinkCount, activeMs) {
   const rated = samples.filter((s) => s.rate != null)
-  const lowSeconds = rated.filter((s) => s.rate < BLINK_BANDS.low).length
+  const lowSeconds = rated.filter((s) => s.rate < BLINK_BANDS.lowerBelow).length
   return {
     blinkCount,
     meanRatePerMin: activeMs > BLINK_WARMUP_MS ? Math.round((blinkCount / activeMs) * 60000 * 10) / 10 : null,

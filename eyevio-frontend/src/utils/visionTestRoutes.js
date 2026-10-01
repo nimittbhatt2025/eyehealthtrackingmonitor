@@ -13,7 +13,7 @@ const TEST_ROUTES = {
   amsler_grid: '/vision-tests/amsler_grid',
   contrast_sensitivity: '/vision-tests/contrast_sensitivity',
   side_vision: '/vision-tests/side_vision',
-  glaucoma_neural: '/vision-tests/side_vision',
+  side_vision_legacy: '/vision-tests/side_vision',
   cataract_glare: '/vision-tests/cataract_glare',
   red_reflex: '/vision-tests/red_reflex',
   accommodative_lag: '/vision-tests/accommodative_lag',
@@ -29,7 +29,7 @@ const TEST_ROUTES = {
 export const TEST_INFO = {
   dry_eye: {
     title: 'Dry Eye Check',
-    description: 'OSDI-12, tear break-up proxy, and light-corrected photo — not a diagnosis',
+    description: 'OSDI-12, blur-report time, and optional experimental photo index — not a diagnosis',
   },
   visual_acuity: {
     title: 'Clear Vision Test',
@@ -57,7 +57,7 @@ export const TEST_INFO = {
   },
   accommodative_lag: {
     title: 'Near Blur Tolerance',
-    description: 'Focusing fatigue index for near work',
+    description: 'Blur detection threshold on near letters at 40 cm (arcmin)',
   },
   near_point_convergence: {
     title: 'Convergence Near Point',
@@ -71,7 +71,7 @@ export const TEST_INFO = {
     title: 'Side Vision Test',
     description: 'Relative four-corner comparison with reliability checks — not a visual-field test',
   },
-  glaucoma_neural: {
+  side_vision_legacy: {
     title: 'Side Vision Test (earlier version)',
     description: 'Earlier side-vision exercise — not a visual-field test',
   },

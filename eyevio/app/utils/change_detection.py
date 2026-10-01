@@ -29,6 +29,12 @@ import math
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
+DISPLAY_INDEX_LABEL = 'Display index, not clinically validated'
+# Composite 0–100 indices with no reference data behind them; these tests store no score.
+RETIRED_INDEX_TESTS = frozenset({'color_vision', 'amsler_grid', 'dry_eye', 'red_reflex'})
+# Never trended, alerted on, or ranked: a phone glow comparison is too setup-dependent.
+NOT_TRACKED_TESTS = frozenset({'red_reflex'})
+
 Z_RELIABLE = 1.96
 BASELINE_MIN = 3
 BASELINE_MAX = 5
@@ -62,7 +68,9 @@ def _contrast_sd(details, name):
 
 
 def _glare(details, test):
-    return {'glare Δ logCS': _num(details.get('delta_logcs'))}
+    # Screen ring and phone torch are different glare sources, so each is its own series.
+    source = 'torch' if details.get('glare_mode') == 'torch' else 'screen ring'
+    return {f'glare Δ logCS ({source})': _num(details.get('delta_logcs'))}
 
 
 def _glare_sd(details, name):
@@ -82,15 +90,39 @@ def _ordered(d: Dict[str, Any], canonical: Sequence[str]):
 def _colour(details, test):
     out: Dict[str, Optional[float]] = {}
     for eye, r in _ordered(details.get('eyes') or {}, _EYE_ORDER):
+        if (r or {}).get('reliable') is False:
+            continue
         for axis, a in _ordered((r or {}).get('axes') or {}, _AXIS_ORDER):
-            units = _num((a or {}).get('threshold_units'))
-            if units and units > 0 and not a.get('beyond_screen_gamut'):
+            a = a or {}
+            units = _num(a.get('threshold_units'))
+            usable = not a.get('beyond_screen_gamut') and a.get('gamut_adequate') is not False and not a.get('uncertain')
+            if units and units > 0 and usable:
                 out[f'{eye} {axis}'] = math.log10(units)
     return out
 
 
 def _amsler(details, test):
-    return _eye_field(details, 'score')
+    out: Dict[str, Optional[float]] = {}
+    for eye, r in _ordered(details.get('eyes') or {}, _EYE_ORDER):
+        areas = [_num((r or {}).get(k)) for k in ('standard_area_deg2', 'low_contrast_area_deg2')]
+        areas = [a for a in areas if a is not None]
+        out[f'{eye} eye'] = max(areas) if areas else None
+    return out
+
+
+def _npc(details, test):
+    return {'break distance': _num(details.get('npc_cm'))}
+
+
+def _near_blur(details, test):
+    if details.get('status') != 'ok':
+        return {}
+    return {'blur threshold': _num(details.get('log10_blur_threshold'))}
+
+
+def _near_blur_sd(details, name):
+    sd, n = _num(details.get('within_session_log10_sd')), _num(details.get('measured_runs'))
+    return sd / math.sqrt(n) if sd is not None and n else None
 
 
 def _side_game(details, test):
@@ -98,7 +130,7 @@ def _side_game(details, test):
 
 
 def _score(details, test):
-    return {'score': _num(getattr(test, 'score', None))}
+    return {'display index': _num(getattr(test, 'score', None))}
 
 
 @dataclass(frozen=True)
@@ -111,6 +143,11 @@ class MetricSpec:
     session_sd: Optional[Callable[[Dict[str, Any], str], Optional[float]]] = None
     provisional: bool = False
     source: str = ''
+    version: Any = 2
+    # Display indices are not clinically validated, so a change in one never raises an alert.
+    alerts: bool = True
+    # Only compare sessions taken on the same display as the latest one (display_id in test_details).
+    same_display: bool = False
 
 
 METRICS: Dict[str, MetricSpec] = {
@@ -124,15 +161,25 @@ METRICS: Dict[str, MetricSpec] = {
     ),
     'cataract_glare': MetricSpec(
         'Δ logCS', 'up', 0.10, 0.15, _glare, _glare_sd,
-        source='Difference of two QUEST thresholds; session SD from both staircases.',
+        source='Difference of two QUEST thresholds; session SD from both staircases. Screen-ring and torch sessions are separate series.',
     ),
     'color_vision': MetricSpec(
-        'log₁₀ threshold (u′v′)', 'up', 0.10, 0.15, _colour, provisional=True,
-        source='Provisional prior (≈ ±26% threshold ratio) until personal repeatability is known.',
+        'log₁₀ threshold (u′v′)', 'up', 0.10, 0.15, _colour, provisional=True, same_display=True,
+        source='Provisional prior (≈ ±26% threshold ratio) until personal repeatability is known; same display only.',
     ),
     'amsler_grid': MetricSpec(
-        'eye score', 'down', 10.0, 20.0, _amsler, provisional=True,
-        source='Categorical-style score; provisional prior.',
+        'marked area (deg²)', 'up', 3.0, 5.0, _amsler, provisional=True,
+        source='Larger of the full-contrast and 5%-contrast marked areas per eye; provisional prior.',
+    ),
+    'near_point_convergence': MetricSpec(
+        'cm', 'up', 2.0, 4.0, _npc, provisional=True,
+        source='Break distance (first of reported doubling or a camera break that passed confidence checks); '
+               'sessions without a break are not tracked; provisional prior (published NPC retest limits are roughly ±4 cm).',
+    ),
+    'accommodative_lag': MetricSpec(
+        'log₁₀ blur threshold (arcmin)', 'up', 0.10, 0.15, _near_blur, _near_blur_sd, provisional=True,
+        alerts=False,
+        source='Within-session SD of ascending runs; provisional prior. Comfort measure, never alerted on.',
     ),
     'peripheral_awareness': MetricSpec(
         'degrees', 'down', 1.5, 3.0, _side_game, provisional=True,
@@ -140,14 +187,15 @@ METRICS: Dict[str, MetricSpec] = {
     ),
 }
 DEFAULT_METRIC = MetricSpec(
-    'score (0–100)', 'down', 8.0, 15.0, _score, provisional=True,
-    source='Generic 0–100 score; provisional prior.',
+    'display index (0–100), not clinically validated', 'down', 8.0, 15.0, _score, provisional=True,
+    source='Display index; shown for orientation only and never used for alerts.',
+    alerts=False,
 )
 
 
 def metric_for(test_type: str, method_version: Any) -> MetricSpec:
     spec = METRICS.get(test_type)
-    if spec is None or method_version != 2:
+    if spec is None or method_version != spec.version:
         return DEFAULT_METRIC
     return spec
 
@@ -246,6 +294,12 @@ def assess_tests(tests: Sequence[Any], test_type: Optional[str] = None, method_v
     Tests only need .score, .test_details and .created_at.
     """
     spec = metric_for(test_type or '', method_version)
+    if test_type in NOT_TRACKED_TESTS:
+        tests = []
+    display_id = None
+    if spec.same_display and tests:
+        display_id = (getattr(tests[-1], 'test_details', None) or {}).get('display_id')
+        tests = [t for t in tests if display_id and (getattr(t, 'test_details', None) or {}).get('display_id') == display_id]
     series: Dict[str, List[tuple]] = {}
     for t in tests:
         details = getattr(t, 'test_details', None) or {}
@@ -257,6 +311,8 @@ def assess_tests(tests: Sequence[Any], test_type: Optional[str] = None, method_v
 
     results = [assess_series(name, pts, spec) for name, pts in series.items()]
     overall = max(results, key=lambda r: _STATUS_RANK[r.status]).status if results else 'insufficient_data'
+    if not spec.alerts and results:
+        overall = 'display_only'
     return {
         'status': overall,
         'test_type': test_type,
@@ -267,6 +323,9 @@ def assess_tests(tests: Sequence[Any], test_type: Optional[str] = None, method_v
         'mcid': spec.mcid,
         'provisional_repeatability': spec.provisional,
         'repeatability_source': spec.source,
+        'alerts_enabled': spec.alerts,
+        'comparison_scope': 'same_display' if spec.same_display else 'all_devices',
+        'display_id': display_id,
         'rule': 'RCI > 1.96 and change ≥ MCID on the 2 most recent sessions vs baseline mean',
         'series': [r.to_dict() for r in results],
     }

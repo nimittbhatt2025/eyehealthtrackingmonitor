@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { visionTestAPI } from '../services/api'
 import SamdDisclaimer from '../components/SamdDisclaimer'
+import { DISPLAY_INDEX_LABEL } from '../utils/displayIndex'
 
 function VisionTests() {
   const [tests, setTests] = useState([])
@@ -63,7 +64,7 @@ function VisionTests() {
     {
       type: 'side_vision',
       title: 'Side Vision Test',
-      subtitle: 'Is one corner weaker than the others? (not a glaucoma exam)',
+      subtitle: 'Is one corner weaker than the others? (not a visual-field test)',
       description: 'Report a number at the centre while spotting faint corner spots, one eye at a time. Catch rounds check reliability, and only the relative difference between corners is reported — not a visual-field test.',
       duration: '4-6 minutes',
       features: ['Centre-number fixation check', 'Catch trials', 'Relative corner map'],
@@ -84,7 +85,7 @@ function VisionTests() {
       subtitle: 'Symptoms, tear stability, and a photo',
       description: 'The 12-question OSDI, a blink-to-blur tear stability check with camera blink counting, and a photo with redness corrected for room light. Not a dry-eye diagnosis.',
       duration: '5 minutes',
-      features: ['OSDI-12', 'Tear break-up proxy', 'Light-corrected redness'],
+      features: ['OSDI-12', 'Blur-report time', 'Optional photo (experimental)'],
       badge: 'New',
       webcam: true
     },
@@ -100,10 +101,10 @@ function VisionTests() {
     {
       type: 'accommodative_lag',
       title: 'Near Blur Tolerance',
-      subtitle: 'Focusing fatigue index for close-up work',
-      description: 'A letter slowly blurs while you report when it stops looking clear; the camera notes pupil response. A comfort index for near work — not a measure of accommodation.',
-      duration: '30 seconds',
-      features: ['Blur tolerance', 'Focusing fatigue index', 'Break reminders'],
+      subtitle: 'Blur detection threshold at 40 cm',
+      description: 'A row of near letters slowly blurs and you press when it first looks blurred, over several rounds with a no-blur check. Reports the blur threshold in arcminutes — not a measure of accommodation.',
+      duration: '2–3 minutes',
+      features: ['Blur threshold (arcmin)', 'Repeatability check', 'Catch round'],
       badge: 'Comfort',
       webcam: true
     },
@@ -233,9 +234,8 @@ function VisionTests() {
                 <thead>
                   <tr className="border-b border-gray-200">
                     <th className="text-left py-3 px-4 font-semibold text-gray-500 text-xs uppercase tracking-wide">Test Type</th>
-                    <th className="text-left py-3 px-4 font-semibold text-gray-500 text-xs uppercase tracking-wide">Score</th>
+                    <th className="text-left py-3 px-4 font-semibold text-gray-500 text-xs uppercase tracking-wide" title={DISPLAY_INDEX_LABEL}>Display index*</th>
                     <th className="text-left py-3 px-4 font-semibold text-gray-500 text-xs uppercase tracking-wide hidden sm:table-cell">Date</th>
-                    <th className="text-left py-3 px-4 font-semibold text-gray-500 text-xs uppercase tracking-wide">Status</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -246,23 +246,17 @@ function VisionTests() {
                       className="border-b border-gray-50 hover:bg-gray-50/70 transition-colors cursor-pointer"
                     >
                       <td className="py-3.5 px-4 capitalize text-sm font-medium text-gray-800">{test.test_type.replace(/_/g, ' ')}</td>
-                      <td className="py-3.5 px-4 font-bold text-accent-700 text-sm">{test.score}%</td>
+                      <td className="py-3.5 px-4 text-gray-700 text-sm">{test.score != null ? Math.round(test.score) : 'None'}</td>
                       <td className="py-3.5 px-4 text-gray-500 text-sm hidden sm:table-cell">
                         {new Date(test.created_at).toLocaleDateString()}
-                      </td>
-                      <td className="py-3.5 px-4">
-                        <span className={`badge ${
-                          test.score >= 80 ? 'badge-success' :
-                          test.score >= 60 ? 'badge-warning' :
-                          'badge-danger'
-                        }`}>
-                          {test.score >= 80 ? 'Good' : test.score >= 60 ? 'Fair' : 'Needs Attention'}
-                        </span>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+              <p className="text-xs text-gray-500 px-4 pt-3">
+                * {DISPLAY_INDEX_LABEL}. Open a test for its own measurement (for example logMAR or cm). Some tests have no index.
+              </p>
             </div>
           </div>
         ) : (

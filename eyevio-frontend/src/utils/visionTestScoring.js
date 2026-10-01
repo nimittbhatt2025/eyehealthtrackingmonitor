@@ -53,10 +53,13 @@ export const ETDRS_LETTERS_PER_LINE = 5
 export const ETDRS_LINES_TENTHS = [10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0, -1, -2, -3]
 
 /**
- * Next line to show, or null when the eye is finished.
- * tested: { [tenths]: lettersCorrect }. Starts at startTenths; steps up (larger)
- * until a line has ≥ passCorrect, then down until a line has ≤ stopCorrect or
- * the chart floor is reached.
+ * Next line to show, or null when the eye is finished (stopping rule).
+ * tested: { [tenths]: raw lettersCorrect }, always raw counts, never guess-corrected.
+ *  1. The first line is startTenths (0.6 logMAR, or the chart floor if larger).
+ *  2. Ascending: while no line has ≥ passCorrect, show the next larger line, up to maxTenths (1.0).
+ *  3. Descending: once a line has ≥ passCorrect (or maxTenths was shown), show the line one step
+ *     smaller than the smallest line shown so far.
+ *  4. Stop when the smallest line shown has ≤ stopCorrect (Sloan 1, four-choice 2), or it is the chart floor.
  */
 export function etdrsNextLine(tested, { startTenths = 6, passCorrect = 4, stopCorrect = 1, maxTenths = 10, floorTenths = -3 } = {}) {
   const keys = Object.keys(tested).map(Number)
@@ -72,9 +75,14 @@ export function etdrsNextLine(tested, { startTenths = 6, passCorrect = 4, stopCo
 }
 
 /**
- * logMAR = (base + 0.1) − 0.02 × letters correct on base line and all smaller lines.
- * With a `guessRate` (4-choice charts: 0.25), each line's count is corrected for
- * guessing — (c − n·g) / (1 − g), floored at 0 — so chance hits don't earn credit.
+ * Base line: the LARGEST-print line shown with ≥ passCorrect raw correct (in practice the first line
+ * passed). Every larger line is assumed fully read. If no line reached passCorrect, the base is the
+ * largest line shown and `beyondChartTop` is set.
+ *
+ * logMAR = (base + 0.1) − 0.02 × letters credited on the base line and every smaller line shown.
+ * Raw: credit = letters correct. Guess-adjusted (4-choice charts, guessRate 0.25): each line's count
+ * becomes (c − n·g) / (1 − g), floored at 0, so chance hits earn no credit. Both are returned;
+ * `logMAR` is the guess-adjusted value (identical to raw when guessRate is 0).
  */
 export function etdrsScore(tested, { passCorrect = 4, guessRate = 0, lettersPerLine = ETDRS_LETTERS_PER_LINE } = {}) {
   const keys = Object.keys(tested).map(Number)
@@ -86,8 +94,15 @@ export function etdrsScore(tested, { passCorrect = 4, guessRate = 0, lettersPerL
   const credited = guessRate > 0
     ? counted.reduce((acc, k) => acc + Math.max(0, (tested[k] - lettersPerLine * guessRate) / (1 - guessRate)), 0)
     : raw
-  const logMAR = Math.round(((base + 1) / 10 - 0.02 * credited) * 100) / 100
-  return { logMAR, lettersCorrect: raw, lettersCredited: Math.round(credited * 100) / 100, baseTenths: base }
+  const toLogMAR = (letters) => Math.round(((base + 1) / 10 - 0.02 * letters) * 100) / 100
+  return {
+    logMAR: toLogMAR(credited),
+    logMARRaw: toLogMAR(raw),
+    lettersCorrect: raw,
+    lettersCredited: Math.round(credited * 100) / 100,
+    baseTenths: base,
+    beyondChartTop: passing.length === 0,
+  }
 }
 
 /**
@@ -148,19 +163,6 @@ export function amslerMarkedAreaDeg2(marks, brushFraction, gridDeg = 20, lattice
     }
   }
   return Number((covered * (gridDeg / lattice) ** 2).toFixed(1))
-}
-
-/**
- * Per-eye Amsler v2 score. A defect at full contrast weighs most; one seen
- * only on the 5% grid is milder (low-contrast defects are larger and earlier).
- * A vernier bias flag caps an otherwise clean eye.
- */
-export function scoreAmslerEye({ standardIssues, lowIssues, standardAreaDeg2 = 0, lowAreaDeg2 = 0, vernierFlags = 0 }) {
-  let score = 100
-  if (standardIssues) score = Math.max(20, 50 - standardAreaDeg2 / 4)
-  else if (lowIssues) score = Math.max(50, 80 - lowAreaDeg2 / 4)
-  if (vernierFlags > 0) score = Math.min(score, 85)
-  return clampScore(Math.round(score))
 }
 
 function movingMedian(values, window) {
@@ -227,6 +229,102 @@ export function detectConvergenceBreak(samples, { riseThreshold = 0.02, window =
   }
 }
 
+/**
+ * Camera-confidence criteria for the NPC vergence estimate. Failing any one
+ * makes the camera break "unable to measure" for that approach; the reported
+ * diplopia distance is still used.
+ */
+export const NPC_CAMERA_LIMITS = {
+  minSamples: 20,
+  minTrackedFraction: 0.7,
+  minCanthalSpanPx: 60,
+  maxBaselineSpanCv: 0.05,
+  maxAbsYaw: 0.2,
+  maxYawSd: 0.08,
+  maxRollSdDeg: 5,
+  agreementCm: 3,
+}
+
+const meanOf = (v) => v.reduce((a, b) => a + b, 0) / v.length
+const sdOf = (v) => {
+  if (v.length < 2) return 0
+  const m = meanOf(v)
+  return Math.sqrt(v.reduce((a, b) => a + (b - m) ** 2, 0) / (v.length - 1))
+}
+
+/** Yaw proxy from eye widths: 0 facing the camera, ±1 fully turned. */
+export function yawProxy(eyeWidthsPx) {
+  const r = eyeWidthsPx?.right
+  const l = eyeWidthsPx?.left
+  return r > 0 && l > 0 ? (r - l) / (r + l) : null
+}
+
+/**
+ * samples: approach samples with { span, right, left, yaw, rollDeg }.
+ * frames: approach frames attempted (tracked or not). baselineSpans: span px at arm's length.
+ */
+export function assessNpcCamera({ samples, frames, baselineSpans = [] }) {
+  const L = NPC_CAMERA_LIMITS
+  const reasons = []
+  const pupilsLocated = samples.filter((s) => Number.isFinite(s.right) && Number.isFinite(s.left))
+  const trackedFraction = frames > 0 ? pupilsLocated.length / frames : 0
+  if (pupilsLocated.length < L.minSamples || trackedFraction < L.minTrackedFraction) {
+    reasons.push('pupils_not_located')
+  }
+  const spans = samples.map((s) => s.span).filter(Number.isFinite)
+  const baseMean = baselineSpans.length ? meanOf(baselineSpans) : null
+  const baselineSpanCv = baseMean ? sdOf(baselineSpans) / baseMean : null
+  if (!spans.length || Math.min(...spans) < L.minCanthalSpanPx || (baseMean ?? 0) < L.minCanthalSpanPx) {
+    reasons.push('eye_corner_span_too_small')
+  } else if (baselineSpanCv != null && baselineSpanCv > L.maxBaselineSpanCv) {
+    reasons.push('eye_corner_span_unstable')
+  }
+  const yaws = samples.map((s) => s.yaw).filter(Number.isFinite)
+  const rolls = samples.map((s) => s.rollDeg).filter(Number.isFinite)
+  const yawMean = yaws.length ? meanOf(yaws) : null
+  if (
+    (yawMean != null && Math.abs(yawMean) > L.maxAbsYaw) ||
+    sdOf(yaws) > L.maxYawSd ||
+    sdOf(rolls) > L.maxRollSdDeg
+  ) {
+    reasons.push('face_angle_unstable')
+  }
+  return {
+    status: reasons.length ? 'unable_to_measure' : 'ok',
+    reasons,
+    trackedFraction: Number(trackedFraction.toFixed(2)),
+    baselineSpanCv: baselineSpanCv != null ? Number(baselineSpanCv.toFixed(3)) : null,
+    yawMean: yawMean != null ? Number(yawMean.toFixed(3)) : null,
+    yawSd: Number(sdOf(yaws).toFixed(3)),
+    rollSdDeg: Number(sdOf(rolls).toFixed(2)),
+  }
+}
+
+/**
+ * Combine one approach. Clinical NPC records the break at whichever comes
+ * first while the target approaches — reported diplopia or an observed eye
+ * deviation — i.e. the farther of the two distances. The camera break only
+ * counts when the camera passed its confidence criteria; both values and
+ * their agreement are kept.
+ */
+export function combineNpcApproach({ reportedCm = null, cameraBreakCm = null, cameraOk = false }) {
+  const camera = cameraOk && Number.isFinite(cameraBreakCm) ? cameraBreakCm : null
+  const reported = Number.isFinite(reportedCm) ? reportedCm : null
+  const candidates = [reported, camera].filter((v) => v != null)
+  const npcCm = candidates.length ? Math.max(...candidates) : null
+  const agreementCm = reported != null && camera != null ? Number(Math.abs(reported - camera).toFixed(1)) : null
+  return {
+    npcCm: npcCm != null ? Number(npcCm.toFixed(1)) : null,
+    source: reported != null && camera != null
+      ? (camera > reported ? 'camera_first' : 'reported_first')
+      : reported != null ? 'reported' : camera != null ? 'camera' : 'none',
+    reportedCm: reported != null ? Number(reported.toFixed(1)) : null,
+    cameraBreakCm: camera != null ? Number(camera.toFixed(1)) : null,
+    agreementCm,
+    agree: agreementCm != null ? agreementCm <= NPC_CAMERA_LIMITS.agreementCm : null,
+  }
+}
+
 /** NPC trend index: ≤ 6 cm → 100, ≥ 20 cm → 0. */
 export function scoreNearPointConvergence(npcCm) {
   if (!Number.isFinite(npcCm)) return null
@@ -235,11 +333,11 @@ export function scoreNearPointConvergence(npcCm) {
 
 export function interpretNearPointConvergence(npcCm, { breakDetected = true } = {}) {
   if (!Number.isFinite(npcCm)) {
-    return { tone: 'gray', title: 'Not measured', detail: 'Your face could not be tracked well enough to measure convergence.' }
+    return { tone: 'gray', title: 'Unable to measure', detail: 'Neither a reported doubling distance nor a confident camera estimate was available.' }
   }
   if (!breakDetected) {
     return npcCm <= 10
-      ? { tone: 'green', title: `No break before ${npcCm.toFixed(0)} cm`, detail: 'Your eyes kept converging as close as the camera could follow — within the typical range.' }
+      ? { tone: 'gray', title: `No doubling reported before ${npcCm.toFixed(0)} cm`, detail: 'This is the closest distance the camera could follow, not a measured break point.' }
       : { tone: 'amber', title: `Tracked only to ${npcCm.toFixed(0)} cm`, detail: 'The camera lost your face before a break point. Try on a phone held at eye level, or in brighter light.' }
   }
   if (npcCm <= 6) return { tone: 'green', title: `Break at ${npcCm.toFixed(0)} cm`, detail: 'Typical near point of convergence.' }
@@ -262,7 +360,20 @@ export const SIDE_VISION_RELIABILITY = {
   maxFalseNegatives: 1,
 }
 
-export function sideVisionReliability({ fixationLosses, totalTrials, falsePositives, falseNegatives }) {
+const rate = (count, denominator) => (denominator > 0 ? Number((count / denominator).toFixed(2)) : null)
+
+/**
+ * fpCatches / fnCatches are the catch trials with the centre number reported
+ * correctly; catches with a fixation loss are not counted either way.
+ */
+export function sideVisionReliability({
+  fixationLosses,
+  totalTrials,
+  falsePositives,
+  falseNegatives,
+  fpCatches = null,
+  fnCatches = null,
+}) {
   const fixationLossRate = totalTrials > 0 ? fixationLosses / totalTrials : 1
   const reasons = []
   if (fixationLossRate > SIDE_VISION_RELIABILITY.maxFixationLossRate) {
@@ -272,15 +383,20 @@ export function sideVisionReliability({ fixationLosses, totalTrials, falsePositi
     reasons.push('You reported flashes on rounds where nothing was shown.')
   }
   if (falseNegatives > SIDE_VISION_RELIABILITY.maxFalseNegatives) {
-    reasons.push('You missed very bright flashes that should be easy to see.')
+    reasons.push('You missed several of the strongest spots, which are usually easy to see.')
   }
   return {
     reliable: reasons.length === 0,
     reasons,
     fixationLossRate: Number(fixationLossRate.toFixed(2)),
     fixationLosses,
+    totalTrials,
     falsePositives,
+    fpCatches,
+    falsePositiveRate: rate(falsePositives, fpCatches),
     falseNegatives,
+    fnCatches,
+    falseNegativeRate: rate(falseNegatives, fnCatches),
   }
 }
 
@@ -396,8 +512,6 @@ export function interpretGlareDelta({ logCSNoGlare, logCSGlare, deltaLogCS, sdNo
     deltaLogCS,
     // How many times more contrast the stripes needed with glare on (1 = no change).
     contrastFactor: Number((10 ** Math.max(0, deltaLogCS ?? 0)).toFixed(2)),
-    scoreMeaning:
-      'Higher is better. 100 means glare did not change the faintest stripes you could see; 0 means glare made you need about 3× the contrast or more.',
   }
 }
 
@@ -467,8 +581,9 @@ export function medianPupilReflex(summaries) {
 }
 
 /**
- * Inter-ocular reflex symmetry, 0–100. A difference at the flag threshold maps
- * to 50 and twice the threshold to 0; a one-sided white reflex caps it at 30.
+ * Inter-ocular reflex differences for one capture, with flags where a
+ * difference reaches its flag level. No symmetry score is produced: a small
+ * difference does not mean the eyes are normal.
  */
 export function redReflexSymmetry(right, left) {
   if (!right || !left) return null
@@ -484,7 +599,7 @@ export function redReflexSymmetry(right, left) {
   }
 
   if (maxLum < L.minReflexLuminance) {
-    return { reflexVisible: false, symmetryScore: null, flags: [{ type: 'no_reflex', severity: 'info' }], ...metrics }
+    return { reflexVisible: false, flags: [{ type: 'no_reflex', severity: 'info' }], ...metrics }
   }
 
   const flags = []
@@ -501,15 +616,51 @@ export function redReflexSymmetry(right, left) {
     flags.push({ type: 'pale_both', severity: 'warning' })
   }
 
-  const worst = Math.max(
-    brightnessAsymmetry / (2 * L.brightnessAsymmetry),
-    colourAsymmetry / (2 * L.colourAsymmetry),
-    whiteAsymmetry / (2 * L.whiteAsymmetry)
-  )
-  let symmetryScore = Math.round(100 * (1 - Math.min(1, worst)))
-  if (flags.some((f) => f.severity === 'critical')) symmetryScore = Math.min(symmetryScore, 30)
+  return { reflexVisible: true, flags, ...metrics }
+}
 
-  return { reflexVisible: true, symmetryScore, flags, ...metrics }
+export const EYE_GLOW_CAPTURES = { required: 2, max: 3, maxFailedAttempts: 3 }
+const ASYMMETRY_FLAGS = new Set(['white_reflex', 'brightness', 'colour'])
+
+/**
+ * Session outcome from repeated captures (each a redReflexSymmetry result).
+ * An asymmetry is reported only when the same flag — on the same eye for
+ * one-sided flags — appears in at least `required` usable captures. There is
+ * deliberately no "normal" outcome.
+ *
+ *   asymmetry_observed     same flag repeated in ≥ required captures
+ *   no_repeated_asymmetry  ≥ required usable captures, no repeated flag (not an all-clear)
+ *   no_usable_reflex       no capture showed a measurable glow
+ *   capture_unsuccessful   fewer than `required` usable captures
+ */
+export function eyeGlowOutcome(captures, { required = EYE_GLOW_CAPTURES.required } = {}) {
+  const usable = captures.filter((c) => c?.reflexVisible)
+  const counts = new Map()
+  for (const c of usable) {
+    const keys = new Set(c.flags.filter((f) => ASYMMETRY_FLAGS.has(f.type)).map((f) => `${f.type}:${f.eye ?? ''}`))
+    keys.forEach((k) => counts.set(k, (counts.get(k) || 0) + 1))
+  }
+  const repeatedFlags = [...counts.entries()]
+    .filter(([, n]) => n >= required)
+    .map(([k, n]) => {
+      const [type, eye] = k.split(':')
+      return { type, eye: eye || null, captures: n }
+    })
+  const unrepeatedFlags = [...counts.values()].some((n) => n < required)
+  const base = { usableCaptures: usable.length, totalCaptures: captures.length, repeatedFlags, unrepeatedFlags }
+
+  if (repeatedFlags.length) return { outcome: 'asymmetry_observed', ...base }
+  if (captures.length > 0 && usable.length === 0) return { outcome: 'no_usable_reflex', ...base }
+  if (usable.length < required) return { outcome: 'capture_unsuccessful', ...base }
+  return { outcome: 'no_repeated_asymmetry', ...base }
+}
+
+/** Another capture is needed until `required` usable captures agree, up to `max`. */
+export function needsAnotherGlowCapture(captures, { required = EYE_GLOW_CAPTURES.required, max = EYE_GLOW_CAPTURES.max } = {}) {
+  if (captures.length >= max) return false
+  const { outcome, usableCaptures, unrepeatedFlags } = eyeGlowOutcome(captures, { required })
+  if (usableCaptures < required) return true
+  return outcome !== 'asymmetry_observed' && unrepeatedFlags
 }
 
 /** Viewing distance from inter-pupil pixels, assuming a typical phone main camera (~26 mm equiv). */

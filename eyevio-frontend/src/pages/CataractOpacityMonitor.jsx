@@ -15,7 +15,7 @@ import { eyePhotoAPI } from '../services/api'
 import StableLightingPreview from '../utils/stableLightingPreview'
 import PhotoLightingBanner from '../components/PhotoLightingBanner'
 import SamdDisclaimer from '../components/SamdDisclaimer'
-import PathologyTriagePanel from '../components/PathologyTriagePanel'
+import ExperimentalModelNotice from '../components/ExperimentalModelNotice'
 import { PupilRegionTracker } from '../utils/pupilRegionDetector'
 import OnDevicePrivacyToggle from '../components/OnDevicePrivacyToggle'
 import EyeThumbnail from '../components/EyeThumbnail'
@@ -44,90 +44,6 @@ function getPupilCrops(source) {
     left: pupil.left || aligned.left || null,
     right: pupil.right || aligned.right || null,
   }
-}
-
-const SCREENING_STYLES = {
-  low: { label: 'No cataract-like pattern', cls: 'bg-emerald-50 text-emerald-800 border-emerald-200' },
-  indeterminate: { label: 'Inconclusive', cls: 'bg-amber-50 text-amber-900 border-amber-200' },
-  elevated: { label: 'Cataract-like pattern', cls: 'bg-red-50 text-red-800 border-red-200' },
-  cannot_assess: { label: 'Cannot assess', cls: 'bg-gray-100 text-gray-700 border-gray-300' },
-  model_unavailable: { label: 'Model unavailable', cls: 'bg-gray-100 text-gray-700 border-gray-300' },
-  legacy_unscored: { label: 'Older photo — no calibrated result', cls: 'bg-gray-50 text-gray-500 border-gray-200' },
-}
-const BAND_LEVEL = { low: 0, indeterminate: 1, elevated: 2 }
-
-function screeningOf(source) {
-  const s = source?.screening || source?.analysis_details?.screening
-  if (s?.status) return s
-  return { status: 'legacy_unscored' }
-}
-
-function screeningKey(s) {
-  return s?.status === 'assessed' ? s.band : s?.status || 'legacy_unscored'
-}
-
-function ScreeningBadge({ screening }) {
-  if (!screening) return null
-  const key = screeningKey(screening)
-  const style = SCREENING_STYLES[key] || SCREENING_STYLES.legacy_unscored
-  return (
-    <span className={`inline-flex items-center rounded-md border px-2.5 py-1 text-xs font-semibold ${style.cls}`}>
-      {style.label}
-      {screening.status === 'assessed' && screening.likelihood != null && (
-        <span className="ml-1.5 font-normal">· {(screening.likelihood * 100).toFixed(0)}%</span>
-      )}
-    </span>
-  )
-}
-
-function monthScreeningStatus(month, monthIndex, timeline) {
-  const cur = month.screening_summary?.worst_band
-  if (!cur) return month.screening_summary?.not_assessed ? 'Not assessed this month' : 'Older photos — no calibrated result'
-  const prevBand = timeline
-    .slice(0, monthIndex)
-    .map((m) => m.screening_summary?.worst_band)
-    .filter(Boolean)
-    .pop()
-  if (!prevBand) return 'First assessed month'
-  const delta = BAND_LEVEL[cur] - BAND_LEVEL[prevBand]
-  if (delta === 0) return 'Same band as last assessed month'
-  return delta > 0 ? `Moved up from ${prevBand}` : `Moved down from ${prevBand}`
-}
-
-function EyeScreeningCard({ side, eye }) {
-  const s = eye?.screening || {}
-  return (
-    <div className="rounded-lg border border-gray-200 overflow-hidden bg-white">
-      {s.gradcam ? (
-        <img src={s.gradcam} alt={`${side} eye model attention`} className="w-full aspect-square object-cover" />
-      ) : (
-        <div className="aspect-square flex items-center justify-center text-xs text-gray-400 bg-gray-50 px-3 text-center">
-          {s.status === 'assessed' ? 'Attention map unavailable' : 'No attention map — not assessed'}
-        </div>
-      )}
-      <div className="p-2 text-xs space-y-1">
-        <div className="font-medium text-gray-800 capitalize">{side} eye</div>
-        <ScreeningBadge screening={s} />
-        {s.status === 'cannot_assess' && (
-          <p className="text-gray-500">
-            {s.reason === 'out_of_distribution'
-              ? `Out of training distribution (score ${s.ood_score} > ${s.ood_threshold})`
-              : s.reason}
-          </p>
-        )}
-        {s.ordinal?.status === 'assessed' && (
-          <p className="text-gray-700">
-            Ordinal grade: <strong className="capitalize">{s.ordinal.label}</strong>
-          </p>
-        )}
-        {s.gradcam_central_mass != null && (
-          <p className="text-gray-500">
-            {Math.round(s.gradcam_central_mass * 100)}% of attention on the central eye region
-          </p>
-        )}
-      </div>
-    </div>
-  )
 }
 
 export default function CataractOpacityMonitor() {
@@ -365,13 +281,6 @@ export default function CataractOpacityMonitor() {
       }
     }
     const { data } = await eyePhotoAPI.capture(body)
-    // Attention maps computed on-device are shown here but never uploaded.
-    if (where.mode === 'on_device' && data.analysis) {
-      for (const side of ['left', 'right']) {
-        const screening = data.analysis[`${side}_eye`]?.screening
-        if (screening?.status === 'assessed' && where.overlays?.[side]) screening.gradcam = where.overlays[side]
-      }
-    }
     return data
   }
 
@@ -429,11 +338,9 @@ export default function CataractOpacityMonitor() {
       } else if (data.alert) {
         toast.error(data.alert.message, { duration: 6000 })
       } else if (data.comparison?.deteriorated) {
-        toast('Change detected — review your comparison.', { icon: '⚠️' })
-      } else if (data.analysis?.screening?.status === 'cannot_assess') {
-        toast('Photo saved. The model could not assess this photo.', { icon: 'ℹ️' })
+        toast('Photos look different from last month — review the comparison.', { icon: '⚠️' })
       } else {
-        toast.success('Screening photo saved.')
+        toast.success('Lens photo saved.')
       }
 
       loadData()
@@ -461,7 +368,7 @@ export default function CataractOpacityMonitor() {
 
   const handleDeletePhoto = async (photoId, { fromResults = false } = {}) => {
     const confirmed = window.confirm(
-      'Delete this cataract screening photo? It will be removed from your timeline.'
+      'Delete this lens photo? It will be removed from your timeline.'
     )
     if (!confirmed) return
 
@@ -483,8 +390,6 @@ export default function CataractOpacityMonitor() {
   }
 
   const analysis = lastResult?.analysis || lastResult?.photo?.analysis_details || {}
-  const screening = screeningOf(analysis)
-  const modelStatus = analysis.model_status || {}
 
   if (loading && view === 'home') {
     return (
@@ -499,9 +404,8 @@ export default function CataractOpacityMonitor() {
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Lens photo timeline</h1>
         <p className="text-gray-600 mt-1 text-sm max-w-2xl">
-          Capture zoomed left and right pupil photos each month. A calibrated model says whether the photo
-          resembles cataract photos it was trained on — or says it cannot assess the photo. This is not a
-          severity grade, not a size in millimetres, and not a LOCS III diagnosis.
+          Capture zoomed left and right pupil photos each month and compare them side by side. No cataract
+          result is produced: the cataract model is a research experiment, not a screening tool.
         </p>
         <SamdDisclaimer testType="cataract" className="mt-3 max-w-2xl" />
       </div>
@@ -510,15 +414,17 @@ export default function CataractOpacityMonitor() {
         <div>
           <div className="text-sm font-medium text-gray-700 mb-1.5">What this tracks</div>
           <ul className="text-sm text-gray-600 space-y-1 list-disc pl-5">
-            <li>Calibrated screening band: no cataract-like pattern · inconclusive · cataract-like pattern</li>
-            <li>&ldquo;Cannot assess&rdquo; when a photo is unlike the training images</li>
-            <li>Attention map showing which part of the eye the model looked at</li>
-            <li>Alerts when the band moves up and a retake confirms it</li>
+            <li>Aligned left and right pupil close-ups, month by month</li>
+            <li>Photo-quality checks: framing, lighting, shadows and glare</li>
+            <li>Side-by-side comparison with an earlier month</li>
           </ul>
           <p className="text-xs text-gray-500 mt-2">
-            Known limitation: the model can partly tell training photos apart by background, so a
-            &ldquo;no cataract-like pattern&rdquo; result is never reassurance. Model card:{' '}
-            <code className="text-[11px]">docs/model_cards/cataract_resnet18.md</code>
+            The cataract model is not used for results: masking the eye out of a photo barely changed its
+            output, so it learned the dataset rather than the eye. The experiment is described in the{' '}
+            <Link to="/research-lab" className="text-accent-700 font-medium underline-offset-2 hover:underline">
+              Experimental AI Research Lab
+            </Link>
+            .
           </p>
           <p className="text-xs text-gray-500 mt-2">
             Also try the{' '}
@@ -544,7 +450,7 @@ export default function CataractOpacityMonitor() {
             <option value={12}>Every 12 months</option>
           </select>
           <p className="text-xs text-gray-500 mt-1.5">
-            Alerts can recommend an earlier visit if a confirmed band change happens before this schedule.
+            Used for your monthly photo reminder. Keep your scheduled eye exams regardless of these photos.
           </p>
         </div>
       </div>
@@ -561,8 +467,7 @@ export default function CataractOpacityMonitor() {
                 <p className="text-gray-900 font-semibold">{status?.message}</p>
                 {status?.has_photos && (
                   <div className="text-sm text-gray-600 mt-1 flex flex-wrap items-center gap-2">
-                    {photos[0] && <ScreeningBadge screening={screeningOf(photos[0])} />}
-                    {status.days_since_last != null && <span>{status.days_since_last} days ago</span>}
+                    {status.days_since_last != null && <span>Last photo {status.days_since_last} days ago</span>}
                   </div>
                 )}
               </div>
@@ -577,29 +482,18 @@ export default function CataractOpacityMonitor() {
             <div className="card p-5">
               <h2 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
                 <History className="w-4 h-4" />
-                Screening timeline
+                Photo timeline
               </h2>
               <div className="space-y-4">
-                {timeline.map((month, monthIndex) => {
-                  const summary = month.screening_summary
+                {timeline.map((month) => {
                   const latest = month.latest_photo
-                  const statusLabel = monthScreeningStatus(month, monthIndex, timeline)
-                  const worst = summary?.worst_band
-                    ? { status: 'assessed', band: summary.worst_band, likelihood: summary.max_likelihood }
-                    : { status: summary?.not_assessed ? 'cannot_assess' : 'legacy_unscored' }
                   return (
                     <div key={month.month} className="rounded-xl border border-gray-200 p-3 bg-gray-50/50">
-                      <div className="flex flex-wrap items-center gap-3 mb-2">
+                      <div className="flex flex-wrap items-center gap-3">
                         <span className="text-xs font-medium text-gray-500 w-16 shrink-0">{month.label}</span>
-                        <ScreeningBadge screening={worst} />
                         <span className="text-xs text-gray-500">
                           {month.photo_count} photo{month.photo_count === 1 ? '' : 's'}
-                          {summary && summary.assessed + summary.not_assessed > 0 &&
-                            ` · ${summary.assessed} assessed · ${summary.not_assessed} not assessed`}
                         </span>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-2 text-xs">
-                        <span className="text-gray-600">{statusLabel}</span>
                         {latest?.image_thumbnail && (
                           <img
                             src={latest.image_thumbnail}
@@ -612,11 +506,6 @@ export default function CataractOpacityMonitor() {
                   )
                 })}
               </div>
-              <p className="text-xs text-gray-500 mt-3">
-
-                Each month shows its highest-likelihood assessed photo. Bands come from operating thresholds
-                (20% / 80%) on a calibrated model — screening flags, not severity.
-              </p>
             </div>
           )}
 
@@ -662,12 +551,11 @@ export default function CataractOpacityMonitor() {
                       ) : (
                         <EyeThumbnail
                           src={photo.image_thumbnail}
-                          alt={`Cataract screening ${new Date(photo.captured_at).toLocaleDateString()}`}
+                          alt={`Lens photo ${new Date(photo.captured_at).toLocaleDateString()}`}
                           className="w-full aspect-[2/1] object-cover"
                         />
                       )}
                       <div className="p-2 text-xs space-y-1">
-                        <ScreeningBadge screening={screeningOf(photo)} />
                         <div className="text-gray-500">{new Date(photo.captured_at).toLocaleDateString()}</div>
                         <button
                           type="button"
@@ -687,8 +575,8 @@ export default function CataractOpacityMonitor() {
           ) : (
             <div className="card p-5 text-center text-sm text-gray-600">
               <Eye className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-              <p className="font-medium text-gray-900 mb-1">No cataract screening photos yet</p>
-              <p>Take your first pupil close-up to start the screening timeline.</p>
+              <p className="font-medium text-gray-900 mb-1">No lens photos yet</p>
+              <p>Take your first pupil close-up to start the photo timeline.</p>
             </div>
           )}
         </>
@@ -802,87 +690,44 @@ export default function CataractOpacityMonitor() {
       {view === 'analyzing' && (
         <div className="card p-10 text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-4 border-accent-100 border-t-accent-600 mx-auto mb-4" />
-          <p className="text-gray-700 font-medium">Screening…</p>
-          <p className="text-sm text-gray-500 mt-1">
-            Checking each eye against the training distribution, running the calibrated model, comparing to prior months
-          </p>
+          <p className="text-gray-700 font-medium">Saving…</p>
+          <p className="text-sm text-gray-500 mt-1">Checking photo quality and comparing with earlier months</p>
         </div>
       )}
 
       {view === 'results' && lastResult && (
         <div className="space-y-4">
           <SamdDisclaimer testType="cataract" />
-          <div className="card p-5 border-l-4 border-l-accent-500">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <h2 className="font-semibold text-gray-900">Cataract screening result</h2>
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <ScreeningBadge screening={screening} />
-                  {screening.status === 'assessed' && (
-                    <span className="text-sm text-gray-600">
-                      Calibrated likelihood from the {screening.driving_eye} eye
-                      {screening.coverage === 'one_eye' && ' (other eye not assessed)'}
-                    </span>
-                  )}
-                </div>
-                {analysis.risk_message && (
-                  <p className="text-sm text-gray-700 mt-2">{analysis.risk_message}</p>
-                )}
-              </div>
-            </div>
-            {(analysis.findings || []).length > 0 && (
-              <ul className="mt-3 text-sm text-gray-600 list-disc pl-5 space-y-1">
-                {analysis.findings.map((f) => (
-                  <li key={f}>{f}</li>
-                ))}
-              </ul>
-            )}
-            {analysis.disclaimer && (
-              <p className="text-xs text-amber-900 bg-amber-50 border border-amber-100 rounded-md px-2 py-1.5 mt-3">
-                {analysis.disclaimer}
-              </p>
-            )}
-          </div>
+          <ExperimentalModelNotice notice={analysis.experimental_models} />
 
           {(lastResult.lighting?.quality === 'fair' || lastResult.lighting?.acknowledged) && (
             <div className="card p-4 border-l-4 border-l-amber-500 bg-amber-50">
               <p className="text-sm font-semibold text-amber-900">Lighting warning</p>
               <p className="text-sm text-amber-800 mt-1">
                 {lastResult.lighting?.message ||
-                  'Suboptimal lighting makes "cannot assess" more likely and comparisons less reliable. Retake in even front light when possible.'}
+                  'Suboptimal lighting makes month-to-month comparison less reliable. Retake in even front light when possible.'}
               </p>
             </div>
           )}
 
           <div
             className={`card p-5 border-l-4 ${
-              lastResult.comparison?.deteriorated ? 'border-l-red-500' : 'border-l-emerald-500'
+              lastResult.comparison?.deteriorated ? 'border-l-amber-500' : 'border-l-emerald-500'
             }`}
           >
             <div className="flex items-start gap-3">
               {lastResult.comparison?.deteriorated ? (
-                <AlertTriangle className="w-6 h-6 text-red-600 shrink-0 mt-0.5" />
+                <AlertTriangle className="w-6 h-6 text-amber-600 shrink-0 mt-0.5" />
               ) : (
                 <Minus className="w-6 h-6 text-emerald-600 shrink-0 mt-0.5" />
               )}
               <div className="flex-1">
                 <h2 className="font-semibold text-gray-900">
-                  {lastResult.comparison?.deteriorated ? 'Confirmed change detected' : 'Photo saved'}
+                  {lastResult.comparison?.deteriorated ? 'Photos look different from your reference' : 'Photo saved'}
                 </h2>
                 <p className="text-sm text-gray-700 mt-1">
-                  {lastResult.comparison?.message || 'Your screening photo has been added to your timeline.'}
+                  {lastResult.comparison?.message || 'Your lens photo has been added to your timeline.'}
                 </p>
-                {lastResult.comparison?.screening && (
-                  <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-gray-600">
-                    <span>Reference photo:</span>
-                    <ScreeningBadge screening={lastResult.comparison.screening.baseline} />
-                    <span>→ now:</span>
-                    <ScreeningBadge screening={lastResult.comparison.screening.current} />
-                  </div>
-                )}
-                {lastResult.comparison?.screening?.note && (
-                  <p className="text-xs text-gray-500 mt-2">{lastResult.comparison.screening.note}</p>
-                )}
                 {lastResult.comparison?.recommend_doctor_visit && (
                   <p className="text-sm text-red-700 font-medium mt-2">
                     Consider scheduling a dilated exam before your next {doctorMonths}-month appointment.
@@ -894,12 +739,9 @@ export default function CataractOpacityMonitor() {
 
           {(lastResult.photo?.image_thumbnail ||
             getPupilCrops(lastResult).left ||
-            getPupilCrops(lastResult).right ||
-            analysis.left_eye?.screening) && (
+            getPupilCrops(lastResult).right) && (
             <div className="card p-5">
-              <h3 className="font-semibold text-gray-900 mb-3">
-                {lastResult.photo?.image_thumbnail ? 'Saved pupil close-ups' : 'Screening detail'}
-              </h3>
+              <h3 className="font-semibold text-gray-900 mb-3">Saved pupil close-ups</h3>
               {analysisWhere && (
                 <p className="text-xs text-gray-500 mb-3">{describeAnalysisLocation(analysisWhere)}</p>
               )}
@@ -932,43 +774,13 @@ export default function CataractOpacityMonitor() {
                   return (
                     <img
                       src={lastResult.photo.image_thumbnail}
-                      alt="Saved cataract screening"
+                      alt="Saved lens photo"
                       className="w-full rounded-lg border border-gray-200 sm:col-span-2"
                     />
                   )
                 })()}
               </div>
               <div className="text-sm text-gray-600 space-y-2 mt-4">
-                  {(analysis.left_eye?.screening || analysis.right_eye?.screening) && (
-                    <>
-                      <h4 className="font-medium text-gray-800">What the model looked at</h4>
-                      <div className="grid grid-cols-2 gap-3 max-w-md">
-                        <EyeScreeningCard side="left" eye={analysis.left_eye} />
-                        <EyeScreeningCard side="right" eye={analysis.right_eye} />
-                      </div>
-                      <p className="text-xs text-gray-500">
-                        Grad-CAM heat map: red areas pushed the prediction toward &ldquo;cataract&rdquo;. Attention on
-                        skin, lashes or corners instead of the pupil means the result should not be trusted.
-                      </p>
-                    </>
-                  )}
-                  <p className="text-xs text-gray-500">
-                    Method:{' '}
-                    <strong className="text-gray-700">
-                      {modelStatus.calibrated
-                        ? 'Calibrated ResNet-18 screener with out-of-distribution abstain'
-                        : 'Screening model unavailable'}
-                    </strong>
-                    {modelStatus.calibrated && modelStatus.headline_metrics && (
-                      <>
-                        {' '}— held-out AUC {modelStatus.headline_metrics.test_clean_auc?.toFixed(3)} (clean),{' '}
-                        {modelStatus.headline_metrics.test_webcam_sim_auc?.toFixed(3)} (webcam-simulated); AUC with the
-                        eye masked out {modelStatus.headline_metrics.auc_eye_masked_out?.toFixed(3)}, which shows the
-                        training-source shortcut.
-                      </>
-                    )}
-                  </p>
-                  <PathologyTriagePanel triage={analysis.pathology_triage} />
                   {lastResult.photo?.id && (
                     <button
                       type="button"

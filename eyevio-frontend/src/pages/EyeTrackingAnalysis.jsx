@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { toast } from 'react-hot-toast'
 import { Eye, Activity, Zap, TrendingUp, Clock, AlertCircle, Brain, ThumbsUp, AlertTriangle } from 'lucide-react'
 import MediaEyeTracker from '../utils/mediaEyeTracker'
-import { generatePersonalizedFeedback, assessDoctorVisit } from '../utils/eyeHealthAI'
+import { generatePersonalizedFeedback } from '../utils/eyeHealthAI'
+import { DISPLAY_INDEX_LABEL } from '../utils/displayIndex'
 import { useAuthStore } from '../store/authStore'
 import { authAPI, visionTestAPI, calibrationAPI } from '../services/api'
 import { VisionTestShell, TestPrepLayout, TestDetails, TestExitButton } from '../components/TestPrepLayout'
@@ -374,24 +375,6 @@ export default function EyeTrackingAnalysis() {
     return `${mins}:${secs.toString().padStart(2, '0')}`
   }
 
-  /**
-   * Get fatigue color
-   */
-  const getFatigueColor = (score) => {
-    if (score < 30) return 'text-green-600'
-    if (score < 60) return 'text-yellow-600'
-    return 'text-red-600'
-  }
-
-  /**
-   * Get fatigue background color
-   */
-  const getFatigueBgColor = (score) => {
-    if (score < 30) return 'bg-green-100'
-    if (score < 60) return 'bg-yellow-100'
-    return 'bg-red-100'
-  }
-
   const exitSession = useCallback(() => {
     const leave = () => {
       if (timerIntervalRef.current) {
@@ -615,11 +598,11 @@ export default function EyeTrackingAnalysis() {
                   {renderMetricCard('Total blinks', metrics.totalBlinks, '', 'Detected', <Activity className="w-3.5 h-3.5" />)}
                   {renderMetricCard('Avg duration', metrics.avgBlinkDuration, 'ms', 'Normal: 100–300', <Zap className="w-3.5 h-3.5" />)}
                   {renderMetricCard(
-                    'Fatigue',
+                    'Fatigue index',
                     metrics.fatigueScore,
                     '/100',
-                    results?.status || 'Analyzing…',
-                    <TrendingUp className={`w-3.5 h-3.5 ${getFatigueColor(metrics.fatigueScore)}`} />
+                    'Display index',
+                    <TrendingUp className="w-3.5 h-3.5 text-gray-500" />
                   )}
                 </div>
 
@@ -639,18 +622,14 @@ export default function EyeTrackingAnalysis() {
             {/* AI-Powered Summary Card */}
             <div className="card p-8">
               <div className="text-center mb-8">
-                <div
-                  className={`w-20 h-20 ${getFatigueBgColor(
-                    results.fatigueScore
-                  )} rounded-full flex items-center justify-center mx-auto mb-4`}
-                >
-                  <Brain className={`w-10 h-10 ${getFatigueColor(results.fatigueScore)}`} />
+                <div className="w-20 h-20 bg-accent-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Brain className="w-10 h-10 text-accent-600" />
                 </div>
                 <h2 className="section-title mb-2">
                   {personalizedFeedback?.title || 'Session Complete!'}
                 </h2>
-                <p className={`text-xl font-semibold ${getFatigueColor(results.fatigueScore)}`}>
-                  {results.status}
+                <p className="text-xl font-semibold text-gray-800">
+                  {results.blinkRate} blinks/min
                 </p>
                 {completedMode && SESSION_MODES[completedMode] && (
                   <p className="text-sm text-gray-500 mt-2">
@@ -698,11 +677,9 @@ export default function EyeTrackingAnalysis() {
                 </div>
 
                 <div className="text-center p-4 bg-gray-50 rounded-2xl border border-gray-100/80">
-                  <div className={`text-3xl font-bold mb-1 ${getFatigueColor(results.fatigueScore)}`}>
-                    {results.fatigueScore}
-                  </div>
-                  <div className="text-sm text-gray-500">Fatigue Score</div>
-                  <div className="text-xs text-gray-500 mt-1">(Lower is better)</div>
+                  <div className="text-3xl font-bold mb-1 text-gray-700">{results.fatigueScore}</div>
+                  <div className="text-sm text-gray-500">Fatigue index</div>
+                  <div className="text-xs text-gray-500 mt-1">{DISPLAY_INDEX_LABEL}</div>
                 </div>
               </div>
 
@@ -789,15 +766,7 @@ export default function EyeTrackingAnalysis() {
 
               {/* Generic Recommendation (fallback) */}
               {!personalizedFeedback && (
-                <div
-                  className={`${getFatigueBgColor(results.fatigueScore)} border ${
-                    results.fatigueScore < 30
-                      ? 'border-green-200'
-                      : results.fatigueScore < 60
-                      ? 'border-yellow-200'
-                      : 'border-red-200'
-                  } rounded-xl p-6 mb-6`}
-                >
+                <div className="bg-gray-50 border border-gray-200 rounded-xl p-6 mb-6">
                   <h3 className="font-semibold text-gray-900 mb-2">Recommendation</h3>
                   <p className="text-gray-700">{results.recommendation}</p>
                 </div>

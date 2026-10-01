@@ -65,22 +65,35 @@ def photo(pid, band_level, days_ago, status='assessed'):
     )
 
 
-def test_band_rise_one_level_asks_for_retake():
+@pytest.fixture
+def research_mode(monkeypatch):
+    monkeypatch.setenv('EXPERIMENTAL_IMAGE_MODELS_USER_FACING', '1')
+
+
+def test_band_rise_one_level_asks_for_retake(research_mode):
     result = compare_photos(photo(2, 1, 0), photo(1, 0, 30))
     assert result['action'] == 'RETAKE_TO_CONFIRM_CHANGE'
     assert any('low to indeterminate' in r for r in result['reasons'])
 
 
-def test_stable_band_is_stable():
+def test_stable_band_is_stable(research_mode):
     result = compare_photos(photo(2, 0, 0), photo(1, 0, 30))
     assert result['action'] in ('STABLE', 'RETAKE_FOR_QUALITY')
     assert not result['reasons']
 
 
-def test_abstained_photo_is_not_compared_on_model():
+def test_abstained_photo_is_not_compared_on_model(research_mode):
     result = compare_photos(photo(2, None, 0, status='cannot_assess'), photo(1, 0, 30))
     assert result['screening']['note']
     assert 'cataract_likelihood' not in result['changes']
+
+
+def test_band_change_is_ignored_when_model_is_research_only():
+    result = compare_photos(photo(2, 2, 0), photo(1, 0, 30))
+    assert result['screening']['current']['status'] == 'withheld'
+    assert result['screening']['current']['likelihood'] is None
+    assert 'cataract_likelihood' not in result['changes']
+    assert not any('Screening result' in r for r in result['reasons'])
 
 
 @pytest.mark.skipif(not CALIBRATED_ARTIFACTS, reason='calibrated cataract artifacts not present')

@@ -1,920 +1,404 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
-import cameraManager from '../utils/cameraManager.js'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { toast } from 'react-hot-toast'
 import { visionTestAPI } from '../services/api'
 import SamdDisclaimer from '../components/SamdDisclaimer'
+import ScreenSizeCalibration from '../components/ScreenSizeCalibration'
+import SloanLetter from '../components/SloanLetter'
+import useDistanceMonitor from '../hooks/useDistanceMonitor'
+import { getScreenScale } from '../utils/screenScale'
+import { DISPLAY_INDEX_LABEL } from '../utils/displayIndex'
 import {
-  PupilRegionTracker,
-  fallbackPupilRegions,
-  estimatePupilSizeFromRegions,
-} from '../utils/pupilRegionDetector'
+  NEAR_BLUR,
+  blurAtTime,
+  buildRunPlan,
+  letterHeightPx,
+  pxPerArcmin,
+  randomSloanRow,
+  summarizeNearBlur,
+} from '../utils/nearBlur'
 
 /**
- * Near Blur Tolerance (focusing fatigue index).
- *
- * Subjective blur-tolerance on a progressively blurred near target, with
- * pupil response as a small secondary adjustment. A comfort index only — it
- * does not measure accommodation. Test type id stays `accommodative_lag` so
- * existing history keeps trending.
+ * Near Blur Tolerance — blur detection threshold on a near letter row.
+ * Protocol (target size, distance, blur method, runs, stopping rule,
+ * repeatability, unit, index) is defined in utils/nearBlur.js.
+ * It does not measure accommodation. Test type id stays `accommodative_lag`
+ * so existing history is kept; method_version 2 is not comparable with v1.
  */
+
+const STATUS_TEXT = {
+  ok: null,
+  unreliable_catch: 'You reported blur on a round where the letters never blurred, so this session was not scored. Retake and press only when the letters actually look blurred.',
+  beyond_range: `In more than ${NEAR_BLUR.maxCensoredRuns} round the letters reached the maximum blur (${NEAR_BLUR.capArcmin} arcmin) before you reported blur. The result is beyond this test's range. Check you are 40 cm away and wearing your usual near glasses.`,
+  too_few_runs: 'Too few rounds gave a usable answer, so no threshold was calculated.',
+  not_repeatable: `Your rounds differed too much from each other (spread above ${NEAR_BLUR.maxLog10Sd} log units) even after extra rounds, so the threshold is shown but not scored.`,
+}
 
 const AccommodativeLagTest = () => {
   const navigate = useNavigate()
-  const videoRef = useRef(null)
-  const canvasRef = useRef(null)
-  const streamRef = useRef(null)
-  const pupilTrackerRef = useRef(null)
-  const trackingStopRef = useRef(null)
+  const [phase, setPhase] = useState('instructions') // instructions, screen-size, between, running, results
+  const [screenScale, setScreenScale] = useState(getScreenScale)
+  const [plan, setPlan] = useState([])
+  const [runIdx, setRunIdx] = useState(0)
+  const [runs, setRuns] = useState([])
+  const [row, setRow] = useState('')
+  const [blurArcmin, setBlurArcmin] = useState(0)
+  const [summary, setSummary] = useState(null)
+  const [saveState, setSaveState] = useState(null)
+  const [restarts, setRestarts] = useState(0)
+  const rafRef = useRef(null)
+  const runStartRef = useRef(null)
+  const respondedRef = useRef(false)
 
-  const [testState, setTestState] = useState('instructions') // instructions, setup, testing, analyzing, results
-  const [cameraReady, setCameraReady] = useState(false)
-  const [cameraError, setCameraError] = useState(null)
-  const [eyesLocated, setEyesLocated] = useState(false)
-  const [trackingQuality, setTrackingQuality] = useState(null)
-  const [currentBlurLevel, setCurrentBlurLevel] = useState(0) // 0-10
-  const [currentBlurPx, setCurrentBlurPx] = useState(0)
-  const [pupilData, setPupilData] = useState([])
-  const [testProgress, setTestProgress] = useState(0)
-  const [userResponses, setUserResponses] = useState([])
-  
-  // Results
-  const [focusingCapacity, setFocusingCapacity] = useState(0)
-  const [accommodativeLag, setAccommodativeLag] = useState(0)
-  const [fatigueLevel, setFatigueLevel] = useState('low')
-  const [breakRecommendation, setBreakRecommendation] = useState('')
-  const [responseCount, setResponseCount] = useState(0)
-  const [lastResponseLabel, setLastResponseLabel] = useState('')
-  const userResponsesRef = useRef([])
+  const monitorActive = phase === 'between' || phase === 'running'
+  const distance = useDistanceMonitor({
+    active: monitorActive,
+    targetMm: NEAR_BLUR.distanceMm,
+    tolerance: NEAR_BLUR.distanceTolerance,
+  })
 
-  const clampScore = (value, fallback = 50) => {
-    const n = Number(value)
-    if (!Number.isFinite(n)) return fallback
-    return Math.max(0, Math.min(100, Math.round(n)))
-  }
-  const TEST_DURATION = 30 // seconds
-  const BLUR_STEPS = 10
-  const PUPIL_SAMPLE_RATE = 100 // ms
-  // Keep the letter sharp for most of the test; only ease in a light blur near the end.
-  const BLUR_HOLD_RATIO = 0.35
-  const MAX_BLUR_PX = 10
+  const pxPerMm = screenScale.pxPerMm
+  const letterPx = letterHeightPx(NEAR_BLUR.distanceMm, pxPerMm)
+  const blurPx = blurArcmin * pxPerArcmin(NEAR_BLUR.distanceMm, pxPerMm)
+  const current = plan[runIdx]
 
-  const blurPxFromProgress = (progressPct) => {
-    const p = Math.max(0, Math.min(100, Number(progressPct) || 0)) / 100
-    if (p <= BLUR_HOLD_RATIO) return 0
-    const t = (p - BLUR_HOLD_RATIO) / (1 - BLUR_HOLD_RATIO)
-    return t * t * MAX_BLUR_PX
-  }
+  useEffect(() => () => cancelAnimationFrame(rafRef.current), [])
 
-  const blurLevelFromPx = (px) => {
-    if (MAX_BLUR_PX <= 0) return 0
-    return Math.max(0, Math.min(BLUR_STEPS, Math.round((px / MAX_BLUR_PX) * BLUR_STEPS)))
-  }
-
-  // Initialize camera (must run after <video> is mounted — see setup effect)
-  const initializeCamera = useCallback(async () => {
-    setCameraError(null)
-    setCameraReady(false)
-    try {
-      const stream = await cameraManager.acquire({
-        video: {
-          facingMode: 'user',
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-        },
-      })
-
-      streamRef.current = stream
-
-      if (!pupilTrackerRef.current) {
-        pupilTrackerRef.current = new PupilRegionTracker()
-      }
-      await pupilTrackerRef.current.init()
-
-      let video = videoRef.current
-      for (let attempt = 0; attempt < 40 && !video; attempt++) {
-        await new Promise((r) => setTimeout(r, 50))
-        video = videoRef.current
-      }
-      if (!video) {
-        const msg = 'Camera preview did not start. Please refresh and try again.'
-        setCameraError(msg)
-        toast.error(msg)
-        return
-      }
-
-      video.srcObject = stream
-      await new Promise((resolve, reject) => {
-        const onReady = () => {
-          video
-            .play()
-            .then(() => {
-              setCameraReady(true)
-              resolve()
-            })
-            .catch(reject)
-        }
-        if (video.readyState >= 2 && video.videoWidth) {
-          onReady()
-        } else {
-          video.onloadedmetadata = onReady
-        }
-      })
-    } catch (err) {
-      console.error('Camera initialization failed:', err)
-      const msg =
-        err?.name === 'NotAllowedError'
-          ? 'Camera access denied. Allow camera in your browser, then tap Retry.'
-          : 'Could not start the camera. Check permissions and try again.'
-      setCameraError(msg)
-      toast.error(msg)
-    }
-  }, [])
-
-  // Stop camera
-  const stopCamera = useCallback(() => {
-    if (trackingStopRef.current) {
-      trackingStopRef.current()
-      trackingStopRef.current = null
-    }
-    if (streamRef.current) {
-      try { cameraManager.release() } catch (e) { try { streamRef.current.getTracks().forEach(track => track.stop()) } catch (err) {} }
-      streamRef.current = null
-    }
-    if (pupilTrackerRef.current) {
-      pupilTrackerRef.current.stop()
-      pupilTrackerRef.current = null
-    }
-    setCameraReady(false)
-    setEyesLocated(false)
-  }, [])
-
-  // Grab a frame and estimate pupil size from iris landmarks (or fixed fallback)
-  const measurePupilSize = useCallback(() => {
-    if (!videoRef.current || !canvasRef.current) return null
-
-    const video = videoRef.current
-    const canvas = canvasRef.current
-    const ctx = canvas.getContext('2d')
-
-    if (!video.videoWidth || !video.videoHeight) return null
-
-    canvas.width = video.videoWidth
-    canvas.height = video.videoHeight
-    ctx.drawImage(video, 0, 0)
-
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
-    const regions =
-      pupilTrackerRef.current?.getRegions(canvas.width, canvas.height) ||
-      fallbackPupilRegions(canvas.width, canvas.height)
-
-    const estimate = estimatePupilSizeFromRegions(imageData, regions)
-    if (!estimate) return null
-
-    return {
-      size: estimate.size,
-      source: estimate.source,
-      left: estimate.left,
-      right: estimate.right,
-    }
-  }, [])
-
-  // Keep landmarks fresh during setup so Begin Test can show pupil lock status
-  useEffect(() => {
-    if (!cameraReady || testState !== 'setup') return undefined
-
-    let cancelled = false
-    let timeoutId = null
-
-    const loop = async () => {
-      if (cancelled) return
-      try {
-        const regions = await pupilTrackerRef.current?.track(videoRef.current)
-        if (!cancelled) setEyesLocated(Boolean(regions))
-      } catch (err) {
-        console.warn('Pupil tracking failed during setup:', err)
-        if (!cancelled) setEyesLocated(false)
-      }
-      if (!cancelled) timeoutId = setTimeout(loop, 250)
-    }
-
-    loop()
-
-    return () => {
-      cancelled = true
-      if (timeoutId) clearTimeout(timeoutId)
-    }
-  }, [cameraReady, testState])
-
-  // Analyze test results
-  const analyzeResults = useCallback((pupilMeasurements) => {
-    setTestState('analyzing')
-
-    setTimeout(() => {
-      const responses = userResponsesRef.current
-
-      const landmarkSamples = pupilMeasurements.filter(
-        (m) => m.source && m.source !== 'fallback-fixed-position'
-      )
-      const landmarkRatio =
-        pupilMeasurements.length > 0 ? landmarkSamples.length / pupilMeasurements.length : 0
-      const usedLandmarks = landmarkRatio >= 0.2
-      const scoredSamples = usedLandmarks ? landmarkSamples : pupilMeasurements
-      const confidence = !usedLandmarks ? 'low' : landmarkRatio >= 0.7 ? 'high' : 'moderate'
-
-      const initialSamples = scoredSamples.slice(0, 10)
-      const finalSamples = scoredSamples.slice(-10)
-      const avg = (samples) =>
-        samples.length ? samples.reduce((sum, m) => sum + m.size, 0) / samples.length : 0
-
-      const initialPupilSize = avg(initialSamples)
-      const finalPupilSize = avg(finalSamples)
-
-      // Positive = pupils got smaller (miosis / focusing effort)
-      const pupilConstriction = initialPupilSize > 0
-        ? ((initialPupilSize - finalPupilSize) / initialPupilSize) * 100
-        : 0
-
-      const canSeeLevels = responses.filter((r) => r.canSee).map((r) => Number(r.blurLevel) || 0)
-      const cannotSeeLevels = responses
-        .filter((r) => !r.canSee)
-        .map((r) => Number(r.blurLevel) || 0)
-      const bestCanSee = canSeeLevels.length ? Math.max(...canSeeLevels) : null
-      const firstFail = cannotSeeLevels.length ? Math.min(...cannotSeeLevels) : null
-
-      let accommodationScore
-      if (firstFail === null) {
-        // Never reported "too blurry" — do not treat missing clicks as fatigue
-        accommodationScore = 90
-      } else if (bestCanSee !== null && bestCanSee >= firstFail) {
-        accommodationScore = Math.round(55 + (bestCanSee / BLUR_STEPS) * 45)
-      } else {
-        // Losing a still-sharp letter is more meaningful than losing it at max blur
-        accommodationScore = Math.round(40 + (firstFail / BLUR_STEPS) * 60)
-      }
-
-      // Real iris sampling can nudge the score more; fixed-position darkness stays tiny.
-      let pupilAdjust = 0
-      if (Number.isFinite(pupilConstriction) && scoredSamples.length >= 8) {
-        if (confidence === 'high') {
-          pupilAdjust = Math.max(-12, Math.min(12, pupilConstriction * 0.25))
-        } else if (confidence === 'moderate') {
-          pupilAdjust = Math.max(-8, Math.min(8, pupilConstriction * 0.18))
-        } else {
-          pupilAdjust = Math.max(-6, Math.min(6, pupilConstriction * 0.12))
-        }
-      }
-
-      const capacity = clampScore(accommodationScore + pupilAdjust, 80)
-      const lag = clampScore(100 - capacity, 20)
-
-      let fatigue = 'low'
-      let recommendation = ''
-
-      if (capacity < 32) {
-        fatigue = 'severe'
-        recommendation = 'Please take a 20-minute break now. Your eyes are very tired, and pushing on could bring on a headache or eye strain.'
-      } else if (capacity < 50) {
-        fatigue = 'moderate'
-        recommendation = 'Take a 10-minute break within the next hour. Your focusing muscles are getting tired. Look at distant objects (20+ feet away).'
-      } else if (capacity < 70) {
-        fatigue = 'mild'
-        recommendation = 'Take a 5-minute break soon. Follow the 20-20-20 rule: every 20 minutes, look at something 20 feet away for 20 seconds.'
-      } else {
-        fatigue = 'low'
-        recommendation = 'Your eyes are doing well! Continue taking regular breaks to maintain good eye health.'
-      }
-
-      setFocusingCapacity(capacity)
-      setAccommodativeLag(lag)
-      setFatigueLevel(fatigue)
-      setBreakRecommendation(recommendation)
-      setTrackingQuality({
-        confidence,
-        landmarkRatio: Math.round(landmarkRatio * 100),
-        samplesScored: scoredSamples.length,
-        pupilConstriction: Math.round(pupilConstriction * 10) / 10,
-      })
-
-      stopCamera()
-      setTestState('results')
-
-      submitResults({
-        focusingCapacity: capacity,
-        accommodativeLag: lag,
-        fatigueLevel: fatigue,
-        accommodationScore,
-        pupilAdjust,
-        pupilConstriction,
-        detectionConfidence: confidence,
-        landmarkFramePercent: Math.round(landmarkRatio * 100),
-        bestCanSee,
-        firstFailBlurLevel: firstFail,
-        blurSteps: BLUR_STEPS,
-        pupilData: pupilMeasurements,
-        userResponses: responses,
-        analysis_note: usedLandmarks
-          ? 'Pupil size estimated from dark fraction inside MediaPipe iris regions.'
-          : 'No face detected; pupil size estimated from fixed screen positions. Framing affects accuracy.',
-      })
-    }, 2000)
-  }, [stopCamera])
-
-  // Start test
-  const startTest = useCallback(() => {
-    setTestState('testing')
-    setCurrentBlurLevel(0)
-    setCurrentBlurPx(0)
-    setPupilData([])
-    setTrackingQuality(null)
-    userResponsesRef.current = []
-    setUserResponses([])
-    setTestProgress(0)
-    setResponseCount(0)
-    setLastResponseLabel('')
-
-    let startTime = Date.now()
-    let blurLevel = 0
-    let pupilMeasurements = []
-
-    // Landmark tracking runs continuously; each sample reads the latest regions.
-    let trackingCancelled = false
-    const trackLoop = async () => {
-      while (!trackingCancelled) {
-        if (!videoRef.current) {
-          await new Promise((r) => setTimeout(r, 200))
-          continue
-        }
-        try {
-          await pupilTrackerRef.current?.track(videoRef.current)
-        } catch (err) {
-          console.warn('Pupil tracking failed mid-test:', err)
-        }
-        await new Promise((r) => setTimeout(r, 200))
-      }
-    }
-    trackLoop()
-    trackingStopRef.current = () => {
-      trackingCancelled = true
-    }
-
-    // Measure pupil every 100ms
-    const pupilInterval = setInterval(() => {
-      const sample = measurePupilSize()
-      if (sample !== null) {
-        const entry = {
-          time: Date.now() - startTime,
-          size: sample.size,
-          blurLevel,
-          source: sample.source,
-        }
-        pupilMeasurements.push(entry)
-        setPupilData((prev) => [...prev, entry])
-      }
-    }, PUPIL_SAMPLE_RATE)
-
-    // Update progress and ease blur in only after the hold period
-    const progressInterval = setInterval(() => {
-      const elapsed = Date.now() - startTime
-      const progress = Math.min((elapsed / (TEST_DURATION * 1000)) * 100, 100)
-      const blurPx = blurPxFromProgress(progress)
-      blurLevel = blurLevelFromPx(blurPx)
-      setTestProgress(progress)
-      setCurrentBlurPx(blurPx)
-      setCurrentBlurLevel(blurLevel)
-
-      if (progress >= 100) {
-        clearInterval(pupilInterval)
-        clearInterval(progressInterval)
-        trackingCancelled = true
-        trackingStopRef.current = null
-        analyzeResults(pupilMeasurements)
-      }
-    }, 100)
-
-  }, [measurePupilSize, analyzeResults])
-
-  // User reports if they can see the target
-  const handleCanSee = useCallback((canSee) => {
-    const entry = {
-      blurLevel: currentBlurLevel,
-      blurPx: currentBlurPx,
-      progress: testProgress,
-      canSee,
-      timestamp: Date.now(),
-    }
-    userResponsesRef.current = [...userResponsesRef.current, entry]
-    setUserResponses(userResponsesRef.current)
-    setResponseCount(userResponsesRef.current.length)
-    const label = canSee ? 'Recorded: I can see it' : 'Recorded: Too blurry'
-    setLastResponseLabel(label)
-    toast.success(label, { duration: 1200, id: 'accommodative-response' })
-  }, [currentBlurLevel, currentBlurPx, testProgress])
-
-  // Re-attach camera stream when testing view mounts (setup video stays mounted via persistent layer)
-  useEffect(() => {
-    if (testState === 'testing' && streamRef.current && videoRef.current) {
-      videoRef.current.srcObject = streamRef.current
-      videoRef.current.play().catch(() => {})
-    }
-  }, [testState, cameraReady])
-
-  // Submit results to backend
-  const submitResults = async (results) => {
-    const score = clampScore(results.focusingCapacity)
+  const submit = useCallback(async (allRuns, s) => {
     try {
       await visionTestAPI.submit({
         test_type: 'accommodative_lag',
-        score,
+        score: s.index,
         test_details: {
-          focusing_capacity: score,
-          accommodative_lag: clampScore(results.accommodativeLag),
-          fatigue_level: results.fatigueLevel,
-          accommodation_score: results.accommodationScore,
-          pupil_adjust: results.pupilAdjust,
-          pupil_constriction: results.pupilConstriction,
-          detection_confidence: results.detectionConfidence,
-          landmark_frame_percent: results.landmarkFramePercent,
-          best_can_see_blur_level: results.bestCanSee,
-          first_fail_blur_level: results.firstFailBlurLevel,
-          blur_steps_total: results.blurSteps,
-          pupil_data_points: results.pupilData?.length ?? 0,
-          user_responses: results.userResponses ?? [],
-          analysis_note: results.analysis_note,
+          method: 'ascending_limits_gaussian_blur_near_letters',
+          method_version: 2,
+          native_unit: 'blur detection threshold, Gaussian sigma in arcmin',
+          blur_threshold_arcmin: s.thresholdArcmin,
+          log10_blur_threshold: s.log10Threshold,
+          within_session_log10_sd: s.log10Sd,
+          repeatable: s.repeatable,
+          status: s.status,
+          scored_runs: s.scoredRuns,
+          measured_runs: s.measuredRuns,
+          censored_runs: s.censoredRuns,
+          catch_runs: s.catchRuns,
+          catch_false_alarms: s.falseAlarms,
+          extra_runs_used: s.extraRunsUsed,
+          distance_restarts: restarts,
+          protocol: {
+            viewing_distance_mm: NEAR_BLUR.distanceMm,
+            distance_tolerance: NEAR_BLUR.distanceTolerance,
+            letter_logmar: NEAR_BLUR.letterLogMAR,
+            letter_height_mm: Number((letterPx / pxPerMm).toFixed(2)),
+            letters_per_row: NEAR_BLUR.letters,
+            blur_method: 'css_gaussian_filter_sigma',
+            hold_s: [NEAR_BLUR.holdMinS, NEAR_BLUR.holdMaxS],
+            ramp_arcmin_per_s: NEAR_BLUR.rampArcminPerS,
+            cap_arcmin: NEAR_BLUR.capArcmin,
+            max_log10_sd: NEAR_BLUR.maxLog10Sd,
+          },
+          screen_px_per_mm: Number(pxPerMm.toFixed(3)),
+          screen_scale_source: screenScale.source,
+          distance_baseline_source: distance.baselineSource,
+          runs: allRuns,
+          scoring_note:
+            `Native measure: median Gaussian-blur sigma (arcmin) at which blur was reported, over ${NEAR_BLUR.scoredRuns}+ ascending runs (catch run with no blur checks false alarms). Display index (not clinically validated, not used for alerts): log-linear, 100 at ≤ ${NEAR_BLUR.indexLowArcmin} arcmin, 0 at ≥ ${NEAR_BLUR.indexHighArcmin} arcmin; only computed for reliable, repeatable sessions. Reaction time adds roughly 0.1–0.2 arcmin. Does not measure accommodation.`,
           timestamp: new Date().toISOString(),
         },
       })
+      setSaveState('saved')
     } catch (err) {
       console.error('Failed to submit results:', err)
+      setSaveState('error')
     }
-  }
+  }, [letterPx, pxPerMm, restarts, screenScale.source, distance.baselineSource])
 
-  // Start camera after setup view mounts (video ref must exist first)
-  useEffect(() => {
-    if (testState !== 'setup') return undefined
-    initializeCamera()
-    return undefined
-  }, [testState, initializeCamera])
+  const finishRun = useCallback((result) => {
+    cancelAnimationFrame(rafRef.current)
+    const nextRuns = [...runs, result]
+    setRuns(nextRuns)
+    setBlurArcmin(0)
 
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      stopCamera()
-    }
-  }, [stopCamera])
-
-  // Render instructions
-  const renderInstructions = () => (
-    <div className="test-shell">
-      <div className="max-w-4xl mx-auto">
-        <button
-          onClick={() => navigate('/vision-tests')}
-          className="mb-6 flex items-center text-purple-600 hover:text-purple-700 font-medium"
-        >
-          ← Back to Tests
-        </button>
-
-        <div className="test-panel p-8 md:p-12">
-          <div className="text-center mb-8">
-            <div className="w-20 h-20 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <svg className="w-10 h-10 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-              </svg>
-            </div>
-            <h1 className="page-title mb-2">Near Blur Tolerance</h1>
-            <p className="text-xl text-gray-600">A focusing fatigue index for close-up work</p>
-          </div>
-
-          <div className="bg-purple-50 border-l-4 border-purple-600 p-6 mb-8 rounded-r-xl">
-            <h2 className="text-lg font-bold text-purple-900 mb-2">What This Measures</h2>
-            <p className="text-purple-800">
-              How much blur you tolerate on a near target before it stops looking clear, with pupil response as a
-              secondary cue. It&apos;s a comfort index you can track across a workday — it does not measure your eye&apos;s
-              focusing (accommodation) directly. For how well your eyes team up up-close, try the{' '}
-              <button type="button" onClick={() => navigate('/vision-tests/near_point_convergence')} className="underline font-semibold">
-                Convergence Near Point
-              </button>{' '}
-              test.
-            </p>
-          </div>
-
-          <div className="space-y-6 mb-8">
-            <h3 className="text-2xl font-bold text-gray-900">How It Works:</h3>
-            
-            <div className="grid gap-6">
-              <div className="flex gap-4">
-                <div className="flex-shrink-0 w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center">
-                  <span className="text-purple-600 font-bold text-xl">1</span>
-                </div>
-                <div>
-                  <h4 className="font-bold text-gray-900 mb-1">Focus on the Target</h4>
-                  <p className="text-gray-600">A sharp target will appear on screen. Keep your eyes focused on it</p>
-                </div>
-              </div>
-
-              <div className="flex gap-4">
-                <div className="flex-shrink-0 w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center">
-                  <span className="text-purple-600 font-bold text-xl">2</span>
-                </div>
-                <div>
-                  <h4 className="font-bold text-gray-900 mb-1">Target Gradually Blurs</h4>
-                  <p className="text-gray-600">The letter stays sharp at first, then only gently blurs near the end of the 30 seconds</p>
-                </div>
-              </div>
-
-              <div className="flex gap-4">
-                <div className="flex-shrink-0 w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center">
-                  <span className="text-purple-600 font-bold text-xl">3</span>
-                </div>
-                <div>
-                  <h4 className="font-bold text-gray-900 mb-1">Report Clarity</h4>
-                  <p className="text-gray-600">Tell us when you can no longer see the target clearly</p>
-                </div>
-              </div>
-
-              <div className="flex gap-4">
-                <div className="flex-shrink-0 w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center">
-                  <span className="text-purple-600 font-bold text-xl">4</span>
-                </div>
-                <div>
-                  <h4 className="font-bold text-gray-900 mb-1">Pupil Tracking</h4>
-                  <p className="text-gray-600">Your camera watches how your pupils gently shrink as your eyes focus — a natural sign of focusing effort</p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-6 mb-8">
-            <h3 className="font-bold text-indigo-900 mb-3">What You'll Learn:</h3>
-            <ul className="space-y-2">
-              <li className="flex items-start gap-2">
-                <svg className="w-5 h-5 text-indigo-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                </svg>
-                <span><strong>Blur tolerance index</strong> - How long a near target stayed clear for you</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <svg className="w-5 h-5 text-indigo-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                </svg>
-                <span><strong>Trend over the day</strong> - Compare morning vs afternoon runs</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <svg className="w-5 h-5 text-indigo-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                </svg>
-                <span><strong>Break suggestion</strong> - A rest suggestion based on your result</span>
-              </li>
-            </ul>
-          </div>
-
-          <div className="text-center">
-            <button
-              onClick={() => setTestState('setup')}
-              className="btn-primary px-8 py-4 text-xl"
-            >
-              Start Near Blur Test
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-
-  // Render setup screen
-  const renderSetup = () => (
-    <div className="min-h-screen bg-black text-white p-4">
-      <div className="max-w-4xl mx-auto text-center">
-        <h2 className="text-3xl font-bold mb-4">Position Your Face</h2>
-        <p className="text-gray-400 mb-6">Make sure your eyes are clearly visible</p>
-
-        {cameraError && (
-          <p className="mb-4 text-sm text-red-300 bg-red-950/50 border border-red-700 rounded-lg px-4 py-3">
-            {cameraError}
-          </p>
-        )}
-
-        {cameraReady && (
-          <p className={`mb-6 text-sm ${eyesLocated ? 'text-green-400' : 'text-gray-400'}`}>
-            {eyesLocated
-              ? 'Both pupils located — the test will track how they respond.'
-              : 'Looking for your eyes… keep your whole face in frame. You can begin even if detection is slow.'}
-          </p>
-        )}
-
-        <div className="flex flex-wrap gap-4 justify-center">
-          <button
-            onClick={() => {
-              stopCamera()
-              setCameraError(null)
-              setTestState('instructions')
-            }}
-            className="px-6 py-3 bg-gray-700 hover:bg-gray-600 rounded-full font-semibold min-h-[44px]"
-          >
-            Cancel
-          </button>
-
-          {cameraError && (
-            <button
-              type="button"
-              onClick={() => initializeCamera()}
-              className="px-6 py-3 bg-amber-600 hover:bg-amber-700 rounded-full font-semibold min-h-[44px]"
-            >
-              Retry camera
-            </button>
-          )}
-
-          <button
-            type="button"
-            onClick={startTest}
-            disabled={!cameraReady}
-            className={`px-8 py-3 rounded-full font-semibold min-h-[44px] ${
-              cameraReady
-                ? 'bg-purple-600 hover:bg-purple-700'
-                : 'bg-gray-600 cursor-not-allowed opacity-50'
-            }`}
-          >
-            {cameraReady ? 'Begin Test' : cameraError ? 'Camera required' : 'Initializing camera…'}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-
-  // Render testing screen
-  const renderTesting = () => {
-    const blurAmount = currentBlurPx
-
-    return (
-      <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center p-4">
-        <div className="text-center max-w-2xl w-full">
-          {/* Progress bar */}
-          <div className="mb-8">
-            <div className="w-full bg-gray-700 rounded-full h-3 mb-2">
-              <div
-                className="bg-purple-600 h-3 rounded-full transition-all"
-                style={{ width: `${testProgress}%` }}
-              />
-            </div>
-            <p className="text-gray-400 text-sm">{Math.round(testProgress)}% Complete</p>
-          </div>
-
-          {/* Target */}
-          <div className="mb-8">
-            <p className="text-gray-400 mb-4">Focus on the target. Can you see it clearly?</p>
-            <div className="flex items-center justify-center">
-              <div
-                className="w-64 h-64 bg-white rounded-lg flex items-center justify-center text-black text-6xl font-bold"
-                style={{ filter: `blur(${blurAmount}px)` }}
-              >
-                E
-              </div>
-            </div>
-          </div>
-
-          {/* Response buttons */}
-          <div className="flex gap-4 justify-center">
-            <button
-              onClick={() => handleCanSee(true)}
-              className="px-8 py-4 bg-green-600 hover:bg-green-700 rounded-full font-semibold text-lg"
-            >
-              Yes, I Can See It
-            </button>
-            <button
-              onClick={() => handleCanSee(false)}
-              className="px-8 py-4 bg-red-600 hover:bg-red-700 rounded-full font-semibold text-lg"
-            >
-              No, Too Blurry
-            </button>
-          </div>
-
-          {lastResponseLabel && (
-            <p className="text-center text-green-400 mt-4 text-sm">{lastResponseLabel} ({responseCount} responses)</p>
-          )}
-
-          {/* Hidden camera for pupil tracking — persistent layer at root */}
-        </div>
-      </div>
-    )
-  }
-
-  // Render analyzing screen
-  const renderAnalyzing = () => (
-    <div className="min-h-screen bg-black text-white flex items-center justify-center p-4">
-      <div className="text-center max-w-md">
-        <div className="relative w-48 h-48 mx-auto mb-8">
-          <div className="absolute inset-0">
-            <div className="w-full h-full border-4 border-purple-600 rounded-full animate-spin" style={{ borderTopColor: 'transparent' }} />
-          </div>
-          <div className="absolute inset-4">
-            <div className="w-full h-full border-4 border-indigo-500 rounded-full animate-spin" style={{ borderTopColor: 'transparent', animationDirection: 'reverse' }} />
-          </div>
-          
-          <div className="absolute inset-0 flex items-center justify-center">
-            <svg className="w-16 h-16 text-purple-500" fill="currentColor" viewBox="0 0 20 20">
-              <path d="M10 2a8 8 0 100 16 8 8 0 000-16zM8 10a2 2 0 114 0 2 2 0 01-4 0z" />
-            </svg>
-          </div>
-        </div>
-
-        <h2 className="text-3xl font-bold mb-4">Working Out Your Blur Tolerance</h2>
-        <p className="text-gray-400 mb-6">Looking at how your pupils responded...</p>
-
-        <div className="space-y-2 text-sm text-gray-500">
-          <p className="animate-pulse">• Watching how your pupils moved</p>
-          <p className="animate-pulse" style={{ animationDelay: '0.2s' }}>• Measuring your focusing effort</p>
-          <p className="animate-pulse" style={{ animationDelay: '0.4s' }}>• Working out your focusing power</p>
-          <p className="animate-pulse" style={{ animationDelay: '0.6s' }}>• Rating your eye tiredness</p>
-        </div>
-      </div>
-    </div>
-  )
-
-  // Render results screen
-  const renderResults = () => {
-    const getCapacityColor = (capacity) => {
-      if (capacity >= 70) return 'text-green-600'
-      if (capacity >= 50) return 'text-yellow-600'
-      if (capacity >= 32) return 'text-orange-600'
-      return 'text-red-600'
-    }
-
-    const getCapacityBg = (capacity) => {
-      if (capacity >= 70) return 'bg-green-100 border-green-300'
-      if (capacity >= 50) return 'bg-yellow-100 border-yellow-300'
-      if (capacity >= 32) return 'bg-orange-100 border-orange-300'
-      return 'bg-red-100 border-red-300'
-    }
-
-    const getFatigueIcon = () => {
-      if (fatigueLevel === 'severe') return 'SEVERE'
-      if (fatigueLevel === 'moderate') return 'MODERATE'
-      if (fatigueLevel === 'mild') return 'MILD'
-      return 'LOW'
-    }
-
-    return (
-      <div className="test-shell">
-        <div className="max-w-4xl mx-auto">
-          <button
-            onClick={() => navigate('/vision-tests')}
-            className="mb-6 flex items-center text-purple-600 hover:text-purple-700 font-medium"
-          >
-            ← Back to Tests
-          </button>
-
-          <div className="test-panel p-8 md:p-12">
-            <div className="text-center mb-8">
-              <div className="text-4xl font-bold mb-4 text-gray-700">{getFatigueIcon()}</div>
-              <h1 className="page-title mb-2">Near Blur Tolerance Results</h1>
-              <p className="text-gray-600">Focusing fatigue index — a comfort measure, not a clinical test</p>
-            </div>
-
-            {trackingQuality && (
-              <div
-                className={`border-l-4 p-4 mb-8 rounded-r-xl ${
-                  trackingQuality.confidence === 'low'
-                    ? 'bg-yellow-50 border-yellow-500'
-                    : 'bg-gray-50 border-gray-300'
-                }`}
-              >
-                {trackingQuality.confidence === 'low' ? (
-                  <p className="text-yellow-900 text-sm">
-                    <strong>Low confidence:</strong> we couldn't lock onto your pupils for most of
-                    this run, so pupil response had little effect on the score. Retake with your
-                    face clearly lit for a better reading.
-                  </p>
-                ) : (
-                  <p className="text-gray-700 text-sm">
-                    Pupils tracked in {trackingQuality.landmarkRatio}% of samples
-                    {trackingQuality.confidence === 'moderate'
-                      ? ' — steadier framing will improve accuracy.'
-                      : ' — good tracking.'}
-                    {Number.isFinite(trackingQuality.pupilConstriction) && (
-                      <> Pupil change during the test: {trackingQuality.pupilConstriction}%.</>
-                    )}
-                  </p>
-                )}
-              </div>
-            )}
-
-            {/* Main score */}
-            <div className={`border-2 rounded-2xl p-8 mb-8 text-center ${getCapacityBg(focusingCapacity)}`}>
-              <h3 className="text-sm font-semibold text-gray-700 mb-2">NEAR BLUR TOLERANCE INDEX</h3>
-              <div className={`text-7xl font-bold ${getCapacityColor(focusingCapacity)} mb-4`}>
-                {focusingCapacity}%
-              </div>
-              <p className="text-lg font-semibold text-gray-700 mb-2">
-                {focusingCapacity >= 70 ? 'Excellent - Eyes are fresh!' :
-                 focusingCapacity >= 50 ? 'Mild strain - A short break soon is a good idea' :
-                 focusingCapacity >= 32 ? 'Getting tired - Take a break when you can' :
-                 'Very tired - Take a longer break now'}
-              </p>
-              <p className="text-sm text-gray-600">
-                Focusing fatigue index: {accommodativeLag}
-              </p>
-            </div>
-
-            {/* Break recommendation */}
-            <div className={`${
-              fatigueLevel === 'severe' ? 'bg-red-100 border-red-600' :
-              fatigueLevel === 'moderate' ? 'bg-orange-100 border-orange-600' :
-              fatigueLevel === 'mild' ? 'bg-yellow-100 border-yellow-600' :
-              'bg-green-100 border-green-600'
-            } border-l-4 p-6 mb-8 rounded-r-xl`}>
-              <h3 className="text-lg font-bold mb-2">
-                {fatigueLevel === 'severe' ? 'URGENT RECOMMENDATION' :
-                 fatigueLevel === 'moderate' ? 'TAKE A BREAK' :
-                 fatigueLevel === 'mild' ? 'REST SOON' :
-                 'KEEP IT UP'}
-              </h3>
-              <p className="font-semibold mb-2">{breakRecommendation}</p>
-            </div>
-
-            {/* Eye health tips */}
-            <div className="bg-indigo-50 rounded-2xl p-6 mb-8">
-              <h3 className="text-xl font-bold text-indigo-900 mb-4">The 20-20-20 Rule</h3>
-              <div className="grid md:grid-cols-3 gap-4 text-center">
-                <div>
-                  <div className="text-4xl font-bold text-indigo-600 mb-2">20</div>
-                  <p className="text-sm text-indigo-800">Every 20 minutes</p>
-                </div>
-                <div>
-                  <div className="text-4xl font-bold text-indigo-600 mb-2">20</div>
-                  <p className="text-sm text-indigo-800">Look 20 feet away</p>
-                </div>
-                <div>
-                  <div className="text-4xl font-bold text-indigo-600 mb-2">20</div>
-                  <p className="text-sm text-indigo-800">For 20 seconds</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Action buttons */}
-            <SamdDisclaimer testType="accommodative_lag" className="mb-6" />
-
-            <div className="flex flex-col sm:flex-row gap-4">
-              <button
-                onClick={() => {
-                  setTrackingQuality(null)
-                  setEyesLocated(false)
-                  setPupilData([])
-                  setLastResponseLabel('')
-                  setResponseCount(0)
-                  setTestState('instructions')
-                }}
-                className="flex-1 px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-semibold"
-              >
-                Test Again
-              </button>
-              <button
-                onClick={() => navigate('/vision-tests')}
-                className="flex-1 px-6 py-3 bg-gray-600 hover:bg-gray-700 text-white rounded-xl font-semibold"
-              >
-                Done
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  const renderPersistentCamera = () => (
-    <div
-      className={
-        testState === 'testing'
-          ? 'fixed top-0 left-0 w-[640px] h-[480px] opacity-0 pointer-events-none z-0'
-          : testState === 'setup'
-            ? 'relative mb-6 max-w-2xl mx-auto'
-            : 'fixed top-0 left-0 w-px h-px opacity-0 overflow-hidden pointer-events-none -z-10'
+    let nextPlan = plan
+    if (runIdx + 1 >= plan.length) {
+      const s = summarizeNearBlur(nextRuns)
+      if (s.needsExtraRun) {
+        nextPlan = [...plan, { kind: 'scored', holdS: NEAR_BLUR.holdMinS + Math.random() * (NEAR_BLUR.holdMaxS - NEAR_BLUR.holdMinS) }]
+        setPlan(nextPlan)
+      } else {
+        setSummary(s)
+        setPhase('results')
+        submit(nextRuns, s)
+        return
       }
-      aria-hidden={testState !== 'setup'}
-    >
-      <video
-        ref={videoRef}
-        autoPlay
-        playsInline
-        muted
-        className={testState === 'testing' ? 'w-full h-full' : 'w-full rounded-2xl'}
-      />
-      <canvas ref={canvasRef} className="hidden" />
-    </div>
-  )
+    }
+    setRunIdx(runIdx + 1)
+    setPhase('between')
+  }, [runs, plan, runIdx, submit])
 
-  // Main render — keep <video> mounted before setup so camera init can attach the stream
-  const showCamera = testState === 'instructions' || testState === 'setup' || testState === 'testing'
+  const startRun = () => {
+    if (!current) return
+    respondedRef.current = false
+    setRow(randomSloanRow())
+    setBlurArcmin(0)
+    setPhase('running')
+    runStartRef.current = performance.now()
+    const tick = () => {
+      const t = (performance.now() - runStartRef.current) / 1000
+      if (current.kind === 'catch') {
+        if (t >= current.holdS + NEAR_BLUR.catchDurationS) {
+          finishRun({ kind: 'catch', falseAlarm: false, holdS: Number(current.holdS.toFixed(2)) })
+          return
+        }
+        rafRef.current = requestAnimationFrame(tick)
+        return
+      }
+      const sigma = blurAtTime(t, current.holdS)
+      setBlurArcmin(sigma)
+      if (sigma >= NEAR_BLUR.capArcmin) {
+        finishRun({ kind: current.kind, thresholdArcmin: NEAR_BLUR.capArcmin, censored: true, holdS: Number(current.holdS.toFixed(2)) })
+        return
+      }
+      rafRef.current = requestAnimationFrame(tick)
+    }
+    rafRef.current = requestAnimationFrame(tick)
+  }
+
+  const reportBlur = useCallback(() => {
+    if (phase !== 'running' || respondedRef.current || !current) return
+    respondedRef.current = true
+    const t = (performance.now() - runStartRef.current) / 1000
+    if (current.kind === 'catch') {
+      finishRun({ kind: 'catch', falseAlarm: true, responseS: Number(t.toFixed(2)), holdS: Number(current.holdS.toFixed(2)) })
+      return
+    }
+    const sigma = blurAtTime(t, current.holdS)
+    finishRun({
+      kind: current.kind,
+      thresholdArcmin: Number(sigma.toFixed(3)),
+      censored: false,
+      earlyPress: sigma === 0,
+      responseS: Number(t.toFixed(2)),
+      holdS: Number(current.holdS.toFixed(2)),
+    })
+  }, [phase, current, finishRun])
+
+  useEffect(() => {
+    if (phase !== 'running') return undefined
+    const onKey = (e) => {
+      if (e.code === 'Space') {
+        e.preventDefault()
+        reportBlur()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [phase, reportBlur])
+
+  // Moving out of the 40 cm window aborts the current round; it is repeated.
+  useEffect(() => {
+    if (phase === 'running' && distance.paused) {
+      cancelAnimationFrame(rafRef.current)
+      setBlurArcmin(0)
+      setRestarts((n) => n + 1)
+      setPhase('between')
+    }
+  }, [phase, distance.paused])
+
+  const begin = () => {
+    setPlan(buildRunPlan())
+    setRuns([])
+    setRunIdx(0)
+    setSummary(null)
+    setSaveState(null)
+    setRestarts(0)
+    setPhase('between')
+  }
+
+  const scoredDone = runs.filter((r) => r.kind !== 'practice').length
+  const scoredTotal = plan.filter((r) => r.kind !== 'practice').length
 
   return (
-    <>
-      {showCamera && renderPersistentCamera()}
-      {testState === 'instructions' && renderInstructions()}
-      {testState === 'setup' && renderSetup()}
-      {testState === 'testing' && renderTesting()}
-      {testState === 'analyzing' && renderAnalyzing()}
-      {testState === 'results' && renderResults()}
-    </>
+    <div className="test-shell">
+      {monitorActive && (
+        <video ref={distance.videoRef} autoPlay playsInline muted className="fixed top-0 left-0 w-px h-px opacity-0 pointer-events-none" aria-hidden />
+      )}
+      <div className="max-w-3xl mx-auto">
+        {phase === 'screen-size' && (
+          <ScreenSizeCalibration
+            onDone={() => {
+              setScreenScale(getScreenScale())
+              setPhase('instructions')
+            }}
+            onSkip={() => setPhase('instructions')}
+          />
+        )}
+
+        {phase === 'instructions' && (
+          <div className="test-panel">
+            <div className="text-center mb-6">
+              <h1 className="page-title mb-1">Near Blur Tolerance</h1>
+              <p className="text-sm text-accent-600 font-medium">How much blur it takes before near letters stop looking sharp</p>
+            </div>
+
+            <div className="bg-accent-50 border-l-4 border-accent-500 rounded-r-xl p-5 mb-6 text-sm text-accent-900 space-y-2">
+              <p>
+                A row of letters starts sharp and slowly blurs. You press the button the moment it first looks blurred.
+                The result is your <strong>blur detection threshold</strong> in arcminutes of blur.
+              </p>
+              <p>
+                It does not measure your eye&apos;s focusing (accommodation). For how your eyes team up up-close, try the{' '}
+                <button type="button" onClick={() => navigate('/vision-tests/near_point_convergence')} className="underline font-semibold">
+                  Convergence Near Point
+                </button>{' '}
+                test.
+              </p>
+            </div>
+
+            <ul className="space-y-2 text-sm text-gray-700 mb-6 list-disc pl-5">
+              <li>Sit <strong>40 cm</strong> from the screen with both eyes open and your usual reading glasses on. The camera checks distance and repeats a round if you move.</li>
+              <li>
+                The letters are {(letterPx / pxPerMm).toFixed(1)} mm tall ({NEAR_BLUR.letterLogMAR.toFixed(1)} logMAR at 40 cm).
+                {screenScale.source === 'default' && ' Your screen size has not been measured, so sizes are approximate.'}
+              </li>
+              <li>
+                {NEAR_BLUR.practiceRuns} practice round, then {NEAR_BLUR.scoredRuns + NEAR_BLUR.catchRuns} rounds (up to{' '}
+                {NEAR_BLUR.maxExtraRuns} more if your answers vary). Some rounds may not blur at all — only press when the
+                letters really look blurred.
+              </li>
+              <li>Press <strong>It looks blurred</strong> (or Space) as soon as the edges first soften. About 2–3 minutes.</li>
+            </ul>
+
+            <div className="flex gap-3">
+              <button onClick={() => navigate('/vision-tests')} className="test-btn-outline">Back</button>
+              {screenScale.source === 'default' && (
+                <button onClick={() => setPhase('screen-size')} className="test-btn-outline">Measure screen</button>
+              )}
+              <button onClick={begin} className="test-btn">Begin</button>
+            </div>
+          </div>
+        )}
+
+        {phase === 'between' && current && (
+          <div className="test-panel text-center space-y-4">
+            <p className="text-xs text-gray-500">
+              {current.kind === 'practice' ? 'Practice round' : `Round ${scoredDone + 1} of ${scoredTotal}`}
+            </p>
+            <h2 className="text-xl font-bold text-gray-900">Ready for the next round</h2>
+            <p className="text-sm text-gray-600">
+              {distance.distanceMm ? `Camera distance: about ${Math.round(distance.distanceMm / 10)} cm (aim for 40 cm).` : 'Starting the distance check…'}
+            </p>
+            {distance.paused && (
+              <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2">
+                {distance.reason === 'no_face' ? 'Face not found — sit in front of the camera.' : distance.reason === 'too_close' ? 'Too close — move back to 40 cm.' : 'Too far — move closer to 40 cm.'}
+              </p>
+            )}
+            <button
+              type="button"
+              onClick={startRun}
+              disabled={distance.paused}
+              className="test-btn max-w-xs mx-auto disabled:opacity-50"
+            >
+              Start round
+            </button>
+          </div>
+        )}
+
+        {phase === 'running' && (
+          <div className="test-panel text-center space-y-6 py-10">
+            <p className="text-xs text-gray-500">Press the moment the letters first look blurred.</p>
+            <div className="flex items-center justify-center bg-white min-h-[160px]">
+              <div
+                className="flex select-none"
+                style={{ gap: letterPx, filter: blurPx > 0 ? `blur(${blurPx}px)` : 'none' }}
+              >
+                {row.split('').map((l, i) => <SloanLetter key={`${row}-${i}`} letter={l} size={letterPx} color="#000" />)}
+              </div>
+            </div>
+            <button type="button" onClick={reportBlur} className="test-btn max-w-xs mx-auto">
+              It looks blurred (Space)
+            </button>
+          </div>
+        )}
+
+        {phase === 'results' && summary && (
+          <div className="test-panel space-y-6">
+            <div className="text-center">
+              <h1 className="page-title mb-1">Near Blur Tolerance</h1>
+              <p className="text-gray-600 text-sm">Blur detection threshold at 40 cm · home check only</p>
+            </div>
+
+            <div className="rounded-2xl border border-gray-200 bg-gray-50 p-6 text-center">
+              <div className="text-sm text-gray-600 mb-1">Blur detection threshold</div>
+              <div className="text-5xl font-bold text-accent-700">
+                {summary.thresholdArcmin != null ? summary.thresholdArcmin.toFixed(2) : `> ${NEAR_BLUR.capArcmin}`}
+                <span className="text-xl font-semibold text-gray-500"> arcmin</span>
+              </div>
+              <p className="text-xs text-gray-500 mt-2">
+                Median of {summary.measuredRuns} rounds · round-to-round spread {summary.log10Sd != null ? `${summary.log10Sd} log units` : '—'}
+                {summary.repeatable ? ' (repeatable)' : ' (not repeatable)'}
+              </p>
+              {summary.index != null && (
+                <p className="text-xs text-gray-500 mt-2">Index {summary.index}/100 — {DISPLAY_INDEX_LABEL.toLowerCase()}.</p>
+              )}
+            </div>
+
+            {STATUS_TEXT[summary.status] && (
+              <div className="border border-amber-300 bg-amber-50 rounded-xl p-4 text-sm text-amber-900">{STATUS_TEXT[summary.status]}</div>
+            )}
+
+            <div className="text-sm text-gray-700 space-y-2">
+              <h3 className="font-semibold text-gray-900">What the numbers mean</h3>
+              <p>
+                The threshold is the amount of Gaussian blur (its standard deviation, in arcminutes of visual angle) at which
+                the letters first looked blurred to you. Lower means you noticed blur sooner.
+              </p>
+              <p>
+                The 0–100 index is a display aid only: 100 means blur was noticed at {NEAR_BLUR.indexLowArcmin} arcmin or
+                less, 0 means not until the {NEAR_BLUR.indexHighArcmin} arcmin cap, on a log scale in between. It is only
+                shown when the catch round passed and your rounds agreed. It has not been validated and is not used for
+                alerts.
+              </p>
+              <p>
+                Compare results taken at the same distance, on the same screen, with the same glasses. Tiredness, lighting,
+                and reaction speed all affect it.
+              </p>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm text-left">
+                <thead className="text-xs text-gray-500">
+                  <tr><th className="py-1">Round</th><th className="py-1">Type</th><th className="py-1">Result</th></tr>
+                </thead>
+                <tbody>
+                  {runs.map((r, i) => (
+                    <tr key={i} className="border-t border-gray-100">
+                      <td className="py-1">{i + 1}</td>
+                      <td className="py-1 capitalize">{r.kind === 'catch' ? 'check (no blur)' : r.kind}</td>
+                      <td className="py-1">
+                        {r.kind === 'catch'
+                          ? (r.falseAlarm ? 'Pressed — no blur was shown' : 'Correctly not pressed')
+                          : r.censored ? `Reached ${NEAR_BLUR.capArcmin} arcmin cap` : `${r.thresholdArcmin.toFixed(2)} arcmin`}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {saveState === 'error' && (
+              <div className="border border-red-300 bg-red-50 rounded-xl p-3 text-sm text-red-800">Results could not be saved.</div>
+            )}
+
+            <SamdDisclaimer testType="accommodative_lag" />
+
+            <div className="flex gap-3">
+              <button onClick={() => setPhase('instructions')} className="test-btn-outline">Test again</button>
+              <button onClick={() => navigate('/vision-tests')} className="test-btn">Done</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
   )
 }
 

@@ -102,7 +102,7 @@ describe('near point of convergence interpretation', () => {
   })
 
   it('no break: close tracking is typical, far tracking is inconclusive', () => {
-    assert.equal(interpretNearPointConvergence(8, { breakDetected: false }).tone, 'green')
+    assert.equal(interpretNearPointConvergence(8, { breakDetected: false }).tone, 'gray')
     assert.equal(interpretNearPointConvergence(15, { breakDetected: false }).tone, 'amber')
   })
 })

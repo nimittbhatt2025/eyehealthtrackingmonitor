@@ -4,6 +4,7 @@ import { visionTestAPI } from '../services/api'
 import SamdDisclaimer from '../components/SamdDisclaimer'
 import { VisionTestShell } from '../components/TestPrepLayout'
 import { glareDeltaLogCS, scoreGlareDelta, interpretGlareDelta } from '../utils/visionTestScoring'
+import { DISPLAY_INDEX_LABEL } from '../utils/displayIndex'
 import { createQuest, paintGrating, logCSToContrast, GRATING_ORIENTATIONS } from '../utils/psychophysics'
 import GratingSwatch from '../components/GratingSwatch'
 
@@ -16,7 +17,9 @@ import GratingSwatch from '../components/GratingSwatch'
  *
  * Screen mode: a bright white ring around the grating scatters light inside the
  * eye (the grating's own physical contrast is unchanged).
- * Torch mode: a phone flashlight at a fixed off-axis angle is the glare source.
+ * Torch mode: a phone flashlight at a fixed off-axis angle and distance is the
+ * glare source. Its luminance is not measured, so torch sessions are only
+ * comparable with other torch sessions using the same phone and setup.
  *
  * Home screening only — not a cataract diagnosis.
  */
@@ -26,6 +29,19 @@ const PRACTICE_TRIALS = 2
 const PRACTICE_LOGCS = 0.3 // 50% contrast — easy
 const GRATING_CYCLES = 12
 const APERTURE_RADIUS = 120 // on a 400px canvas
+// Torch in the plane of the screen, beside it: tan(30°) × 50 cm ≈ 29 cm lateral offset.
+const TORCH_GEOMETRY = {
+  viewingDistanceCm: 50,
+  angleDeg: 30,
+  lateralOffsetCm: 29,
+  eyeToTorchCm: 58,
+}
+const TORCH_CHECKS = [
+  { id: 'distance', label: `My eyes are ${TORCH_GEOMETRY.viewingDistanceCm} cm from the screen (measured with a tape or ruler).` },
+  { id: 'placement', label: `The phone is upright at eye height, ${TORCH_GEOMETRY.lateralOffsetCm} cm to one side of the screen centre, level with the screen surface, with the torch facing my eyes.` },
+  { id: 'brightness', label: 'The torch will be on its brightest setting, and the room lighting is the same as last time.' },
+  { id: 'noStare', label: 'I will look at the stripes, not at the torch, and will stop if the light is uncomfortable.' },
+]
 const FEEDBACK_CORRECT_MS = 600
 const FEEDBACK_WRONG_MS = 1100
 
@@ -62,6 +78,9 @@ const CataractTest = () => {
   const navigate = useNavigate()
   const [testState, setTestState] = useState('instructions') // instructions, torch-setup, testing, torch-on, results
   const [glareMode, setGlareMode] = useState('screen') // screen | torch
+  const [torchChecks, setTorchChecks] = useState({})
+  const [torchSide, setTorchSide] = useState('right')
+  const [torchPhone, setTorchPhone] = useState('')
   const [schedule, setSchedule] = useState([])
   const [currentTrial, setCurrentTrial] = useState(0)
   const [responses, setResponses] = useState([])
@@ -370,6 +389,20 @@ const CataractTest = () => {
           method: 'quest_4afc_delta_logcs',
           method_version: 2,
           glare_mode: glareMode,
+          glare_source_label: glareMode === 'torch' ? 'phone_torch' : 'simulated_veiling_luminance_screen_ring',
+          torch_setup: glareMode === 'torch'
+            ? {
+                viewing_distance_cm: TORCH_GEOMETRY.viewingDistanceCm,
+                angle_deg: TORCH_GEOMETRY.angleDeg,
+                lateral_offset_cm: TORCH_GEOMETRY.lateralOffsetCm,
+                eye_to_torch_cm: TORCH_GEOMETRY.eyeToTorchCm,
+                side: torchSide,
+                torch_level: 'brightest_setting_self_reported',
+                phone_label: torchPhone.trim() || null,
+                luminance_measured: false,
+                confirmations: TORCH_CHECKS.map((c) => c.id),
+              }
+            : null,
           logcs_no_glare: interpretation.logCSNoGlare,
           logcs_glare: interpretation.logCSGlare,
           delta_logcs: deltaLogCS,
@@ -383,7 +416,7 @@ const CataractTest = () => {
           interpretation_band: interpretation.band,
           interpretation_status: interpretation.status,
           scoring_note:
-            'Δ logCS = logCS(no glare) − logCS(glare) from two QUEST staircases (4-choice orientation). Score index: Δ 0 → 100, Δ ≥ 0.5 → 0. Not a cataract diagnosis.',
+            'Δ logCS = logCS(no glare) − logCS(glare) from two QUEST staircases (4-choice orientation). Display index (not clinically validated, not used for alerts): Δ 0 → 100, Δ ≥ 0.5 → 0. Screen mode is a simulated veiling luminance; torch mode uses a fixed 30° / 58 cm placement with unmeasured torch luminance. Screen and torch sessions are not compared with each other. Not a cataract diagnosis.',
           responses: finalResponses,
           test_duration_ms: Date.now() - testStartTime,
         },
@@ -420,18 +453,102 @@ const CataractTest = () => {
     },
   }
 
+  const stopTest = () => {
+    clearTimeout(advanceTimeoutRef.current)
+    lockedRef.current = false
+    if (recognition) {
+      try {
+        recognition.stop()
+      } catch {
+        /* already stopped */
+      }
+    }
+    setIsListening(false)
+    setFeedback(null)
+    setTestState('stopped')
+  }
+
+  const allTorchChecks = TORCH_CHECKS.every((c) => torchChecks[c.id])
+
   const torchPlacement = (
-    <ul className="space-y-2 text-sm text-gray-700 list-disc pl-5">
-      <li>Sit about 50 cm from the screen in a dim room.</li>
-      <li>
-        Prop your phone upright at the <strong>same distance as the screen</strong>, about{' '}
-        <strong>30° off to one side</strong> (roughly one hand-span beside the screen edge for every
-        two hand-spans of distance), at eye height.
-      </li>
-      <li>Point the torch toward your face. Keep looking at the screen — do not stare into the light.</li>
-      <li>Keep the phone in the same spot every time you take this test so results are comparable.</li>
-    </ul>
+    <div className="space-y-4">
+      <div className="flex flex-col sm:flex-row gap-4 items-center">
+        <svg viewBox="0 0 220 150" className="w-56 shrink-0" role="img" aria-label="Top-down placement guide">
+          <rect x="50" y="10" width="80" height="8" rx="2" fill="#374151" />
+          <text x="90" y="34" textAnchor="middle" fontSize="9" fill="#374151">screen</text>
+          <rect x={torchSide === 'right' ? 166 : 6} y="6" width="14" height="16" rx="3" fill="#f59e0b" />
+          <text x={torchSide === 'right' ? 173 : 13} y="34" textAnchor="middle" fontSize="9" fill="#92400e">torch</text>
+          <circle cx="90" cy="135" r="7" fill="#2563eb" />
+          <text x="90" y="149" textAnchor="middle" fontSize="9" fill="#1e3a8a">your eyes</text>
+          <line x1="90" y1="128" x2="90" y2="18" stroke="#2563eb" strokeDasharray="3 3" />
+          <line x1="90" y1="128" x2={torchSide === 'right' ? 173 : 13} y2="22" stroke="#f59e0b" strokeDasharray="3 3" />
+          <text x="96" y="80" fontSize="9" fill="#1e3a8a">{TORCH_GEOMETRY.viewingDistanceCm} cm</text>
+          <text x={torchSide === 'right' ? 130 : 22} y="100" fontSize="9" fill="#92400e">{TORCH_GEOMETRY.angleDeg}°</text>
+          <text x={torchSide === 'right' ? 130 : 30} y="16" fontSize="8" fill="#92400e" textAnchor="middle">{TORCH_GEOMETRY.lateralOffsetCm} cm</text>
+        </svg>
+        <ul className="space-y-2 text-sm text-gray-700 list-disc pl-5">
+          <li>Sit with your eyes <strong>{TORCH_GEOMETRY.viewingDistanceCm} cm</strong> from the screen. Measure it.</li>
+          <li>
+            Stand the phone upright at eye height, <strong>{TORCH_GEOMETRY.lateralOffsetCm} cm</strong> to the side of
+            the screen centre and level with the screen surface. That puts the torch{' '}
+            <strong>{TORCH_GEOMETRY.angleDeg}° off your line of sight</strong>, about {TORCH_GEOMETRY.eyeToTorchCm} cm from
+            your eyes.
+          </li>
+          <li>Use the torch&apos;s <strong>brightest setting</strong>, the same phone, and the same room lighting every time.</li>
+        </ul>
+      </div>
+      <div className="flex gap-2 text-xs">
+        <span className="text-gray-600 self-center">Torch side:</span>
+        {['left', 'right'].map((side) => (
+          <button
+            key={side}
+            type="button"
+            onClick={() => setTorchSide(side)}
+            className={`px-3 py-1 rounded-full border ${torchSide === side ? 'border-accent-600 bg-accent-50 text-accent-900' : 'border-gray-300 text-gray-600'}`}
+          >
+            {side === 'left' ? 'Left of screen' : 'Right of screen'}
+          </button>
+        ))}
+      </div>
+      <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+        <strong>Do not stare into the torch.</strong> Keep your eyes on the stripes. If the light becomes
+        uncomfortable, press <strong>Stop</strong> at any time and switch the torch off.
+      </div>
+    </div>
   )
+
+  if (testState === 'stopped') {
+    return (
+      <div className="test-shell">
+        <div className="max-w-2xl mx-auto card p-8 space-y-4">
+          <h1 className="page-title">Test stopped</h1>
+          {glareMode === 'torch' && (
+            <p className="text-gray-700"><strong>Switch the phone torch off now</strong> and look away from bright lights.</p>
+          )}
+          <p className="text-gray-700">
+            Nothing was saved. Rest your eyes. If discomfort continues or you notice pain, redness, or changes in
+            vision, contact an eye-care professional.
+          </p>
+          <div className="flex gap-4">
+            <button
+              type="button"
+              onClick={() => navigate('/vision-tests')}
+              className="flex-1 px-6 py-3 border-2 border-gray-300 rounded-full font-semibold text-gray-700 hover:bg-gray-50"
+            >
+              Back to Tests
+            </button>
+            <button
+              type="button"
+              onClick={() => setTestState('instructions')}
+              className="flex-1 px-6 py-3 bg-accent-600 hover:bg-accent-700 text-white rounded-full font-semibold"
+            >
+              Start over
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   if (testState === 'torch-setup' || testState === 'torch-on') {
     const isOn = testState === 'torch-on'
@@ -440,10 +557,16 @@ const CataractTest = () => {
         <div className="max-w-2xl mx-auto card p-8 space-y-6">
           <h1 className="page-title">{isOn ? 'Turn the torch ON' : 'Set up your phone torch'}</h1>
           {isOn ? (
-            <p className="text-gray-700">
-              First half done. Now switch your phone&apos;s flashlight <strong>on</strong>, keep it in the
-              same place, and continue. The next {TRIALS_PER_CONDITION} rounds are with the light on.
-            </p>
+            <>
+              <p className="text-gray-700">
+                First half done. Now switch your phone&apos;s flashlight <strong>on at its brightest setting</strong>,
+                keep the phone exactly where it is, and continue. The next {TRIALS_PER_CONDITION} rounds are with the
+                light on.
+              </p>
+              <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                <strong>Do not stare into the torch.</strong> Look only at the stripes. Press Stop if it is uncomfortable.
+              </div>
+            </>
           ) : (
             <>
               <p className="text-gray-700">
@@ -451,18 +574,43 @@ const CataractTest = () => {
                 {TRIALS_PER_CONDITION} rounds with the light off, then we&apos;ll ask you to switch it on.
               </p>
               {torchPlacement}
+              <div className="space-y-2">
+                {TORCH_CHECKS.map((c) => (
+                  <label key={c.id} className="flex items-start gap-2 text-sm text-gray-800">
+                    <input
+                      type="checkbox"
+                      className="mt-1"
+                      checked={!!torchChecks[c.id]}
+                      onChange={(e) => setTorchChecks((prev) => ({ ...prev, [c.id]: e.target.checked }))}
+                    />
+                    <span>{c.label}</span>
+                  </label>
+                ))}
+                <label className="block text-sm text-gray-700">
+                  Phone used as the torch (optional, helps you keep it the same):
+                  <input
+                    type="text"
+                    value={torchPhone}
+                    maxLength={60}
+                    onChange={(e) => setTorchPhone(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                    placeholder="e.g. my work phone"
+                  />
+                </label>
+              </div>
             </>
           )}
           <div className="flex gap-4">
             <button
               type="button"
-              onClick={() => setTestState('instructions')}
+              onClick={isOn ? stopTest : () => setTestState('instructions')}
               className="flex-1 px-6 py-3 border-2 border-gray-300 rounded-full font-semibold text-gray-700 hover:bg-gray-50"
             >
-              Cancel
+              {isOn ? 'Stop' : 'Cancel'}
             </button>
             <button
               type="button"
+              disabled={!isOn && !allTorchChecks}
               onClick={() => {
                 if (isOn) {
                   setStartTime(Date.now())
@@ -471,7 +619,7 @@ const CataractTest = () => {
                   beginTrials()
                 }
               }}
-              className="flex-1 px-6 py-3 bg-accent-600 hover:bg-accent-700 text-white rounded-full font-semibold"
+              className="flex-1 px-6 py-3 bg-accent-600 hover:bg-accent-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-full font-semibold"
             >
               {isOn ? 'Torch is on — continue' : 'Phone is in place — start'}
             </button>
@@ -488,7 +636,7 @@ const CataractTest = () => {
     const subtitle = currentStimulus.practice
       ? 'Practice round — not scored'
       : currentStimulus.withGlare
-        ? glareMode === 'torch' ? 'Torch on' : 'Glare ring on'
+        ? glareMode === 'torch' ? 'Torch on' : 'Simulated veiling luminance on'
         : glareMode === 'torch' ? 'Torch off' : 'No glare'
 
     return (
@@ -561,15 +709,23 @@ const CataractTest = () => {
               </p>
               {currentStimulus.withGlare && glareMode === 'screen' && (
                 <p className="text-xs text-accent-700 font-medium mt-2 bg-accent-50 border border-accent-200 rounded-lg px-2 py-1.5">
-                  Glare round: keep your eyes on the stripes, not the bright ring.
+                  Simulated veiling luminance: keep your eyes on the stripes, not the bright ring.
                 </p>
               )}
               {currentStimulus.withGlare && glareMode === 'torch' && (
-                <p className="text-xs text-accent-700 font-medium mt-2 bg-accent-50 border border-accent-200 rounded-lg px-2 py-1.5">
-                  Torch on: look at the stripes, not at the light.
+                <p className="text-xs text-amber-900 font-medium mt-2 bg-amber-50 border border-amber-300 rounded-lg px-2 py-1.5">
+                  Torch on: look at the stripes. Do not stare into the light.
                 </p>
               )}
             </div>
+
+            <button
+              type="button"
+              onClick={stopTest}
+              className="w-full px-3 py-2 border border-red-300 text-red-700 rounded-xl text-xs font-semibold hover:bg-red-50 min-h-[40px]"
+            >
+              Stop — uncomfortable or need a break
+            </button>
 
             <div className="grid grid-cols-2 gap-2">
               {ORIENTATIONS.map((o) => (
@@ -701,13 +857,13 @@ const CataractTest = () => {
                   {[
                     {
                       id: 'screen',
-                      title: 'Screen glare ring (default)',
-                      body: 'A bright white ring appears around the stripes on glare rounds. Nothing extra needed.',
+                      title: 'Simulated veiling luminance (default)',
+                      body: 'A bright on-screen ring appears around the stripes on glare rounds. It simulates veiling glare; it is not a real light source. Nothing extra needed.',
                     },
                     {
                       id: 'torch',
                       title: 'Phone torch (more realistic)',
-                      body: 'Use a phone flashlight placed off to the side as a real light source. Takes a minute to set up.',
+                      body: `Use a phone flashlight at a fixed ${TORCH_GEOMETRY.angleDeg}° placement as a real light source. Needs a tape measure and a minute to set up.`,
                     },
                   ].map((opt) => (
                     <button
@@ -813,30 +969,29 @@ const CataractTest = () => {
                     <h2 className="text-3xl font-serif font-bold text-gray-900 mb-2">Test Complete</h2>
                     <p className="text-gray-600">
                       Contrast loss under glare —{' '}
-                      {resultSummary.glareMode === 'torch' ? 'phone torch' : 'screen glare ring'} · home check
+                      {resultSummary.glareMode === 'torch' ? 'phone torch' : 'simulated veiling luminance (screen ring)'} · home check
                       only
                     </p>
                   </div>
 
                   <div className="bg-amber-50 rounded-2xl p-8 mb-6">
                     <div className="text-center">
+                      <div className="text-sm text-gray-600 mb-1">Contrast lost under glare</div>
                       <div className="text-6xl font-bold text-accent-700 mb-1">
-                        {score}
-                        <span className="text-2xl font-semibold text-gray-500">/100</span>
+                        Δ {Math.max(0, resultSummary.deltaLogCS).toFixed(2)}
+                        <span className="text-2xl font-semibold text-gray-500"> logCS</span>
                       </div>
-                      <div className="text-sm text-gray-600 mb-1">Glare score</div>
-                      <p className="text-xs text-gray-500 mb-4 max-w-md mx-auto">{resultSummary.scoreMeaning}</p>
+                      <div className="text-lg font-semibold text-gray-800 mb-1">
+                        ×{Math.max(1, resultSummary.contrastFactor).toFixed(1)} contrast needed with glare
+                      </div>
+                      <p className="text-xs text-gray-500 mb-4 max-w-md mx-auto">
+                        0 = no loss; each 0.3 logCS means twice the contrast was needed to see the stripes.
+                      </p>
                       <div className={`inline-block px-4 py-2 rounded-full font-semibold ${tone.badge}`}>
                         {resultSummary.status}
                       </div>
-                      <div className="text-sm text-gray-700 mt-4">
-                        {resultSummary.contrastFactor <= 1.05
-                          ? 'With glare on you needed the same contrast as without it.'
-                          : `With glare on you needed ${resultSummary.contrastFactor.toFixed(1)}× the contrast to see the stripes.`}
-                      </div>
-                      <div className="text-xs text-gray-500 mt-1">
-                        Contrast lost under glare: Δ {Math.max(0, resultSummary.deltaLogCS).toFixed(2)} logCS
-                        (0 = none; each 0.3 = twice the contrast needed)
+                      <div className="text-xs text-gray-500 mt-4">
+                        Index {score}/100 — {DISPLAY_INDEX_LABEL.toLowerCase()}.
                       </div>
                       {resultSummary.ceilingNote && (
                         <div className="text-xs text-gray-500 mt-2 max-w-md mx-auto">{resultSummary.ceilingNote}</div>
@@ -887,7 +1042,8 @@ const CataractTest = () => {
                       </p>
                       <p>
                         For comparable results over time, retake with the same glare source, distance, and
-                        room lighting.
+                        room lighting. Screen-ring and torch results are tracked separately and never compared
+                        with each other.
                       </p>
                     </div>
                   </div>

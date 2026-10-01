@@ -1,1 +1,1 @@
-participant_id,email,enrolled_at,consent_version,age_band,habitual_correction,ocular_history
+participant_id,email,enrolled_at,age_years,age_group,consent_type,consent_version,consent_date,assent_obtained,test_order,habitual_correction,ocular_history,withdrawn_at,withdrawal_reason,retain_until

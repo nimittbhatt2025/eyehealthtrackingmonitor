@@ -74,13 +74,19 @@ def classify_progression(rate_d_per_year: Optional[float]) -> Dict[str, Any]:
     if worsening < 1.0:
         return {
             'label': 'fast',
-            'severity': 'high',
-            'summary': f'Estimated progression ≈ {rate_d_per_year:+.2f} D/year (fast). Discuss myopia control with an eye doctor.',
+            'severity': 'medium',
+            'summary': (
+                f'Estimated change from the logged prescriptions ≈ {rate_d_per_year:+.2f} D/year (fast). '
+                'You may want to ask the eye doctor who measured them about it.'
+            ),
         }
     return {
         'label': 'very_fast',
-        'severity': 'critical',
-        'summary': f'Estimated progression ≈ {rate_d_per_year:+.2f} D/year (very fast). Prompt clinical follow-up recommended.',
+        'severity': 'medium',
+        'summary': (
+            f'Estimated change from the logged prescriptions ≈ {rate_d_per_year:+.2f} D/year (very fast). '
+            'You may want to ask the eye doctor who measured them about it.'
+        ),
     }
 
 

@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from app.models import VisionTest, WebcamMetric, LensData, Alert
 from app.services import trend_aggregates
+from app.utils.change_detection import DISPLAY_INDEX_LABEL
 from app.utils.trend_forecast import (
     MAX_HORIZON_DAYS,
     MIN_SESSIONS,
@@ -201,11 +202,10 @@ def get_summary():
             avg_fatigue = np.mean(fatigue_scores)
             summary['fatigue_status'] = {
                 'average_score': float(avg_fatigue),
-                'status': 'high' if avg_fatigue > 70 else 'moderate' if avg_fatigue > 40 else 'low',
+                'status': 'display_only',
+                'score_label': DISPLAY_INDEX_LABEL,
                 'metric_count': len(webcam_metrics)
             }
-            if avg_fatigue > 60:
-                summary['recommendations'].append("Your eye fatigue is elevated. Take more frequent breaks.")
         else:
             summary['fatigue_status'] = {
                 'average_score': 0,
@@ -233,12 +233,9 @@ def get_summary():
             summary['lens_status'] = {
                 'lens_type': lens_data.lens_type,
                 'effectiveness_score': lens_data.effectiveness_score,
+                'score_label': DISPLAY_INDEX_LABEL,
                 'days_since_purchase': (datetime.utcnow().date() - lens_data.purchase_date).days,
-                'replacement_recommended': lens_data.replacement_recommended
             }
-
-            if lens_data.replacement_recommended:
-                summary['recommendations'].append("Your lenses may need replacement. Consult your eye care professional.")
 
         return jsonify(summary), 200
 

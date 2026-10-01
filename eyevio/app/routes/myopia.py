@@ -218,7 +218,7 @@ def add_prescription(subject_id):
                 user_id=user_id,
                 alert_type='myopia_progression',
                 severity=classification['severity'],
-                title=f'Myopia progression alert — {subject.display_name}',
+                title=f'Prescription change logged — {subject.display_name}',
                 message=(
                     f'{subject.display_name}: {classification["summary"]} '
                     f'Latest SE {entry.se_binocular:+.2f} D (was {previous.se_binocular:+.2f} D).'

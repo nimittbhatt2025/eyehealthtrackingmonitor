@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { reportsAPI, authAPI, triggerPdfDownload } from '../services/api'
 import { toast } from 'react-hot-toast'
 import SamdDisclaimer from '../components/SamdDisclaimer'
+import { DISPLAY_INDEX_LABEL } from '../utils/displayIndex'
 
 function Reports() {
   const [loading, setLoading] = useState(false)
@@ -80,28 +81,6 @@ function Reports() {
     })
   }
 
-  const getTrendIcon = (trend) => {
-    if (trend === 'improving') {
-      return (
-        <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-        </svg>
-      )
-    }
-    if (trend === 'declining') {
-      return (
-        <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6" />
-        </svg>
-      )
-    }
-    return (
-      <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14" />
-      </svg>
-    )
-  }
-
   return (
     <div className="space-y-8">
       {/* Header */}
@@ -131,8 +110,9 @@ function Reports() {
       </div>
 
       <p className="text-sm text-gray-500 max-w-2xl">
-        The clinician one-pager is a single page: latest scores, a trend sparkline, and up to five flagged
-        concerns. Use the window below; 90 days is typical for an appointment packet.
+        The clinician one-pager is a single page: the latest measurement from each test in its own unit, an
+        acuity sparkline, and up to five automated notes. It is a research prototype output, not a clinical
+        report. Use the window below; 90 days is typical for an appointment packet.
       </p>
 
       {/* Period Selector */}
@@ -202,64 +182,34 @@ function Reports() {
           {/* Vision Summary */}
           {reportData.vision_summary && Object.keys(reportData.vision_summary).length > 0 && (
             <div className="card p-8">
-              <h2 className="section-title mb-6">Vision Health Summary</h2>
-              
-              <div className="grid md:grid-cols-3 gap-6 mb-6">
-                <div className="bg-accent-50 rounded-xl p-6 border border-accent-100">
-                  <div className="text-sm text-gray-500 mb-2">Average Score</div>
-                  <div className="text-3xl font-bold text-accent-700">
-                    {reportData.vision_summary.average_score?.toFixed(1)}%
-                  </div>
-                </div>
-                <div className="bg-green-50 rounded-xl p-6 border border-green-100">
-                  <div className="text-sm text-gray-500 mb-2">Best Score</div>
-                  <div className="text-3xl font-bold text-green-700">
-                    {reportData.vision_summary.max_score?.toFixed(1)}%
-                  </div>
-                </div>
-                <div className="bg-amber-50 rounded-xl p-6 border border-amber-100">
-                  <div className="text-sm text-gray-500 mb-2">Lowest Score</div>
-                  <div className="text-3xl font-bold text-amber-700">
-                    {reportData.vision_summary.min_score?.toFixed(1)}%
-                  </div>
-                </div>
-              </div>
+              <h2 className="section-title mb-2">Vision checks</h2>
+              <p className="text-sm text-gray-500 mb-6">
+                {reportData.vision_summary.total_tests} tests in this period. {reportData.vision_summary.note}
+              </p>
 
-              <div className="grid md:grid-cols-2 gap-6">
-                <div className="p-6 bg-gray-50 rounded-xl border border-gray-100/80">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="text-sm text-gray-500 mb-1">Total Tests</div>
-                      <div className="text-2xl font-bold text-gray-900">
-                        {reportData.vision_summary.total_tests}
-                      </div>
-                    </div>
-                    <div className="icon-tile bg-accent-50 text-accent-600">
-                      <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                      </svg>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="p-6 bg-gray-50 rounded-xl border border-gray-100/80">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="text-sm text-gray-500 mb-1">Trend</div>
-                      <div className="flex items-center space-x-2">
-                        {getTrendIcon(reportData.vision_summary.trend)}
-                        <span className="text-2xl font-bold text-gray-900 capitalize">
-                          {reportData.vision_summary.trend}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="icon-tile bg-accent-50 text-accent-600">
-                      <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
-                      </svg>
-                    </div>
-                  </div>
-                </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-gray-500 border-b border-gray-100">
+                      <th className="py-2 pr-4 font-medium">Test</th>
+                      <th className="py-2 pr-4 font-medium">Latest measurement</th>
+                      <th className="py-2 pr-4 font-medium">Right eye</th>
+                      <th className="py-2 pr-4 font-medium">Left eye</th>
+                      <th className="py-2 font-medium">Sessions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(reportData.vision_summary.by_test || []).map((row) => (
+                      <tr key={row.test_type} className="border-b border-gray-50">
+                        <td className="py-2 pr-4 text-gray-900">{row.label}</td>
+                        <td className="py-2 pr-4 font-semibold text-gray-900">{row.measure}</td>
+                        <td className="py-2 pr-4 text-gray-700">{row.od}</td>
+                        <td className="py-2 pr-4 text-gray-700">{row.os}</td>
+                        <td className="py-2 text-gray-700">{row.sessions}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
           )}
@@ -267,27 +217,26 @@ function Reports() {
           {/* Fatigue Summary */}
           {reportData.fatigue_summary && Object.keys(reportData.fatigue_summary).length > 0 && (
             <div className="card p-8">
-              <h2 className="section-title mb-6">Eye Fatigue Analysis</h2>
-              
+              <h2 className="section-title mb-6">Webcam blink sessions</h2>
+
               <div className="grid md:grid-cols-3 gap-6">
-                <div className="bg-amber-50 rounded-xl p-6 border border-amber-100">
-                  <div className="text-sm text-gray-500 mb-2">Average Fatigue</div>
-                  <div className="text-3xl font-bold text-amber-700">
-                    {reportData.fatigue_summary.average_fatigue?.toFixed(1)}%
-                  </div>
-                </div>
-                <div className="bg-red-50 rounded-xl p-6 border border-red-100">
-                  <div className="text-sm text-gray-500 mb-2">Peak Fatigue</div>
-                  <div className="text-3xl font-bold text-red-700">
-                    {reportData.fatigue_summary.max_fatigue?.toFixed(1)}%
-                  </div>
-                </div>
                 <div className="bg-accent-50 rounded-xl p-6 border border-accent-100">
                   <div className="text-sm text-gray-500 mb-2">Avg Blink Rate</div>
                   <div className="text-3xl font-bold text-accent-700">
                     {reportData.fatigue_summary.average_blink_rate?.toFixed(0) || 'N/A'}
                     {reportData.fatigue_summary.average_blink_rate && <span className="text-lg">/min</span>}
                   </div>
+                </div>
+                <div className="bg-gray-50 rounded-xl p-6 border border-gray-100">
+                  <div className="text-sm text-gray-500 mb-2">Sessions</div>
+                  <div className="text-3xl font-bold text-gray-900">{reportData.fatigue_summary.total_metrics}</div>
+                </div>
+                <div className="bg-gray-50 rounded-xl p-6 border border-gray-100">
+                  <div className="text-sm text-gray-500 mb-2">Fatigue index</div>
+                  <div className="text-xl font-semibold text-gray-700">
+                    {reportData.fatigue_summary.average_fatigue?.toFixed(0)}
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1">{DISPLAY_INDEX_LABEL}</div>
                 </div>
               </div>
             </div>
@@ -342,20 +291,11 @@ function Reports() {
                   </div>
                 </div>
                 <div className="p-6 bg-gray-50 rounded-xl border border-gray-100/80">
-                  <div className="text-sm text-gray-500 mb-2">Effectiveness Score</div>
+                  <div className="text-sm text-gray-500 mb-2">Effectiveness index</div>
                   <div className="text-xl font-semibold text-gray-900">
-                    {reportData.lens_summary.effectiveness_score?.toFixed(1)}%
+                    {reportData.lens_summary.effectiveness_score?.toFixed(0) ?? '—'}
                   </div>
-                </div>
-                <div className="p-6 bg-gray-50 rounded-xl border border-gray-100/80">
-                  <div className="text-sm text-gray-500 mb-2">Status</div>
-                  <div className={`badge ${
-                    reportData.lens_summary.replacement_recommended
-                      ? 'badge-danger'
-                      : 'badge-success'
-                  }`}>
-                    {reportData.lens_summary.replacement_recommended ? 'Replacement Recommended' : 'In Good Condition'}
-                  </div>
+                  <div className="text-xs text-gray-500 mt-1">{DISPLAY_INDEX_LABEL}</div>
                 </div>
               </div>
             </div>

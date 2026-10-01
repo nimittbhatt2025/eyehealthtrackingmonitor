@@ -9,6 +9,10 @@ Agreement and repeatability statistics for the validation study.
   each with the F-based 95% CI.
 - Repeatability from test–retest pairs: within-subject SD s_w = sqrt(Σd² / 2n) and
   coefficient of repeatability CoR = 1.96·√2·s_w (British Standards Institution 1979).
+- Correlation for convergent validity, where the two methods measure different
+  quantities and Bland–Altman agreement would be meaningless.
+- Wilson CIs for completion rates and a participant-level cluster bootstrap for
+  analyses that include both eyes.
 """
 
 from __future__ import annotations
@@ -169,3 +173,67 @@ def repeatability(first: Sequence[float], second: Sequence[float]) -> Dict[str, 
         'icc': icc(np.column_stack([x, y])),
         'bland_altman': bland_altman(y, x),
     }
+
+
+def _fisher_ci(r: float, se: float, alpha: float = 0.05):
+    z = math.atanh(max(min(r, 0.999999), -0.999999))
+    q = float(stats.norm.ppf(1 - alpha / 2))
+    return [math.tanh(z - q * se), math.tanh(z + q * se)]
+
+
+def correlation(x_values: Sequence[float], y_values: Sequence[float], alpha: float = 0.05) -> Dict[str, Any]:
+    """
+    Convergent validity between two methods that measure related but different
+    quantities. Pearson r with a Fisher-z CI; Spearman ρ with the Bonett & Wright
+    (2000) Fisher-z CI, SE = sqrt((1 + ρ²/2) / (n − 3)).
+    """
+    x, y = _clean_pairs(x_values, y_values)
+    n = len(x)
+    if n < 4 or np.ptp(x) == 0 or np.ptp(y) == 0:
+        return {'n': n}
+    pr = stats.pearsonr(x, y)
+    sr = stats.spearmanr(x, y)
+    r, rho = float(pr[0]), float(sr[0])
+    return {
+        'n': n,
+        'pearson_r': r,
+        'pearson_ci': _fisher_ci(r, 1 / math.sqrt(n - 3), alpha),
+        'pearson_p': float(pr[1]),
+        'spearman_rho': rho,
+        'spearman_ci': _fisher_ci(rho, math.sqrt((1 + rho ** 2 / 2) / (n - 3)), alpha),
+        'spearman_p': float(sr[1]),
+    }
+
+
+def wilson_ci(k: int, n: int, alpha: float = 0.05) -> Optional[list]:
+    """Wilson score interval for a proportion (completion / testability rates)."""
+    if n <= 0:
+        return None
+    q = float(stats.norm.ppf(1 - alpha / 2))
+    p = k / n
+    centre = (p + q * q / (2 * n)) / (1 + q * q / n)
+    half = q * math.sqrt(p * (1 - p) / n + q * q / (4 * n * n)) / (1 + q * q / n)
+    return [max(0.0, centre - half), min(1.0, centre + half)]
+
+
+def cluster_bootstrap_ci(
+    clusters: Dict[str, list], statistic, n_boot: int = 2000, seed: int = 0, alpha: float = 0.05,
+) -> Optional[list]:
+    """
+    Percentile CI that resamples participants (not eyes), so two eyes of one
+    person are not treated as independent. `clusters` maps participant → list of
+    observations; `statistic` takes the pooled observation list.
+    """
+    keys = list(clusters)
+    if len(keys) < 3:
+        return None
+    rng = np.random.default_rng(seed)
+    values = []
+    for _ in range(n_boot):
+        sample = [obs for k in rng.choice(keys, size=len(keys), replace=True) for obs in clusters[k]]
+        v = statistic(sample)
+        if v is not None and math.isfinite(v):
+            values.append(v)
+    if len(values) < n_boot // 2:
+        return None
+    return [float(np.quantile(values, alpha / 2)), float(np.quantile(values, 1 - alpha / 2))]

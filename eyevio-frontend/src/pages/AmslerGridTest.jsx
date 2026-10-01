@@ -7,7 +7,7 @@ import EyeCoverageVerification from '../components/EyeCoverageVerification'
 import { visionTestAPI } from '../services/api'
 import SamdDisclaimer from '../components/SamdDisclaimer'
 import VernierTask from '../components/VernierTask'
-import { scoreAmslerEye, amslerMarkedAreaDeg2 } from '../utils/visionTestScoring'
+import { amslerMarkedAreaDeg2 } from '../utils/visionTestScoring'
 import { getScreenScale } from '../utils/screenScale'
 import { linearToSrgb } from '../utils/psychophysics'
 
@@ -18,8 +18,8 @@ import { linearToSrgb } from '../utils/psychophysics'
  * 1. Standard chart: 20×20 black-on-white grid, 1° squares (20° total) at
  *    355 mm, sized from the measured screen scale; red fixation dot.
  * 2. Low-contrast chart: same grid at 5% Weber contrast, after 5 s of
- *    fixation. Defects are several times larger at low contrast (Wall &
- *    Sadun threshold Amsler), so this catches what the full-contrast grid misses.
+ *    fixation. Low-contrast grids may reveal a larger perceived distortion area
+ *    in some users (threshold Amsler studies, e.g. Wall & Sadun 1986).
  * 3. Vernier alignment at the fovea and four spots at 2°, which picks up
  *    metamorphopsia as a local shift in perceived alignment.
  */
@@ -362,13 +362,7 @@ const AmslerGridTest = () => {
         standard_area_deg2: std?.markedAreaDeg2 ?? 0,
         low_contrast_area_deg2: low?.markedAreaDeg2 ?? 0,
         vernier_flags: v?.flags ?? null,
-        score: scoreAmslerEye({
-          standardIssues: !!std?.hasIssues,
-          lowIssues: !!low?.hasIssues,
-          standardAreaDeg2: std?.markedAreaDeg2 ?? 0,
-          lowAreaDeg2: low?.markedAreaDeg2 ?? 0,
-          vernierFlags: v?.flags?.filter((f) => f.kind === 'bias').length ?? 0,
-        }),
+        vernier_reliable: v ? v.reliable : null,
       }
     }
     const left = eyeSummary('left')
@@ -377,12 +371,11 @@ const AmslerGridTest = () => {
     try {
       const payload = {
         test_type: 'amsler_grid',
-        score: Math.min(left.score, right.score),
-        left_eye_score: left.score,
-        right_eye_score: right.score,
+        score: null,
         test_details: {
           method: 'amsler_multicontrast_vernier',
           method_version: 2,
+          display_index: null,
           left_eye_issues: left.standard_issues || left.low_contrast_issues,
           right_eye_issues: right.standard_issues || right.low_contrast_issues,
           eyes: { left, right },
@@ -393,6 +386,8 @@ const AmslerGridTest = () => {
               v && {
                 locations_arcsec: v.locations,
                 flags: v.flags,
+                reliable: v.reliable,
+                uncertain_locations: v.uncertainLocations,
                 center_threshold_arcsec: v.centerThreshold,
                 parafoveal_median_threshold_arcsec: v.parafovealMedianThreshold,
                 arcsec_per_device_px: v.arcsecPerDevicePx,
@@ -408,7 +403,7 @@ const AmslerGridTest = () => {
           screen_scale_source: screenScale.source,
           test_distance_mm: TEST_DISTANCE_MM,
           scoring_note:
-            'Per eye: 100 clean; distortion on the full-contrast grid → 50 minus marked area/4 (min 20); only on the 5% grid → 80 minus area/4 (min 50); a vernier bias flag caps a clean eye at 85. Test score = worse eye.',
+            'Raw measurements only: marked area (deg²) on each grid; vernier bias and threshold (arcsec) per location with posterior SDs; reliability (a location with bias SD > 35″ is uncertain and never flagged; an eye is reliable with ≤ 1 uncertain location). Threshold flags are experimental. No composite score. Change tracking uses marked area.',
           completed: true,
           timestamp: new Date().toISOString()
         }
@@ -745,7 +740,7 @@ const AmslerGridTest = () => {
         <>
           {gridPhase === 'low_contrast' && (
             <p className="text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded-lg p-2">
-              This grid is deliberately faint (5% contrast). Missing or wavy areas show up here earlier than on the dark grid.
+              This grid is deliberately faint (5% contrast). Low-contrast grids may reveal a larger perceived distortion area in some users.
             </p>
           )}
           {gridPhase === 'low_contrast' && fixationCountdown > 0 && (
@@ -902,36 +897,63 @@ const AmslerGridTest = () => {
             if (!s) return null
             const locLabel = { center: 'the centre', up: 'just above centre', down: 'just below centre', left: 'just left of centre', right: 'just right of centre' }
             const biasFlags = v?.flags?.filter((f) => f.kind === 'bias') ?? []
-            const clean = !s.standard_issues && !s.low_contrast_issues && biasFlags.length === 0
+            const thresholdFlags = v?.flags?.filter((f) => f.kind === 'threshold') ?? []
             return (
-              <div key={eye} className={`rounded-xl border-2 p-6 ${clean ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'}`}>
+              <div key={eye} className="rounded-xl border-2 p-6 bg-white border-gray-200">
                 <h3 className="text-xl font-bold text-gray-900 mb-3 capitalize">{eye} eye</h3>
                 <ul className="text-sm text-gray-800 space-y-1">
                   <li>
-                    Standard grid:{' '}
-                    {s.standard_issues ? `distortion reported (about ${s.standard_area_deg2} deg² marked)` : 'no distortion reported'}
+                    Standard grid: marked area <strong>{s.standard_issues ? `${s.standard_area_deg2} deg²` : '0 deg² (no distortion reported)'}</strong>
                   </li>
                   <li>
-                    Faint (5%) grid:{' '}
-                    {s.low_contrast_issues ? `distortion reported (about ${s.low_contrast_area_deg2} deg² marked)` : 'no distortion reported'}
+                    Faint (5%) grid: marked area <strong>{s.low_contrast_issues ? `${s.low_contrast_area_deg2} deg²` : '0 deg² (no distortion reported)'}</strong>
                   </li>
                   <li>
                     Line alignment:{' '}
                     {!v
                       ? 'skipped'
                       : biasFlags.length
-                        ? `lines looked shifted at ${biasFlags.map((f) => locLabel[f.location]).join(', ')}`
-                        : `no local shift found (centre threshold about ${v.centerThreshold}″)`}
+                        ? `perceived shift at ${biasFlags.map((f) => locLabel[f.location]).join(', ')}`
+                        : 'no location met the shift rule'}
+                    {v && !v.reliable && <span className="text-amber-800"> — answers were too inconsistent to rely on ({v.uncertainLocations.length} uncertain locations)</span>}
                   </li>
                 </ul>
+                {v && (
+                  <table className="mt-3 w-full text-xs text-gray-700">
+                    <thead>
+                      <tr className="text-left text-gray-500">
+                        <th className="py-1 pr-2 font-medium">Location</th>
+                        <th className="py-1 pr-2 font-medium">Bias (″) ± SD</th>
+                        <th className="py-1 pr-2 font-medium">Threshold (″)</th>
+                        <th className="py-1 font-medium">Note</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Object.entries(v.locations).map(([loc, l]) => (
+                        <tr key={loc} className="border-t border-gray-100">
+                          <td className="py-1 pr-2 capitalize">{loc}</td>
+                          <td className="py-1 pr-2">{l.bias > 0 ? '+' : ''}{l.bias} ± {l.biasSd}</td>
+                          <td className="py-1 pr-2">{l.threshold} (±{l.thresholdLogSd} log)</td>
+                          <td className="py-1">
+                            {v.uncertainLocations?.includes(loc)
+                              ? 'uncertain'
+                              : biasFlags.some((f) => f.location === loc)
+                                ? 'shift'
+                                : thresholdFlags.some((f) => f.location === loc) ? 'high threshold (experimental)' : ''}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
               </div>
             )
           })}
 
           {eyeScores && ['left', 'right'].some((e) => eyeScores[e].standard_issues || eyeScores[e].low_contrast_issues || eyeScores[e].vernier_flags?.some((f) => f.kind === 'bias')) && (
-            <div className="bg-red-50 border-2 border-red-200 rounded-xl p-6">
-              <h3 className="text-xl font-bold text-red-900 mb-3"> Important</h3>
-              <p className="text-red-800 mb-3">
+            <div className="bg-amber-50 border-2 border-amber-200 rounded-xl p-6">
+              <h3 className="text-xl font-bold text-amber-900 mb-3">About this result</h3>
+              <p className="text-amber-900 mb-3">
                 Part of this check suggested a distortion or shift in your central vision. Some retinal conditions
                 can cause similar changes — this home check cannot tell which, if any, apply. If it is new or
                 getting worse, see an eye doctor promptly for a dilated exam.
@@ -939,9 +961,15 @@ const AmslerGridTest = () => {
             </div>
           )}
           
-          <div className="bg-green-50 border-2 border-green-200 rounded-xl p-6">
-            <h4 className="font-bold text-green-900 mb-2"> Next Steps:</h4>
-            <ul className="text-green-800 space-y-2 text-sm">
+          <p className="text-xs text-gray-500">
+            Low-contrast grids may reveal a larger perceived distortion area in some users. Thresholds come from only
+            8–12 answers per location, so they are shown with their uncertainty and the high-threshold note is experimental.
+            There is no combined score.
+          </p>
+
+          <div className="bg-gray-50 border-2 border-gray-200 rounded-xl p-6">
+            <h4 className="font-bold text-gray-900 mb-2"> Next Steps:</h4>
+            <ul className="text-gray-800 space-y-2 text-sm">
               <li>• Results saved to your dashboard</li>
               <li>• Retake test periodically to track changes</li>
               <li>• Compare results over time for trends</li>

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { toast } from 'react-hot-toast'
+import { POSITIONING, REGULATORY_NOTE } from '../utils/samd'
 
 function Help() {
   const [activeCategory, setActiveCategory] = useState('getting-started')
@@ -22,8 +23,8 @@ function Help() {
         a: 'We recommend taking vision tests weekly for consistent tracking. However, if you notice any changes in your vision or experience eye strain, test more frequently.'
       },
       {
-        q: 'What do the test scores mean?',
-        a: 'Scores are displayed as percentages. 90-100% indicates excellent vision, 70-89% is good, 50-69% is fair, and below 50% suggests you should consult an eye care professional.'
+        q: 'What do the test results mean?',
+        a: 'Each test reports its own measurement first: acuity in logMAR, contrast in logCS, glare as contrast lost under glare (Δ logCS), near point of convergence in centimetres, Amsler as the marked area, and so on. Some tests also show a 0–100 number. That is a display index, not clinically validated: it is not a grade of your vision and is not used for alerts or reports. If you notice a change in your vision, see an eye care professional rather than relying on any home result.'
       },
     ],
     'vision-tests': [
@@ -36,12 +37,12 @@ function Help() {
         a: 'It measures how much contrast you need to see stripes of different sizes, giving a contrast sensitivity curve (qCSF method). Low contrast sensitivity makes night driving, fog and dim rooms harder, and it can change before letter-chart acuity does.'
       },
       {
-        q: 'Are these tests FDA-approved diagnostic devices?',
-        a: 'No. EyeVio is wellness and educational software. It is not FDA-cleared or FDA-approved Software as a Medical Device (SaMD), and it is not intended to diagnose, treat, cure, or prevent disease. Scores are home-based and depend on your device, lighting, and distance. They are not a substitute for a comprehensive eye exam.'
+        q: 'Are these tests approved medical devices?',
+        a: `No. ${POSITIONING} ${REGULATORY_NOTE} Results are home-based and depend on your device, lighting, and distance. They are not a substitute for a comprehensive eye exam.`
       },
       {
-        q: 'Does the Side Vision Test screen for glaucoma?',
-        a: 'No. That home exercise looks at whether you notice faint letters at the edges of the screen. It is not a visual-field test, does not measure eye pressure, and does not screen for or diagnose glaucoma. Only an eye doctor can evaluate glaucoma.'
+        q: 'Can the Side Vision Test detect eye disease?',
+        a: 'No. It compares how faint a target you can see at four small spots in your side vision, relative to each other. It is not a visual-field test. It samples only a small part of the field, and loss that is the same in every corner or in both eyes may not be detected. Only an eye-care professional can assess your visual field.'
       },
       {
         q: 'How accurate are these online tests?',
@@ -65,21 +66,21 @@ function Help() {
       },
       {
         q: 'Is my webcam data stored?',
-        a: 'No! All webcam processing happens locally in your browser. No video or images are sent to our servers. Only anonymized metrics are stored if you save a session.'
+        a: 'No. Webcam processing happens in your browser, and no video is sent to the server. If you save a session, its measurements (such as blink rate) are stored in your account.'
       },
     ],
     'data-privacy': [
       {
         q: 'How is my data protected?',
-        a: 'We use industry-standard encryption (AES-256) for data storage and HTTPS for all transmissions. Your data is never shared with third parties without explicit consent.'
+        a: 'EyeVio is a research prototype. Passwords are hashed with bcrypt, and photos remain on-device by default; an upload occurs only after an explicit storage choice or disclosed fallback. Saved data is not encrypted by EyeVio itself, and the app does not enforce HTTPS; both depend on how the server is hosted. Your data is not shared with third parties.'
       },
       {
         q: 'Can I export or delete my data?',
-        a: 'Yes! Go to Settings → Privacy & Data to export all your data as JSON or permanently delete your account and all associated data.'
+        a: 'You can export your vision tests and lifestyle logs as CSV from Profile → Export Data, and a period report as PDF or JSON from Reports. Individual eye photos can be deleted from their timeline. Deleting your whole account is not available in this build yet.'
       },
       {
         q: 'Do you sell my health data?',
-        a: 'Absolutely not. We never sell user data. Anonymous aggregated statistics may be used for research purposes only with your permission (opt-in via Settings).'
+        a: 'No. EyeVio does not sell or share user data, and no usage statistics are collected.'
       },
     ],
   }

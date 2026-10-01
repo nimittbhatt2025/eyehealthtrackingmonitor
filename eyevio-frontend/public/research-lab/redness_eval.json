@@ -1,0 +1,62 @@
+{
+  "available": true,
+  "version": "bounded_ordinal_resnet18_tta_v1",
+  "labels": "weak: folder label mapped to grade (normal\u21920, other\u21921, conjunctivitis\u21923); no graded redness data",
+  "n_test": 187,
+  "test": {
+    "mae": 0.13090112875489626,
+    "spearman": 0.9787437335281782,
+    "auc_conjunctivitis_vs_normal": 1.0,
+    "weak_class_accuracy": 0.9679144385026738
+  },
+  "test_ci95": {
+    "mae": [
+      0.09320867604590993,
+      0.1709774941620342
+    ],
+    "spearman": [
+      0.9662441841646661,
+      0.9862985028017824
+    ],
+    "auc_conjunctivitis_vs_normal": [
+      1.0,
+      1.0
+    ],
+    "weak_class_accuracy": [
+      0.9411764705882353,
+      0.9893048128342246
+    ]
+  },
+  "per_weak_class_prediction": {
+    "normal": {
+      "n": 98,
+      "mean": 0.0,
+      "sd": 0.0
+    },
+    "other": {
+      "n": 34,
+      "mean": 1.3040160745382308,
+      "sd": 0.4194245530508141
+    },
+    "conjunctivitis": {
+      "n": 55,
+      "mean": 2.8763615868308325,
+      "sd": 0.36422508417109384
+    }
+  },
+  "shortcut_probe": {
+    "auc_conjunctivitis_vs_normal_eye_masked": 0.9931354359925788,
+    "eye_region": "centred disc, radius 0.35 \u00d7 image side"
+  },
+  "leakage": {
+    "test_images": 187,
+    "near_duplicate_of_train": 8,
+    "dhash_max_distance": 6
+  },
+  "inference": "production path: 5-pass TTA mean, clamp 0\u20134 (smart ocular crop skipped: dataset images are already eye crops)",
+  "gradcam_central_mass": {
+    "normal": 0.014400242769625038,
+    "other": 0.2550476729869843,
+    "conjunctivitis": 0.5995653748512269
+  }
+}

@@ -1,9 +1,9 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from app.models import db, LensData, VisionTest, Alert
+from app.models import db, LensData, VisionTest
 from app.utils.analytics import calculate_lens_effectiveness
-from app.services.alert_delivery import create_and_deliver_alert
-from datetime import datetime, timedelta
+from app.utils.change_detection import DISPLAY_INDEX_LABEL
+from datetime import datetime
 
 lens_bp = Blueprint('lens', __name__)
 
@@ -92,28 +92,8 @@ def get_lens_effectiveness():
                 decline = lens_data.baseline_vision_score - lens_data.current_vision_score
                 lens_data.effectiveness_decline_rate = (decline / months) if months > 0 else 0
         
-        # Check if replacement is needed
-        if effectiveness < 80:  # Less than 80% effectiveness
-            lens_data.replacement_recommended = True
-            
-            # Create alert if not already alerted
-            existing_alert = Alert.query.filter_by(
-                user_id=user_id,
-                alert_type='lens_replacement',
-                is_dismissed=False
-            ).first()
-            
-            if not existing_alert:
-                create_and_deliver_alert(
-                    user_id=user_id,
-                    alert_type='lens_replacement',
-                    severity='medium',
-                    title='Lens Replacement Recommended',
-                    message=f'Your lens effectiveness is {effectiveness:.1f}%. Consider replacing your lenses.',
-                    alert_data={'effectiveness': effectiveness, 'lens_id': lens_data.id},
-                    commit=False,
-                )
-        
+        # Effectiveness is a ratio of 0–100 display indices, so it never recommends replacement.
+        lens_data.replacement_recommended = False
         db.session.commit()
         
         return jsonify({
@@ -122,6 +102,7 @@ def get_lens_effectiveness():
             'lens_brand': lens_data.lens_brand,
             'purchase_date': lens_data.purchase_date.isoformat(),
             'effectiveness_score': effectiveness,
+            'score_label': DISPLAY_INDEX_LABEL,
             'baseline_vision_score': lens_data.baseline_vision_score,
             'current_vision_score': lens_data.current_vision_score,
             'effectiveness_decline_rate': lens_data.effectiveness_decline_rate,

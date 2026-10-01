@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { POSITIONING } from '../utils/samd'
 
 function Community() {
   const [shareProgress, setShareProgress] = useState(false)
@@ -7,7 +8,7 @@ function Community() {
   const welcomeMessage = {
     id: 1,
     author: 'EyeCareDoc',
-    tip: 'Welcome to the EyeVio Community. EyeVio is wellness software, not an FDA-cleared diagnostic device (SaMD). Home checks do not diagnose glaucoma, cataract, or any other disease and do not replace a comprehensive eye exam. If you notice concerning changes, see an eye care professional.',
+    tip: `Welcome to the EyeVio Community. ${POSITIONING} Home checks do not replace a comprehensive eye exam. If you notice concerning changes, see an eye care professional.`,
     category: 'Platform Info',
     date: 'Welcome',
     isOfficial: true
@@ -21,8 +22,8 @@ function Community() {
     <div className="space-y-6 md:space-y-8">
       {/* Header */}
       <div>
-        <h1 className="page-title">Community</h1>
-        <p className="page-subtitle">Welcome to EyeVio - Your Vision Health Platform</p>
+        <h1 className="page-title">Community <span className="align-middle text-sm font-semibold px-2 py-1 rounded-full bg-gray-200 text-gray-700">Roadmap only</span></h1>
+        <p className="page-subtitle">Not part of this build: there is no posting, messaging or sharing, and nothing on this page is sent anywhere.</p>
       </div>
 
       {/* Welcome Message */}

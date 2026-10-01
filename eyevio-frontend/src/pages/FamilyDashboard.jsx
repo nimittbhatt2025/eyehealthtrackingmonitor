@@ -503,7 +503,7 @@ function FamilyDashboard() {
                   {detail.tests.map((t) => (
                     <li key={t.id} className="flex justify-between border-b border-gray-50 py-2">
                       <span className="capitalize">{t.test_type?.replace(/_/g, ' ')}</span>
-                      <span className="font-semibold">{Math.round(t.score)}%</span>
+                      <span className="text-gray-600" title="Display index, not clinically validated">{t.score != null ? `index ${Math.round(t.score)}` : 'no index'}</span>
                       <span className="text-gray-400">{t.created_at?.slice(0, 10)}</span>
                     </li>
                   ))}

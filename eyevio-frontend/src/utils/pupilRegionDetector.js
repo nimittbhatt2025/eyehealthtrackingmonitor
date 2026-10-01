@@ -116,6 +116,11 @@ function regionsFromLandmarks(landmarks, width, height) {
   const rightOuter = px(RIGHT_OUTER_CANTHUS)
   const leftOuter = px(LEFT_OUTER_CANTHUS)
   const canthalSpanPx = dist(rightOuter, leftOuter)
+  const rightInner = px(RIGHT_INNER_CANTHUS)
+  const leftInner = px(LEFT_INNER_CANTHUS)
+  // Unequal eye widths indicate head turn (yaw); the canthal line angle gives roll.
+  const eyeWidthsPx = { right: dist(rightOuter, rightInner), left: dist(leftOuter, leftInner) }
+  const rollDeg = (Math.atan2(leftOuter.y - rightOuter.y, leftOuter.x - rightOuter.x) * 180) / Math.PI
   // Face-oval width stays measurable when a palm covers one eye.
   const faceWidthPx = dist(px(FACE_OVAL_RIGHT), px(FACE_OVAL_LEFT))
 
@@ -137,11 +142,13 @@ function regionsFromLandmarks(landmarks, width, height) {
     // Pixel distance between eye centres — a stable distance/scale cue.
     eyeSpanPx: Math.abs(anatomicalLeft.x - anatomicalRight.x),
     canthalSpanPx,
+    eyeWidthsPx,
+    rollDeg,
     faceWidthPx,
     nasalPosition: hasIris
       ? {
-          right: nasalPosition(anatomicalRight, rightOuter, px(RIGHT_INNER_CANTHUS)),
-          left: nasalPosition(anatomicalLeft, leftOuter, px(LEFT_INNER_CANTHUS)),
+          right: nasalPosition(anatomicalRight, rightOuter, rightInner),
+          left: nasalPosition(anatomicalLeft, leftOuter, leftInner),
         }
       : null,
   }

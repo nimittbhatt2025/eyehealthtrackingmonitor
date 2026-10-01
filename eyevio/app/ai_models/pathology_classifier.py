@@ -7,8 +7,8 @@ Classes (from train_pathology_classifier.py / pathology_class_names.json):
 Offline-safe: loads repo-root pathology_resnet18.pth when present, or
 PATHOLOGY_MODEL_PATH / PATHOLOGY_CLASS_NAMES.
 
-NOT wired into EyeVio wellness scores or diagnostic claims by default.
-Screening / research only — not a clinical diagnosis.
+Experimental research model: outputs are withheld from users (see
+experimental_models.withhold_model_outputs). Not a clinical diagnosis.
 """
 
 from __future__ import annotations
@@ -201,7 +201,7 @@ def _combine_eye_preds(
             'labels': status.get('labels'),
         },
         'disclaimer': (
-            'Research triage only — not a diagnosis and not part of your wellness score. '
+            'Experimental research model — not clinically interpretable and not a diagnosis. '
             'Coarse labels (cataract / conjunctivitis / normal / other) from public web images; '
             'do not use for clinical decisions.'
         ),

@@ -10,8 +10,9 @@
 
 ## Intended use
 
-- **Use:** a wellness trend signal for visible eye redness in dry-eye photo tracking, alongside the CV redness metrics.
-- **Out of scope:** diagnosing conjunctivitis or any other condition; clinical redness grading on scales such as Efron or CCLRU.
+- **Status:** research lab only. Its score and 0–4 grade are withheld from users (`withhold_model_outputs()`); where it runs, the app shows only the three experimental messages. The pixel-based redness measure (not this model) is shown as an experimental measurement without a grade.
+- **Original design (not deployed):** a trend signal for visible eye redness in dry-eye photo tracking, alongside the CV redness metrics.
+- **Out of scope:** any user-facing result; diagnosing conjunctivitis or any other condition; clinical redness grading on scales such as Efron or CCLRU.
 
 ## Training data
 

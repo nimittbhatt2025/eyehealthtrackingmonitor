@@ -3,10 +3,8 @@ import {
   FaTachometerAlt, 
   FaEye, 
   FaChartLine, 
-  FaVideo,
   FaHeartbeat,
   FaTrophy,
-  FaUsers,
   FaBell,
   FaCog,
   FaQuestionCircle,
@@ -19,7 +17,8 @@ import {
   FaLowVision,
   FaChild,
   FaMobileAlt,
-  FaHome
+  FaHome,
+  FaFlask
 } from 'react-icons/fa'
 
 function Sidebar({ isOpen, onClose, hidden = false }) {
@@ -44,6 +43,7 @@ function Sidebar({ isOpen, onClose, hidden = false }) {
         { path: '/cataract-opacity-monitor', icon: FaLowVision, label: 'Lens Photo Timeline' },
         { path: '/eye-tracking-analysis', icon: FaBrain, label: 'Eye Tracking Analysis' },
         { path: '/eye-conditions', icon: FaBook, label: 'Eye Conditions Library' },
+        { path: '/research-lab', icon: FaFlask, label: 'AI Research Lab' },
       ],
     },
     {
@@ -52,7 +52,6 @@ function Sidebar({ isOpen, onClose, hidden = false }) {
         { path: '/lifestyle', icon: FaHeartbeat, label: 'Lifestyle' },
         { path: '/digital-wellbeing', icon: FaMobileAlt, label: 'Digital Wellbeing' },
         { path: '/achievements', icon: FaTrophy, label: 'Achievements' },
-        { path: '/community', icon: FaUsers, label: 'Community' },
         { path: '/alerts', icon: FaBell, label: 'Alerts' },
       ],
     },

@@ -27,10 +27,14 @@ the binary model) → artifacts:
   cataract_corn_resnet18.pth, cataract_corn_meta.json, cataract_corn_ood_stats.npz
   docs/model_cards/assets/cataract_corn_eval.json
 
-When those files are present the API adds an `ordinal` block to assessed eyes.
+These files alone do not switch the grader on. The API loads it only when
+eyevio/app/ai_models/corn_gate.py passes: CATARACT_CORN_ENABLED=1, an approved
+entry in docs/model_cards/approvals.json matching this meta's version, levels,
+dataset and weights hash, and test metrics within CORN_VALIDATION_THRESHOLDS.
 
 Usage:
-  ./eyevio/venv/bin/python train_cataract_corn.py --csv data/cataract_graded/labels.csv
+  ./eyevio/venv/bin/python train_cataract_corn.py --csv data/cataract_graded/labels.csv \\
+      --dataset-name <name> --dataset-version <version>
 """
 
 from __future__ import annotations
@@ -55,6 +59,7 @@ sys.path.insert(0, str(REPO_ROOT / 'eyevio'))
 sys.path.insert(0, str(REPO_ROOT))
 from app.ai_models.cnn_explain import OOD_LAYERS, fit_ood, forward_with_features, layer_distances, ood_score  # noqa: E402
 from app.ai_models.corn import corn_loss, cumulative_probs, level_probs, predict_level  # noqa: E402
+from app.ai_models.corn_gate import sha256_file  # noqa: E402
 from train_cataract_resnet import (  # noqa: E402
     DHASH_MAX_DIST, OOD_PERCENTILE, _device, _dhash, _ece, _hamming, _seed, _transforms,
 )
@@ -235,12 +240,15 @@ def run(args):
         'version': 'corn_v1',
         'trained_at': datetime.now(timezone.utc).isoformat(timespec='seconds'),
         'levels': levels,
+        'dataset': {'name': args.dataset_name, 'version': args.dataset_version},
+        'weights_sha256': sha256_file(args.out),
         'ood': {'threshold': ood_thr, 'layers': list(OOD_LAYERS)},
         'data': {'csv': str(args.csv), 'split_rule': split_rule, 'dedup': dedup,
                  'counts': {s: dict(Counter(levels[r['y']] for r in splits[s])) for s in splits}},
         'recipe': {'backbone': 'resnet18 (ImageNet)', 'head': f'CORN, {k_levels - 1} logits', 'epochs': args.epochs,
                    'lr': args.lr, 'seed': args.seed, 'selection': 'lowest validation MAE'},
-        'test': {k: test[k] for k in ('mae', 'exact_accuracy', 'qwk', 'ci95')},
+        'test': {k: test[k] for k in ('mae', 'exact_accuracy', 'qwk', 'ci95', 'threshold_ece')},
+        'release_gate': 'Not enabled by these files. See eyevio/app/ai_models/corn_gate.py and docs/model_cards/approvals.json.',
     }
     args.out.with_name('cataract_corn_meta.json').write_text(json.dumps(meta, indent=2), encoding='utf-8')
     args.report_dir.mkdir(parents=True, exist_ok=True)
@@ -253,6 +261,8 @@ def main():
     ap = argparse.ArgumentParser(description='Train CORN ordinal cataract grader from a graded CSV')
     ap.add_argument('--csv', type=Path, required=True)
     ap.add_argument('--levels', default='normal,immature,mature')
+    ap.add_argument('--dataset-name', required=True, help='Recorded in meta; must match the approval entry')
+    ap.add_argument('--dataset-version', required=True, help='Recorded in meta; must match the approval entry')
     ap.add_argument('--epochs', type=int, default=15)
     ap.add_argument('--batch-size', type=int, default=16)
     ap.add_argument('--lr', type=float, default=1e-4)

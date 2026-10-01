@@ -544,7 +544,7 @@ const PeripheralAwarenessTest = () => {
             <p className="text-green-800">
               Your <strong>side awareness</strong> matters for sports and walking in crowds.
               This game checks whether you can tap edge targets while looking at the center.
-              It is <strong>not</strong> a visual-field test and does not screen for or diagnose glaucoma or neurological disease.
+              It is <strong>not</strong> a visual-field test and cannot detect or rule out any eye or neurological condition.
             </p>
           </div>
 

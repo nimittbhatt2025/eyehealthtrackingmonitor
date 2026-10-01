@@ -91,21 +91,75 @@ def test_submit_vision_test(client):
     assert data['score'] == 85.5
 
 
+def _token(client):
+    return client.post('/api/auth/register', json={
+        'email': 'rules@example.com', 'password': 'testpassword123',
+    }).get_json()['access_token']
+
+
+def _submit(client, token, **body):
+    return client.post('/api/vision-test/', json={'response_time_ms': 0, 'errors': 0, **body},
+                       headers={'Authorization': f'Bearer {token}'})
+
+
+def test_retired_index_tests_store_no_score(client):
+    token = _token(client)
+    for test_type in ('color_vision', 'amsler_grid', 'dry_eye', 'red_reflex'):
+        r = _submit(client, token, test_type=test_type, score=77, test_details={'method_version': 2})
+        assert r.status_code == 201, test_type
+        assert r.get_json()['score'] is None, test_type
+
+
+def test_score_required_unless_optional_index(client):
+    token = _token(client)
+    assert _submit(client, token, test_type='visual_acuity', score=None).status_code == 400
+    for test_type in ('accommodative_lag', 'near_point_convergence'):
+        r = _submit(client, token, test_type=test_type, score=None, test_details={'method_version': 2})
+        assert r.status_code == 201, test_type
+        assert r.get_json()['score'] is None
+
+
+def test_earlier_side_vision_type_is_renamed(client):
+    token = _token(client)
+    r = _submit(client, token, test_type='glaucoma_neural', score=60)
+    assert r.status_code == 201
+    history = client.get('/api/vision-test/', headers={'Authorization': f'Bearer {token}'}).get_json()
+    rows = history.get('tests', history) if isinstance(history, dict) else history
+    assert [t['test_type'] for t in rows] == ['side_vision_legacy']
+
+
 def test_detect_vision_decline_keys():
-    """Decline detection returns baseline/current score keys used by alerts."""
+    """Decline detection returns baseline/current keys used by alerts, in native units."""
     from app.utils.analytics import detect_vision_decline
-    from app.models import VisionTest
-    from datetime import datetime, timedelta
+    from datetime import datetime
+
+    class FakeTest:
+        def __init__(self, logmar, score=0):
+            self.score = score
+            self.test_type = 'visual_acuity'
+            self.test_details = {'method_version': 2, 'right_eye': {'logMAR': logmar}, 'left_eye': {'logMAR': 0.0}}
+            self.created_at = datetime.utcnow()
+
+    tests = [FakeTest(v) for v in (0.0, 0.02, -0.02, 0.0, 0.0, 0.3, 0.3)]
+    result = detect_vision_decline(tests, 'visual_acuity', 2)
+    assert 'baseline_score' in result
+    assert 'current_score' in result
+    assert result['declined'] is True
+    assert result['baseline_score'] < result['current_score']
+
+
+def test_display_index_decline_never_alerts():
+    """A fall in a 0–100 display index is never treated as a decline."""
+    from app.utils.analytics import detect_vision_decline
+    from datetime import datetime
 
     class FakeTest:
         def __init__(self, score):
             self.score = score
+            self.test_details = {}
             self.created_at = datetime.utcnow()
 
-    tests = [FakeTest(90), FakeTest(88), FakeTest(87), FakeTest(86), FakeTest(85),
-             FakeTest(70), FakeTest(68), FakeTest(65), FakeTest(62), FakeTest(60)]
-    result = detect_vision_decline(tests)
-    assert 'baseline_score' in result
-    assert 'current_score' in result
-    assert result['declined'] is True
-    assert result['baseline_score'] > result['current_score']
+    tests = [FakeTest(s) for s in (90, 88, 87, 86, 85, 70, 68, 65, 62, 60)]
+    result = detect_vision_decline(tests, 'red_reflex', 2)
+    assert result['declined'] is False
+    assert result['message'] is None

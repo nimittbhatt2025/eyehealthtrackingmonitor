@@ -346,7 +346,7 @@ def _eye_appearance_score(
     experimental_tear_proxy: float,
     experimental_texture_proxy: float,
 ) -> float:
-    """Wellness appearance score — not a clinical dry-eye severity score."""
+    """Appearance display index — not clinically validated, not a dry-eye severity score."""
     if redness is None:
         redness = 50.0
     redness_component = 100 - redness
@@ -720,7 +720,6 @@ def assemble_dry_eye_result(
     max_eye_change_proxy = abs(left_score - right_score)
     risk = _risk_from_score(overall)
 
-    findings: List[str] = []
     reliable_redness = []
     if left.get('redness_reliable') and left.get('sclera_redness') is not None:
         reliable_redness.append(left['sclera_redness'])
@@ -730,19 +729,25 @@ def assemble_dry_eye_result(
     avg_irreg = (left['experimental_texture_proxy'] + right['experimental_texture_proxy']) / 2
     avg_tear = (left['experimental_tear_proxy'] + right['experimental_tear_proxy']) / 2
 
+    # Pixel-measurement findings only; the redness classifier is research-only (experimental_models.py).
+    heuristic_findings: List[str] = []
+    if _should_report_redness_finding(left, right, avg_redness):
+        heuristic_findings.append('Visible redness in the white of the eye')
+    if asymmetry['health_score_asymmetry'] > 25:
+        heuristic_findings.append('Noticeable difference between left and right eye appearance')
+    if not heuristic_findings:
+        heuristic_findings.append('No large visible differences detected in this photo')
+
+    findings: List[str] = []
     if ml_redness.get('available'):
         ml_finding = ml_redness_finding(ml_redness)
         if ml_finding:
             findings.append(ml_finding)
         elif ml_redness.get('discretized_grade', 0) == 0:
             findings.append('No large visible differences detected in this photo')
-    elif _should_report_redness_finding(left, right, avg_redness):
-        findings.append('Visible redness in the white of the eye')
-    if asymmetry['health_score_asymmetry'] > 25:
-        findings.append('Noticeable difference between left and right eye appearance')
-
-    if not findings:
-        findings.append('No large visible differences detected in this photo')
+        if asymmetry['health_score_asymmetry'] > 25:
+            findings.append('Noticeable difference between left and right eye appearance')
+    findings = findings or list(heuristic_findings)
 
     result: Dict[str, Any] = {
         'score': overall,
@@ -750,6 +755,7 @@ def assemble_dry_eye_result(
         'risk_level': risk,
         'risk_message': _risk_message(risk),
         'findings': findings,
+        'heuristic_findings': heuristic_findings,
         'left_eye': left,
         'right_eye': right,
         'lighting': lighting,

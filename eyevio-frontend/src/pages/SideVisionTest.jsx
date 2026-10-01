@@ -18,11 +18,12 @@ import {
  *
  * Catch trials give perimetry-style reliability indices:
  *   - false-positive catch: no corner target shown
- *   - false-negative catch: a very strong corner target
+ *   - false-negative catch: a corner target at the strongest nominal contrast
  * Sessions that fail reliability are not scored.
  *
  * Output is relative inter-quadrant asymmetry only — never an absolute
- * sensitivity or dB value. Not a visual-field test; does not screen for glaucoma.
+ * sensitivity or dB value. Four sample points cover a small part of the field,
+ * and loss that is equal across corners or both eyes produces no asymmetry.
  */
 
 const QUADRANTS = [
@@ -36,7 +37,8 @@ const CENTER_DIGITS = ['2', '3', '5', '7']
 const THRESHOLD_TRIALS_PER_QUADRANT = 6
 const FALSE_POSITIVE_CATCHES = 4
 const FALSE_NEGATIVE_CATCHES = 4
-const FALSE_NEGATIVE_LOGCS = 0.1 // ~80% contrast — should always be seen
+// Nominal (requested) contrast; the screen's actual luminance contrast is not calibrated.
+const FALSE_NEGATIVE_LOGCS = 0.1
 const PRACTICE_LOGCS = 0.3
 const PRACTICE_FEEDBACK_MS = 2200
 const STIM_MS = 200
@@ -149,13 +151,17 @@ const SideVisionTest = () => {
     const responses = responsesRef.current
     const fixationLosses = responses.filter((r) => r.fixationLoss).length
     const valid = responses.filter((r) => !r.fixationLoss)
-    const falsePositives = valid.filter((r) => r.kind === 'fp_catch' && r.reported !== 'none').length
-    const falseNegatives = valid.filter((r) => r.kind === 'fn_catch' && r.reported !== r.quadrant).length
+    const fpValid = valid.filter((r) => r.kind === 'fp_catch')
+    const fnValid = valid.filter((r) => r.kind === 'fn_catch')
+    const falsePositives = fpValid.filter((r) => r.reported !== 'none').length
+    const falseNegatives = fnValid.filter((r) => r.reported !== r.quadrant).length
     const reliability = sideVisionReliability({
       fixationLosses,
       totalTrials: responses.length,
       falsePositives,
       falseNegatives,
+      fpCatches: fpValid.length,
+      fnCatches: fnValid.length,
     })
 
     const estimates = Object.fromEntries(
@@ -202,6 +208,15 @@ const SideVisionTest = () => {
               eye,
               {
                 reliability: r.reliability,
+                fixation_loss_rate: r.reliability.fixationLossRate,
+                fixation_losses: r.reliability.fixationLosses,
+                fixation_trials: r.reliability.totalTrials,
+                false_positive_rate: r.reliability.falsePositiveRate,
+                false_positives: r.reliability.falsePositives,
+                false_positive_catches: r.reliability.fpCatches,
+                false_negative_rate: r.reliability.falseNegativeRate,
+                false_negatives: r.reliability.falseNegatives,
+                false_negative_catches: r.reliability.fnCatches,
                 scored: r.score != null,
                 relative_log_units: r.relative,
                 max_asymmetry: r.maxAsymmetry,
@@ -212,7 +227,12 @@ const SideVisionTest = () => {
             ])
           ),
           scoring_note:
-            'Index per eye: asymmetry 0 → 100, ≥ 0.6 log units → 0; overall = worse scored eye. Unreliable eyes are not scored. Not a visual-field test.',
+            'Measurement: max inter-quadrant asymmetry (log units) per eye. Display index (not clinically validated, not used for alerts or reports) per eye: asymmetry 0 → 100, ≥ 0.6 log units → 0; overall = worse scored eye. Unreliable eyes are not scored. Reliability: fixation-loss rate over all trials; false-positive and false-negative rates over catch trials with a correct centre number. Contrast values are nominal (screen luminance is not calibrated). Four sample points cover a small part of the field; loss that is equal across corners or both eyes produces no asymmetry. Not a visual-field test.',
+          sampling: {
+            points_per_eye: QUADRANTS.length,
+            approx_eccentricity_note: 'corner positions at 20%/80% of a 480 px panel; eccentricity in degrees depends on viewing distance and screen size',
+          },
+          contrast_calibrated: false,
         },
       })
       setSaveState('saved')
@@ -315,7 +335,13 @@ const SideVisionTest = () => {
                 sensitivity the way a clinic visual-field machine does.
               </p>
               <p>
-                It is <strong>not</strong> a visual-field test and does not screen for or diagnose glaucoma.
+                It tests only <strong>four small spots</strong>, one per corner, so it samples a small portion of your
+                side vision. A clinic field test checks dozens of points.
+              </p>
+              <p>
+                Because it compares corners with each other, loss that is <strong>the same in every corner</strong> or{' '}
+                <strong>the same in both eyes</strong> may not be detected. It is <strong>not</strong> a visual-field
+                test and cannot detect or rule out any eye or neurological condition.
               </p>
             </div>
 
@@ -546,15 +572,19 @@ const SideVisionTest = () => {
                   <div className="grid grid-cols-3 gap-2 text-xs mb-4">
                     <div className="rounded-lg bg-white/70 p-2 text-center">
                       <div className="font-bold text-gray-900">{Math.round(rel.fixationLossRate * 100)}%</div>
-                      <div className="text-gray-500">Fixation losses</div>
+                      <div className="text-gray-500">Fixation losses ({rel.fixationLosses}/{rel.totalTrials})</div>
                     </div>
                     <div className="rounded-lg bg-white/70 p-2 text-center">
-                      <div className="font-bold text-gray-900">{rel.falsePositives}/{FALSE_POSITIVE_CATCHES}</div>
-                      <div className="text-gray-500">False positives</div>
+                      <div className="font-bold text-gray-900">
+                        {rel.falsePositiveRate != null ? `${Math.round(rel.falsePositiveRate * 100)}%` : '—'}
+                      </div>
+                      <div className="text-gray-500">False positives ({rel.falsePositives}/{rel.fpCatches})</div>
                     </div>
                     <div className="rounded-lg bg-white/70 p-2 text-center">
-                      <div className="font-bold text-gray-900">{rel.falseNegatives}/{FALSE_NEGATIVE_CATCHES}</div>
-                      <div className="text-gray-500">False negatives</div>
+                      <div className="font-bold text-gray-900">
+                        {rel.falseNegativeRate != null ? `${Math.round(rel.falseNegativeRate * 100)}%` : '—'}
+                      </div>
+                      <div className="text-gray-500">False negatives ({rel.falseNegatives}/{rel.fnCatches})</div>
                     </div>
                   </div>
 
@@ -580,7 +610,7 @@ const SideVisionTest = () => {
                       </div>
                       <p className="text-sm text-gray-700">
                         {r.maxAsymmetry < 0.3
-                          ? 'Your four corners responded similarly on this run. That is not a medical all-clear.'
+                          ? 'Your four corners responded similarly to each other on this run. This does not mean your side vision is normal: loss that is equal in every corner, in both eyes, or between the four test spots would not show up here.'
                           : `The ${QUADRANTS.find((q) => q.id === r.weakest).label.toLowerCase()} corner needed noticeably stronger spots than your best corner. Fatigue and screen setup can cause this — if it repeats on a retake, mention it at an eye exam and ask about a visual-field test.`}
                       </p>
                       {r.lowConfidence && (
@@ -593,8 +623,9 @@ const SideVisionTest = () => {
             })}
 
             <p className="text-xs text-gray-500 mb-6">
-              Numbers are log-unit differences from your best corner (0.3 ≈ needing twice the contrast). No absolute
-              sensitivity is reported because a home screen can&apos;t hold a calibrated background brightness.
+              Numbers are log-unit differences from your best corner (0.3 ≈ needing twice the nominal contrast). No
+              absolute sensitivity is reported because a home screen can&apos;t hold a calibrated background brightness,
+              so the contrast values are requested, not measured. Only four spots were tested per eye.
             </p>
 
             <SamdDisclaimer testType="side_vision" className="mb-8" />

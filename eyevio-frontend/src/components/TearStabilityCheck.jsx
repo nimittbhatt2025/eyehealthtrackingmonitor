@@ -1,12 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import MediaEyeTracker from '../utils/mediaEyeTracker'
-import { summarizeTearBreakup } from '../utils/dryEyeQuestionnaire'
+import { summarizeBlurReportTime } from '../utils/dryEyeQuestionnaire'
 
 /**
- * Tear-film stability proxies from the webcam:
+ * Blink and blur-report check from the webcam:
  *  1. Natural reading — blink rate and inter-blink interval (camera blink detection).
- *  2. Break-up proxy — blink, then hold eyes open; seconds until the text first
- *     blurs (user report) or an involuntary blink (camera). Median of 3 trials.
+ *  2. Blur-report time — blink, then hold eyes open; seconds until the user
+ *     reports blur or blinks involuntarily (camera). Median of 3 trials.
+ *     Not a tear break-up time.
  */
 
 const NATURAL_SECONDS = 30
@@ -69,7 +70,7 @@ const TearStabilityCheck = ({ onComplete, onSkip }) => {
       stopTracker()
       onComplete({
         natural: naturalRef.current,
-        breakup: summarizeTearBreakup(trialsRef.current),
+        blurReport: summarizeBlurReportTime(trialsRef.current),
       })
     } else {
       setTrialIdx(trialsRef.current.length)
@@ -150,7 +151,7 @@ const TearStabilityCheck = ({ onComplete, onSkip }) => {
 
   return (
     <div className="test-panel">
-      <h2 className="section-title text-xl mb-1">Tear stability check</h2>
+      <h2 className="section-title text-xl mb-1">Blinking and blur-report check</h2>
       <p className="text-gray-500 text-sm mb-4">About 90 seconds. Camera counts blinks; nothing is recorded.</p>
 
       <div className={phase === 'intro' || phase === 'done' ? 'hidden' : 'flex items-center gap-3 mb-4'}>
@@ -167,6 +168,10 @@ const TearStabilityCheck = ({ onComplete, onSkip }) => {
             <li>Then, {BREAKUP_TRIALS} times: <strong>blink twice, press Space, and keep your eyes open</strong> on the text.
               Press Space again the moment the text <strong>first blurs</strong> or your eyes sting. If you blink first, the camera stops the timer.</li>
           </ol>
+          <p className="text-xs text-gray-500 mb-6">
+            The hold time records when <em>you</em> notice blur. It is not a clinical tear break-up time, and no
+            normal or abnormal cut-off is applied to it.
+          </p>
           {error && <p className="text-sm text-red-700 mb-4">{error}</p>}
           <div className="flex gap-4">
             <button type="button" onClick={onSkip} className="test-btn-outline">Skip this step</button>
@@ -206,7 +211,7 @@ const TearStabilityCheck = ({ onComplete, onSkip }) => {
         </>
       )}
 
-      {phase === 'done' && <p className="text-sm text-gray-700">Tear stability check complete.</p>}
+      {phase === 'done' && <p className="text-sm text-gray-700">Blinking and blur-report check complete.</p>}
     </div>
   )
 }

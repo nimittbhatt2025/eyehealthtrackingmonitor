@@ -217,7 +217,11 @@ def test_route_on_device_stores_scores_only(client, auth):
     assert r.status_code == 201, r.get_json()
     photo = r.get_json()['photo']
     assert photo['image_thumbnail'] is None
-    assert photo['analysis_details']['ml_redness']['discretized_grade'] == 1
+    details = photo['analysis_details']
+    assert details['ml_redness'] == {'status': 'withheld'}
+    assert details['experimental_models']['models_run'] == ['sclera_redness']
+    assert 'ml_sclera_grade' not in details['metrics']
+    assert 'ml_redness' not in details['left_eye']
 
     r = client.post('/api/eye-photos/', headers=auth, json={'condition_type': 'dry_eye', 'on_device': redness_payload()})
     cmp = client.get(f"/api/eye-photos/compare?current_id={r.get_json()['photo']['id']}&baseline_id={photo['id']}", headers=auth)
@@ -241,10 +245,21 @@ def test_route_server_fallback_respects_store_image(client, auth, monkeypatch, s
     details = photo['analysis_details']
     assert (photo['image_thumbnail'] is not None) is store
     assert ('pupil_crops' in details) is store
-    assert (details['left_eye']['screening']['gradcam'] is not None) is store
+    assert details['left_eye']['screening'] == {'status': 'withheld'}
+    assert details['screening'] == {'status': 'withheld'}
+    assert details['experimental_models']['messages'][0] == 'Experimental analysis completed'
 
 
 def test_route_dry_eye_test_accepts_on_device(client, auth):
     r = client.post('/api/vision-test/analyze-dry-eye', headers=auth, json={'on_device': redness_payload()})
     assert r.status_code == 200
-    assert r.get_json()['crop_source'] == 'on_device_face_mesh'
+    body = r.get_json()
+    assert body['crop_source'] == 'on_device_face_mesh'
+    assert body['ml_redness'] == {'status': 'withheld'}
+    assert body['findings'] == body['heuristic_findings']
+
+
+def test_research_mode_returns_raw_outputs(client, auth, monkeypatch):
+    monkeypatch.setenv('EXPERIMENTAL_IMAGE_MODELS_USER_FACING', '1')
+    r = client.post('/api/vision-test/analyze-dry-eye', headers=auth, json={'on_device': redness_payload()})
+    assert r.get_json()['ml_redness']['discretized_grade'] == 1

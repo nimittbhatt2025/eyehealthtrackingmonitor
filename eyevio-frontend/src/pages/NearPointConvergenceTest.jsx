@@ -9,6 +9,10 @@ import {
   detectConvergenceBreak,
   scoreNearPointConvergence,
   interpretNearPointConvergence,
+  assessNpcCamera,
+  combineNpcApproach,
+  yawProxy,
+  NPC_CAMERA_LIMITS,
 } from '../utils/visionTestScoring'
 
 /**
@@ -17,16 +21,25 @@ import {
  * The user fixates a small target just under the camera and slowly brings
  * their face toward it. Distance comes from the outer-canthal span (scaled
  * from an arm's-length baseline); convergence from pupil separation divided by
- * that span. The break is whichever comes first: the user reports doubling,
- * or one eye visibly stops converging.
+ * that span. Two break estimates are kept per approach: the distance where the
+ * user reported doubling, and the camera-estimated vergence break. The camera
+ * value only counts when it passes assessNpcCamera; the recorded NPC follows
+ * the clinical rule of whichever break comes first on the approach.
  */
 
 const TRIALS = 2
 const BASELINE_MS = 1200
 const MAX_APPROACH_MS = 40000
 const SUBJECTIVE_WINDOW_MS = 400
-const MIN_TRACKED_SAMPLES = 20
+const REPORT_MAX_GAP_MS = 1500
 const FATIGUE_RECESSION_CM = 2
+
+const CAMERA_REASON_TEXT = {
+  pupils_not_located: 'pupils not located in enough frames',
+  eye_corner_span_too_small: 'face too small in the frame',
+  eye_corner_span_unstable: 'eye-corner span unstable at the start',
+  face_angle_unstable: 'head turned or tilting',
+}
 
 const TONE_CLASSES = {
   green: 'border-green-300 bg-green-50',
@@ -41,17 +54,24 @@ function median(values) {
 }
 
 function measure(regions) {
-  if (!regions?.nasalPosition || !regions.canthalSpanPx) return null
+  if (!regions?.canthalSpanPx) return null
+  const located = Boolean(regions.nasalPosition)
   const { anatomicalLeft: l, anatomicalRight: r } = regions
-  const pupilSep = Math.hypot(l.x - r.x, l.y - r.y)
+  const pupilSep = located ? Math.hypot(l.x - r.x, l.y - r.y) : null
   return {
+    located,
     pupilSep,
     span: regions.canthalSpanPx,
-    ratio: pupilSep / regions.canthalSpanPx,
-    right: regions.nasalPosition.right,
-    left: regions.nasalPosition.left,
+    ratio: located ? pupilSep / regions.canthalSpanPx : null,
+    right: located ? regions.nasalPosition.right : null,
+    left: located ? regions.nasalPosition.left : null,
+    yaw: yawProxy(regions.eyeWidthsPx),
+    rollDeg: Number.isFinite(regions.rollDeg) ? regions.rollDeg : null,
   }
 }
+
+const mean = (v) => (v.length ? v.reduce((a, b) => a + b, 0) / v.length : null)
+const round1 = (v) => (v != null ? Number(v.toFixed(1)) : null)
 
 const NearPointConvergenceTest = () => {
   const navigate = useNavigate()
@@ -59,6 +79,7 @@ const NearPointConvergenceTest = () => {
   const trackerRef = useRef(null)
   const loopRef = useRef({ running: false })
   const samplesRef = useRef([])
+  const framesRef = useRef(0)
   const baselineRef = useRef(null)
   const trialsRef = useRef([])
 
@@ -103,9 +124,10 @@ const NearPointConvergenceTest = () => {
         while (loop.running) {
           const regions = await trackerRef.current?.track(videoRef.current)
           const m = measure(regions)
-          setFaceLocked(Boolean(m))
+          setFaceLocked(Boolean(m?.located))
+          const baseline = baselineRef.current
+          if (baseline?.span) framesRef.current += 1
           if (m) {
-            const baseline = baselineRef.current
             if (baseline?.collecting) {
               baseline.samples.push(m)
             } else if (baseline?.span) {
@@ -134,13 +156,16 @@ const NearPointConvergenceTest = () => {
 
   const beginTrial = () => {
     samplesRef.current = []
+    framesRef.current = 0
     setLiveDistance(null)
     baselineRef.current = { collecting: true, samples: [] }
     setPhase('baseline')
     setTimeout(() => {
       const b = baselineRef.current
-      const span = median(b.samples.map((s) => s.span))
-      const pupilSep = median(b.samples.map((s) => s.pupilSep))
+      const located = b.samples.filter((s) => s.located)
+      const spans = located.map((s) => s.span)
+      const span = median(spans)
+      const pupilSep = median(located.map((s) => s.pupilSep))
       const width = videoRef.current?.videoWidth
       const distanceCm = pupilSep ? estimateDistanceCmFromPixelIpd(pupilSep, width) : null
       if (!span || !distanceCm) {
@@ -149,7 +174,7 @@ const NearPointConvergenceTest = () => {
         setPhase('setup')
         return
       }
-      baselineRef.current = { collecting: false, span, distanceCm }
+      baselineRef.current = { collecting: false, span, spans, distanceCm }
       setPhase('approach')
     }, BASELINE_MS)
   }
@@ -157,34 +182,42 @@ const NearPointConvergenceTest = () => {
   const endTrial = useCallback((reportedDouble) => {
     const endedAt = performance.now()
     const samples = samplesRef.current
+    const baselineSpans = baselineRef.current?.spans ?? []
     baselineRef.current = null
 
     const objective = detectConvergenceBreak(samples)
-    const subjectiveCm = reportedDouble
+    const camera = assessNpcCamera({ samples, frames: framesRef.current, baselineSpans })
+    const last = samples[samples.length - 1]
+    const reportedCm = reportedDouble
       ? median(samples.filter((s) => endedAt - s.t <= SUBJECTIVE_WINDOW_MS).map((s) => s.distanceCm)) ??
-        samples[samples.length - 1]?.distanceCm ?? null
+        (last && endedAt - last.t <= REPORT_MAX_GAP_MS ? last.distanceCm : null)
       : null
 
-    const breaks = [subjectiveCm, objective.breakDistanceCm].filter(Number.isFinite)
-    const breakDetected = breaks.length > 0
-    const npcCm = breakDetected ? Math.max(...breaks) : objective.closestDistanceCm
-    const lowConfidence =
-      samples.length < MIN_TRACKED_SAMPLES ||
-      (objective.closestDistanceCm != null && objective.closestDistanceCm < 25 && (objective.convergenceRange ?? 0) < 0.01)
+    const combined = combineNpcApproach({
+      reportedCm,
+      cameraBreakCm: objective.breakDistanceCm,
+      cameraOk: camera.status === 'ok',
+    })
+    const breakDetected = combined.npcCm != null
+    const closestOk = !breakDetected && camera.status === 'ok' ? objective.closestDistanceCm : null
 
     const trial = {
       trial: trialsRef.current.length + 1,
-      npcCm: Number.isFinite(npcCm) ? Number(npcCm.toFixed(1)) : null,
+      npcCm: breakDetected ? combined.npcCm : closestOk,
       breakDetected,
-      breakSource: !breakDetected
-        ? 'none'
-        : subjectiveCm != null && objective.breakDistanceCm != null
-          ? 'reported_and_camera'
-          : subjectiveCm != null ? 'reported' : 'camera',
-      subjectiveCm: subjectiveCm != null ? Number(subjectiveCm.toFixed(1)) : null,
+      breakSource: breakDetected ? combined.source : closestOk != null ? 'no_break_closest' : 'unable_to_measure',
+      reportedDouble,
+      reportedCm: combined.reportedCm,
+      reportedDistanceMissing: reportedDouble && combined.reportedCm == null,
+      cameraBreakCm: combined.cameraBreakCm,
+      cameraBreakRawCm: objective.breakDistanceCm,
+      cameraStatus: camera.status,
+      camera,
+      agreementCm: combined.agreementCm,
+      agree: combined.agree,
       objective,
-      lowConfidence,
       samples: samples.length,
+      frames: framesRef.current,
     }
 
     trialsRef.current = [...trialsRef.current, trial]
@@ -216,21 +249,28 @@ const NearPointConvergenceTest = () => {
   const finish = async (allTrials) => {
     stopCamera()
     const measured = allTrials.filter((t) => Number.isFinite(t.npcCm))
-    const npcMean = measured.length ? measured.reduce((a, t) => a + t.npcCm, 0) / measured.length : null
+    const npcMean = mean(measured.map((t) => t.npcCm))
     const anyBreak = measured.some((t) => t.breakDetected)
+    const withBreak = allTrials.filter((t) => t.breakDetected)
     const receded =
-      measured.length === TRIALS && measured[1].npcCm - measured[0].npcCm >= FATIGUE_RECESSION_CM
+      withBreak.length === TRIALS && withBreak[1].npcCm - withBreak[0].npcCm >= FATIGUE_RECESSION_CM
+    const agreements = allTrials.map((t) => t.agreementCm).filter(Number.isFinite)
     const result = {
-      npcMean: npcMean != null ? Number(npcMean.toFixed(1)) : null,
+      npcMean: round1(npcMean),
       anyBreak,
       receded,
-      lowConfidence: allTrials.some((t) => t.lowConfidence),
-      score: scoreNearPointConvergence(npcMean),
+      reportedMean: round1(mean(allTrials.map((t) => t.reportedCm).filter(Number.isFinite))),
+      cameraMean: round1(mean(allTrials.map((t) => t.cameraBreakCm).filter(Number.isFinite))),
+      meanAgreementCm: round1(mean(agreements)),
+      comparedApproaches: agreements.length,
+      agreeingApproaches: allTrials.filter((t) => t.agree === true).length,
+      cameraUnable: allTrials.filter((t) => t.cameraStatus === 'unable_to_measure').length,
+      score: anyBreak ? scoreNearPointConvergence(npcMean) : null,
     }
     setSummary(result)
     setPhase('results')
 
-    if (result.score == null) {
+    if (result.npcMean == null) {
       setSaveState('not_saved')
       return
     }
@@ -242,13 +282,23 @@ const NearPointConvergenceTest = () => {
         errors: 0,
         test_details: {
           method: 'camera_npc_face_approach',
-          method_version: 1,
-          npc_cm: result.npcMean,
+          method_version: 2,
+          npc_cm: anyBreak ? result.npcMean : null,
+          closest_no_break_cm: anyBreak ? null : result.npcMean,
           break_detected: anyBreak,
+          reported_diplopia_cm: result.reportedMean,
+          camera_break_cm: result.cameraMean,
+          mean_agreement_cm: result.meanAgreementCm,
+          agreement_limit_cm: NPC_CAMERA_LIMITS.agreementCm,
+          compared_approaches: result.comparedApproaches,
+          agreeing_approaches: result.agreeingApproaches,
+          camera_unable_approaches: result.cameraUnable,
+          camera_confidence_limits: NPC_CAMERA_LIMITS,
           receded_on_repeat: receded,
-          low_confidence: result.lowConfidence,
+          low_confidence: result.cameraUnable > 0,
           trials: allTrials,
-          scoring_note: 'NPC index: ≤ 6 cm → 100, ≥ 20 cm → 0. Break = first of reported doubling or camera-detected loss of convergence.',
+          break_rule: 'Per approach, the break is whichever came first while approaching (the farther distance): reported doubling, or the camera-estimated vergence break. The camera break counts only when it passed the confidence criteria (pupils located in ≥ 70% of frames, eye-corner span ≥ 60 px and stable at baseline, head yaw/roll steady); otherwise it is recorded as unable to measure.',
+          scoring_note: 'Measurement: break distance (cm); change tracking uses npc_cm (null when no break was found). Reported and camera distances and their agreement are kept separately. Display index (not clinically validated, not used for alerts or reports): ≤ 6 cm → 100, ≥ 20 cm → 0; null without a break.',
         },
       })
       setSaveState('saved')
@@ -373,7 +423,8 @@ const NearPointConvergenceTest = () => {
         <div className="test-shell">
           <div className="max-w-md mx-auto test-panel text-center">
             <p className="text-sm text-gray-500 mb-2">
-              Approach {trials.length}: {trials[trials.length - 1]?.npcCm != null ? `${trials[trials.length - 1].npcCm} cm` : 'not measured'}
+              Approach {trials.length}:{' '}
+              {trials[trials.length - 1]?.breakDetected ? `${trials[trials.length - 1].npcCm} cm` : 'no break recorded'}
             </p>
             <h2 className="text-xl font-bold text-gray-900 mb-4">Blink a few times, then move back to arm&apos;s length</h2>
             <button onClick={beginTrial} disabled={!faceLocked} className="test-btn max-w-xs mx-auto">
@@ -396,33 +447,81 @@ const NearPointConvergenceTest = () => {
               <p className="text-sm text-gray-700">{interpretation.detail}</p>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 mb-6">
-              {trials.map((t) => (
-                <div key={t.trial} className="rounded-xl bg-gray-50 p-3 text-sm">
-                  <div className="text-gray-500 text-xs">Approach {t.trial}</div>
-                  <div className="font-semibold text-gray-900">{t.npcCm != null ? `${t.npcCm} cm` : 'Not measured'}</div>
-                  <div className="text-xs text-gray-500">
-                    {t.breakSource === 'reported_and_camera' && 'You reported doubling; camera saw an eye drift'}
-                    {t.breakSource === 'reported' && 'You reported doubling'}
-                    {t.breakSource === 'camera' && `Camera saw the ${t.objective.divergingEye ?? ''} eye drift`}
-                    {t.breakSource === 'none' && 'No break — closest tracked distance'}
-                  </div>
-                </div>
-              ))}
+            <div className="overflow-x-auto mb-4">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs text-gray-500 border-b">
+                    <th className="py-2 pr-2">Approach</th>
+                    <th className="py-2 pr-2">You reported doubling</th>
+                    <th className="py-2 pr-2">Camera vergence break</th>
+                    <th className="py-2 pr-2">Difference</th>
+                    <th className="py-2">Recorded</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {trials.map((t) => (
+                    <tr key={t.trial} className="border-b border-gray-100 align-top">
+                      <td className="py-2 pr-2">{t.trial}</td>
+                      <td className="py-2 pr-2">
+                        {t.reportedCm != null
+                          ? `${t.reportedCm} cm`
+                          : t.reportedDistanceMissing
+                            ? 'Pressed, but face not tracked at that moment'
+                            : 'Not reported'}
+                      </td>
+                      <td className="py-2 pr-2">
+                        {t.cameraStatus === 'unable_to_measure' ? (
+                          <span className="text-gray-600">
+                            Unable to measure
+                            <span className="block text-xs text-gray-500">
+                              {t.camera.reasons.map((r) => CAMERA_REASON_TEXT[r] ?? r).join('; ')}
+                            </span>
+                          </span>
+                        ) : t.cameraBreakCm != null ? (
+                          `${t.cameraBreakCm} cm${t.objective.divergingEye ? ` (${t.objective.divergingEye} eye)` : ''}`
+                        ) : (
+                          'No break seen'
+                        )}
+                      </td>
+                      <td className="py-2 pr-2">
+                        {t.agreementCm != null
+                          ? `${t.agreementCm} cm ${t.agree ? '(agree)' : '(disagree)'}`
+                          : '—'}
+                      </td>
+                      <td className="py-2 font-semibold text-gray-900">
+                        {t.breakDetected
+                          ? `${t.npcCm} cm`
+                          : t.breakSource === 'no_break_closest'
+                            ? `No break to ${t.npcCm} cm`
+                            : 'Unable to measure'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
+            <p className="text-xs text-gray-600 mb-6">
+              Each approach records whichever break came first as you moved in — the moment you saw double, or the moment
+              the camera saw one eye stop turning inward — the same rule used for the clinical push-up test. The camera value
+              only counts when it passed its checks (pupils found in at least {Math.round(NPC_CAMERA_LIMITS.minTrackedFraction * 100)}%
+              of frames, face large enough and steady at the start, head not turning or tilting). Values within{' '}
+              {NPC_CAMERA_LIMITS.agreementCm} cm are shown as agreeing.
+            </p>
 
             {summary.receded && (
               <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4">
-                Your near point moved farther away on the second approach — a sign your eyes tire with repeated near effort.
+                Your break point was at least {FATIGUE_RECESSION_CM} cm farther on the second approach. This can happen with
+                tiredness, but distances are estimates, so a single difference like this is not conclusive.
               </p>
             )}
-            {summary.lowConfidence && (
+            {summary.cameraUnable > 0 && (
               <p className="text-sm text-gray-700 bg-gray-50 border border-gray-200 rounded-xl p-3 mb-4">
-                Tracking was patchy on at least one approach, so the camera cross-check is rough. Brighter, even light helps.
+                The camera could not measure on {summary.cameraUnable} of {trials.length} approaches, so those rely on your
+                report alone. Brighter, even light and keeping your head straight help.
               </p>
             )}
             {saveState === 'error' && <p className="text-sm text-red-700 mb-4">Results could not be saved.</p>}
-            {saveState === 'not_saved' && <p className="text-sm text-gray-600 mb-4">Nothing measurable was recorded, so this run was not saved.</p>}
+            {saveState === 'not_saved' && <p className="text-sm text-gray-600 mb-4">Unable to measure on any approach, so this run was not saved.</p>}
 
             <p className="text-xs text-gray-500 mb-6">
               Distances are camera estimates (about ±2–3 cm) and are most accurate after the distance calibration.

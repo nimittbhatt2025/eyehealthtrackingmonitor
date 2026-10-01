@@ -3,18 +3,18 @@ import cameraManager from '../utils/cameraManager.js'
 import { useNavigate } from 'react-router-dom'
 import { visionTestAPI } from '../services/api'
 import {
+  OSDI_LICENCE_NOTE,
   OSDI_SECTIONS,
   FREQUENCY_OPTIONS,
   NOT_APPLICABLE,
   calculateOsdi,
   emptyOsdiAnswers,
   osdiComplete,
-  combineDryEyeScores,
 } from '../utils/dryEyeQuestionnaire'
 import StableLightingPreview from '../utils/stableLightingPreview'
 import PhotoLightingBanner from '../components/PhotoLightingBanner'
 import SamdDisclaimer from '../components/SamdDisclaimer'
-import PathologyTriagePanel from '../components/PathologyTriagePanel'
+import ExperimentalModelNotice from '../components/ExperimentalModelNotice'
 import TearStabilityCheck from '../components/TearStabilityCheck'
 import { lockCameraColour } from '../utils/cameraControls'
 import OnDevicePrivacyToggle from '../components/OnDevicePrivacyToggle'
@@ -25,8 +25,9 @@ import { warmOnDevice } from '../ml/onDeviceInference'
 /**
  * Dry Eye Check
  *
- * OSDI-12 questionnaire → tear stability (blink interval + break-up proxy) →
- * photo (white-balance-normalised redness) → combined result.
+ * OSDI-12 questionnaire → blinking while reading + blur-report time →
+ * optional photo (experimental white-balanced redness index). Each measure is
+ * reported in its own units; there is no combined index.
  * Home check only — not a clinical diagnosis.
  */
 
@@ -171,6 +172,88 @@ const DryEyeTest = () => {
     return dataUrl
   }, [cameraReady])
 
+  const saveResults = useCallback(async ({ symptoms, tear, cvData = null, where = null, colourLock = null }) => {
+    const finalResults = {
+      ...(cvData || {}),
+      photo_taken: !!cvData,
+      osdi_score: symptoms.osdiScore,
+      symptom_severity: symptoms.severity,
+      symptom_severity_label: symptoms.severityLabel,
+      symptom_responses: symptoms.responses,
+      osdi_subscales: symptoms.subscales,
+      tear: tear ?? null,
+    }
+    setResults(finalResults)
+    setSubmitting(true)
+    try {
+      await visionTestAPI.submit({
+        test_type: 'dry_eye',
+        score: null,
+        left_eye_score: null,
+        right_eye_score: null,
+        test_details: {
+          method: cvData ? 'osdi12_blur_report_wb_photo' : 'osdi12_blur_report_no_photo',
+          method_version: 3,
+          reporting: 'separate_native_measures_no_combined_index',
+          osdi_score: symptoms.osdiScore,
+          osdi_items: 12,
+          osdi_subscales: symptoms.subscales,
+          blur_report_time: tear?.blurReport ?? null,
+          blink_interval: tear?.natural ?? null,
+          symptom_severity: symptoms.severity,
+          symptom_severity_label: symptoms.severityLabel,
+          symptom_responses: symptoms.responses,
+          photo_taken: !!cvData,
+          ...(cvData
+            ? {
+                experimental_image_indices: {
+                  redness: cvData.metrics?.avg_sclera_redness ?? null,
+                  reflection_smoothness: cvData.metrics?.avg_tear_film_quality ?? null,
+                  surface_texture: cvData.metrics?.avg_surface_irregularity ?? null,
+                  note: 'Experimental image indices; not validated against graded reference photos.',
+                },
+                camera_colour_lock: colourLock,
+                white_balance: cvData.white_balance,
+                findings: cvData.findings,
+                metrics: cvData.metrics,
+                crop_source: cvData.crop_source,
+                scoring_path: cvData.scoring_path,
+                analysis_location: where?.mode ?? null,
+                analysis_fallback_reason: where?.mode === 'server' ? where.reason : null,
+                on_device: cvData.on_device ?? null,
+                experimental_models: cvData.experimental_models ?? null,
+                left_eye: cvData.left_eye,
+                right_eye: cvData.right_eye,
+                lighting: cvData.lighting,
+                disclaimer: cvData.disclaimer,
+              }
+            : {}),
+          scoring_note:
+            'Each measure is reported in its own units; no combined index is computed. Blur-report time is a self-reported hold time, not a tear break-up time, and no cut-offs are applied. Image indices are experimental.',
+        },
+        notes: cvData ? 'Dry eye check (OSDI-12 + blur-report time + photo)' : 'Dry eye check (OSDI-12 + blur-report time, no photo)',
+      })
+      setTestState('results')
+    } finally {
+      setSubmitting(false)
+    }
+  }, [])
+
+  const skipPhoto = useCallback(async () => {
+    if (!symptomResults) return
+    stopCamera()
+    setError(null)
+    setAnalysisWhere(null)
+    setPreviewUrl(null)
+    try {
+      await saveResults({ symptoms: symptomResults, tear: tearResult })
+    } catch (err) {
+      console.error('Save failed:', err)
+      setError('Results could not be saved. Check your connection and try again.')
+      setTestState('capture')
+    }
+  }, [symptomResults, tearResult, saveResults, stopCamera])
+
   const analyzePhoto = useCallback(async (symptoms, tear) => {
     setTestState('analyzing')
     setError(null)
@@ -189,71 +272,7 @@ const DryEyeTest = () => {
         const upload = await prepareImageUpload(canvasRef.current, where.landmarks)
         response = await visionTestAPI.analyzeDryEye({ image: upload.blob, client_crop: upload.meta, capture_mode: 'camera' })
       }
-      const cvData = response.data
-      const tearScore = tear?.breakup?.score ?? null
-      const blended = combineDryEyeScores(cvData.score, symptoms.symptomHealthScore, tearScore)
-
-      const cvRiskLabel = cvData.risk_level === 'similar' ? 'low'
-        : cvData.risk_level === 'some_variation' ? 'moderate' : 'elevated'
-
-      const finalResults = {
-        ...cvData,
-        cv_score: cvData.score,
-        cv_risk_level: cvRiskLabel,
-        symptom_score: symptoms.symptomHealthScore,
-        osdi_score: symptoms.osdiScore,
-        score: blended.combinedScore,
-        risk_level: blended.riskLevel,
-        risk_message: blended.riskMessage,
-        symptom_severity: symptoms.severity,
-        symptom_severity_label: symptoms.severityLabel,
-        symptom_responses: symptoms.responses,
-        osdi_subscales: symptoms.subscales,
-        tear: tear ?? null,
-      }
-
-      setResults(finalResults)
-
-      setSubmitting(true)
-      await visionTestAPI.submit({
-        test_type: 'dry_eye',
-        score: finalResults.score,
-        left_eye_score: cvData.left_eye?.health_score,
-        right_eye_score: cvData.right_eye?.health_score,
-        test_details: {
-          method: 'osdi12_tear_proxy_wb_photo',
-          method_version: 2,
-          risk_level: finalResults.risk_level,
-          risk_message: finalResults.risk_message,
-          cv_score: cvData.score,
-          symptom_score: symptoms.symptomHealthScore,
-          osdi_score: symptoms.osdiScore,
-          osdi_items: 12,
-          osdi_subscales: symptoms.subscales,
-          tear_breakup_proxy: tear?.breakup ?? null,
-          blink_interval: tear?.natural ?? null,
-          tear_score: tearScore,
-          camera_colour_lock: colourLock,
-          white_balance: cvData.white_balance,
-          symptom_severity: symptoms.severity,
-          symptom_severity_label: symptoms.severityLabel,
-          symptom_responses: symptoms.responses,
-          findings: cvData.findings,
-          metrics: cvData.metrics,
-          crop_source: cvData.crop_source,
-          scoring_path: cvData.scoring_path,
-          analysis_location: where.mode,
-          analysis_fallback_reason: where.mode === 'server' ? where.reason : null,
-          on_device: cvData.on_device ?? null,
-          pathology_triage: cvData.pathology_triage,
-          left_eye: cvData.left_eye,
-          right_eye: cvData.right_eye,
-          lighting: cvData.lighting,
-          disclaimer: cvData.disclaimer,
-        },
-        notes: 'Dry eye check (OSDI-12 + tear break-up proxy + photo)',
-      })
-      setTestState('results')
+      await saveResults({ symptoms, tear, cvData: response.data, where, colourLock })
     } catch (err) {
       console.error('Analysis failed:', err)
       const poorLighting = err.response?.data?.error === 'poor_lighting'
@@ -270,10 +289,8 @@ const DryEyeTest = () => {
       }
       setTestState('capture')
       initializeCamera()
-    } finally {
-      setSubmitting(false)
     }
-  }, [stopCamera, initializeCamera])
+  }, [stopCamera, initializeCamera, saveResults])
 
   const handleQuestionnaireSubmit = () => {
     const symptoms = calculateOsdi(answers)
@@ -302,15 +319,6 @@ const DryEyeTest = () => {
     setTestState('questionnaire')
   }
 
-  const riskBadge = (level) => {
-    const map = {
-      low: { label: 'Low signs', className: 'badge-success' },
-      moderate: { label: 'Mild signs', className: 'badge-warning' },
-      elevated: { label: 'Higher signs', className: 'badge-danger' },
-    }
-    return map[level] || map.moderate
-  }
-
   return (
     <div className="test-shell">
       <div className="max-w-3xl mx-auto space-y-6">
@@ -326,7 +334,7 @@ const DryEyeTest = () => {
               </div>
               <h1 className="page-title mb-2">Dry Eye Check</h1>
               <p className="text-sm text-accent-600 font-medium">
-                OSDI questionnaire, tear stability, and a photo
+                OSDI questionnaire, blinking, blur-report time, and an optional photo
               </p>
             </div>
 
@@ -334,8 +342,8 @@ const DryEyeTest = () => {
               <h3 className="font-bold text-lg mb-3">In short (about 5 minutes)</h3>
               <ol className="space-y-2 text-white/90 text-sm">
                 <li><span className="font-bold">1.</span> Answer the 12-question OSDI about the past week.</li>
-                <li><span className="font-bold">2.</span> Tear stability: read for 30 s, then hold your eyes open until the text blurs (3 times).</li>
-                <li><span className="font-bold">3.</span> Take a photo in bright, even room light.</li>
+                <li><span className="font-bold">2.</span> Read for 30 s, then hold your eyes open until you notice blur (3 times).</li>
+                <li><span className="font-bold">3.</span> Optional: take a photo in bright, even room light. You can skip it.</li>
               </ol>
             </div>
 
@@ -344,9 +352,10 @@ const DryEyeTest = () => {
               <ul className="text-sm text-accent-800 space-y-1.5">
                 <li>• OSDI symptom score (0–100) with its three subscales</li>
                 <li>• Blink rate and gaps between blinks while reading</li>
-                <li>• Seconds until your vision first blurs after a blink (a tear break-up proxy)</li>
-                <li>• Redness in the white of the eye, corrected for room light colour</li>
+                <li>• Blur-report time: seconds until <em>you</em> notice blur after a blink (not a tear break-up time)</li>
+                <li>• If you take a photo: an experimental redness index for the white of the eye</li>
               </ul>
+              <p className="text-xs text-accent-800 mt-2">Each is shown separately. There is no combined score.</p>
             </div>
 
             <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-8 text-sm text-amber-900">
@@ -368,9 +377,10 @@ const DryEyeTest = () => {
         {testState === 'questionnaire' && (
           <div className="test-panel">
             <h2 className="section-title text-xl mb-1">Ocular Surface Disease Index (OSDI)</h2>
-            <p className="text-gray-500 mb-6 text-sm">
+            <p className="text-gray-500 mb-2 text-sm">
               12 questions about the <strong>past week</strong>. Choose N/A for activities you didn&apos;t do.
             </p>
+            <p className="text-gray-400 mb-6 text-xs">{OSDI_LICENCE_NOTE}</p>
 
             {(() => {
               let number = 0
@@ -441,15 +451,19 @@ const DryEyeTest = () => {
         {/* Capture */}
         {testState === 'capture' && (
           <div className="test-panel">
-            <h2 className="section-title text-xl mb-2">Take your photo</h2>
-            <p className="text-gray-500 mb-6">
+            <h2 className="section-title text-xl mb-2">Optional photo</h2>
+            <p className="text-gray-500 mb-2">
               Center your face, keep both eyes open, and use even lighting.
+            </p>
+            <p className="text-sm text-gray-600 mb-6">
+              The photo only adds an experimental redness index. You can skip it and save your questionnaire and
+              blink results without any photo.
             </p>
 
             {symptomResults && (
               <div className="bg-accent-50 border border-accent-100 rounded-xl p-4 mb-4 text-sm text-accent-800">
                 OSDI {symptomResults.osdiScore}/100 — {symptomResults.severityLabel}
-                {tearResult?.breakup && <> · blur after {tearResult.breakup.medianSeconds}s</>}
+                {tearResult?.blurReport && <> · blur reported after {tearResult.blurReport.medianSeconds}s</>}
               </div>
             )}
 
@@ -487,6 +501,9 @@ const DryEyeTest = () => {
               <button type="button" onClick={() => { stopCamera(); setTestState('tear') }} className="test-btn-outline">
                 Back
               </button>
+              <button type="button" onClick={skipPhoto} disabled={submitting} className="test-btn-outline">
+                Skip photo and save
+              </button>
               <button
                 type="button"
                 onClick={handleCapture}
@@ -505,7 +522,7 @@ const DryEyeTest = () => {
           <div className="test-panel text-center py-16">
             <div className="spinner mx-auto mb-6" />
             <h2 className="section-title text-xl mb-2">Analyzing your results</h2>
-            <p className="text-gray-500">Combining symptoms with photo analysis…</p>
+            <p className="text-gray-500">Measuring the photo…</p>
             {previewUrl && (
               <img src={previewUrl} alt="Captured" className="mt-8 mx-auto max-h-40 rounded-xl opacity-60" />
             )}
@@ -516,19 +533,11 @@ const DryEyeTest = () => {
         {testState === 'results' && results && (
           <div className="test-panel">
             <div className="text-center mb-8">
-              <div className={`inline-flex ${riskBadge(results.risk_level).className} text-base px-4 py-2 mb-4`}>
-                {riskBadge(results.risk_level).label}
-              </div>
-              <h2 className="section-title text-2xl mb-2">Screening Complete</h2>
-              <p className="text-gray-500">{results.risk_message}</p>
+              <h2 className="section-title text-2xl mb-2">Dry Eye Check complete</h2>
+              <p className="text-gray-500">Each measure is reported separately in its own units.</p>
               {analysisWhere && (
                 <p className="text-xs text-gray-400 mt-2">{describeAnalysisLocation(analysisWhere)}</p>
               )}
-            </div>
-
-            <div className="bg-brand-soft rounded-2xl p-6 mb-6 text-center">
-              <div className="text-5xl font-bold text-gray-900">{results.score}</div>
-              <div className="text-sm text-gray-500 mt-1">Combined health score (higher is better)</div>
             </div>
 
             {results.lighting?.quality === 'fair' && (
@@ -537,9 +546,9 @@ const DryEyeTest = () => {
               </div>
             )}
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
               <div className="card text-center">
-                <h4 className="font-semibold text-gray-900 mb-2">OSDI</h4>
+                <h4 className="font-semibold text-gray-900 mb-2">OSDI symptoms</h4>
                 <div className="text-3xl font-bold text-accent-700">{results.osdi_score}</div>
                 <p className="text-xs text-gray-500 mt-1">
                   /100 · {results.symptom_severity_label} (lower is better)
@@ -551,18 +560,14 @@ const DryEyeTest = () => {
                 )}
               </div>
               <div className="card text-center">
-                <h4 className="font-semibold text-gray-900 mb-2">Tear stability</h4>
-                {results.tear?.breakup ? (
+                <h4 className="font-semibold text-gray-900 mb-2">Blinking while reading</h4>
+                {results.tear?.natural ? (
                   <>
-                    <div className="text-3xl font-bold text-accent-700">{results.tear.breakup.medianSeconds}s</div>
-                    <p className="text-xs text-gray-500 mt-1">
-                      until first blur ·{' '}
-                      {results.tear.breakup.band === 'short' ? 'short' : results.tear.breakup.band === 'borderline' ? 'borderline' : 'typical'}
-                    </p>
-                    {results.tear.natural && (
+                    <div className="text-3xl font-bold text-accent-700">{results.tear.natural.blinkRatePerMin}</div>
+                    <p className="text-xs text-gray-500 mt-1">blinks per minute</p>
+                    {results.tear.natural.medianInterBlinkSec != null && (
                       <p className="text-[11px] text-gray-400 mt-2">
-                        {results.tear.natural.blinkRatePerMin} blinks/min while reading
-                        {results.tear.natural.medianInterBlinkSec != null && ` · ${results.tear.natural.medianInterBlinkSec}s between blinks`}
+                        {results.tear.natural.medianInterBlinkSec} s median inter-blink interval
                       </p>
                     )}
                   </>
@@ -571,33 +576,49 @@ const DryEyeTest = () => {
                 )}
               </div>
               <div className="card text-center">
-                <h4 className="font-semibold text-gray-900 mb-2">Photo analysis</h4>
-                <div className="text-3xl font-bold text-accent-700">{results.cv_score}</div>
-                <p className="text-xs text-gray-500 mt-1">
-                  Redness & tear film · {results.cv_risk_level || results.risk_level} risk (photo)
-                </p>
-                {results.left_eye?.ml_grade != null && (
-                  <p className="text-xs text-teal-700 mt-1">
-                    ML grade L:{results.left_eye.ml_grade} R:{results.right_eye?.ml_grade}
-                  </p>
+                <h4 className="font-semibold text-gray-900 mb-2">Blur-report time</h4>
+                {results.tear?.blurReport ? (
+                  <>
+                    <div className="text-3xl font-bold text-accent-700">{results.tear.blurReport.medianSeconds}s</div>
+                    <p className="text-xs text-gray-500 mt-1">median of {results.tear.blurReport.trials.length} holds until you reported blur</p>
+                    <p className="text-[11px] text-gray-400 mt-2">
+                      Holds: {results.tear.blurReport.trials.map((t) => `${t.seconds}s`).join(', ')}
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-sm text-gray-500">Skipped</p>
                 )}
-                {(results.crop_source || results.scoring_path) && (
-                  <p className="text-[11px] text-gray-400 mt-2">
-                    Crop: {formatCropSource(results.crop_source)}
-                    {results.ml_redness?.available ? ' · sclera model on' : ''}
-                  </p>
+              </div>
+              <div className="card text-center">
+                <h4 className="font-semibold text-gray-900 mb-2">Redness index</h4>
+                {results.photo_taken ? (
+                  <>
+                    <div className="text-3xl font-bold text-accent-700">{results.metrics?.avg_sclera_redness ?? '—'}</div>
+                    <p className="text-xs text-gray-500 mt-1">Experimental image index, not a redness grade</p>
+                    {results.crop_source && (
+                      <p className="text-[11px] text-gray-400 mt-2">Crop: {formatCropSource(results.crop_source)}</p>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-sm text-gray-500">No photo taken</p>
                 )}
               </div>
             </div>
 
-            <div className="mb-6">
-              <PathologyTriagePanel triage={results.pathology_triage} />
-            </div>
+            <p className="text-xs text-gray-500 mb-6 text-center">
+              Each measure is shown on its own. EyeVio does not combine them into a single dry-eye score, and the
+              blur-report time has no normal or abnormal cut-off.
+            </p>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
-              <EyeResultCard title="Left eye" data={results.left_eye} />
-              <EyeResultCard title="Right eye" data={results.right_eye} />
-            </div>
+            {results.photo_taken && (
+              <>
+                <ExperimentalModelNotice notice={results.experimental_models} className="mb-6" />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+                  <EyeResultCard title="Left eye" data={results.left_eye} />
+                  <EyeResultCard title="Right eye" data={results.right_eye} />
+                </div>
+              </>
+            )}
 
             {results.symptom_responses?.length > 0 && (
               <div className="card bg-gray-50 mb-6">
@@ -613,22 +634,25 @@ const DryEyeTest = () => {
               </div>
             )}
 
-            <div className="card bg-gray-50 mb-6">
-              <h3 className="font-semibold text-gray-900 mb-3">What we noticed (photo)</h3>
-              <ul className="space-y-2">
-                {results.findings?.map((f, i) => (
-                  <li key={i} className="flex gap-2 text-sm text-gray-700">
-                    <span className="text-accent-600">•</span>
-                    {f}
-                  </li>
-                ))}
-              </ul>
-            </div>
+            {results.photo_taken && results.findings?.length > 0 && (
+              <div className="card bg-gray-50 mb-6">
+                <h3 className="font-semibold text-gray-900 mb-3">What we noticed (photo)</h3>
+                <ul className="space-y-2">
+                  {results.findings.map((f, i) => (
+                    <li key={i} className="flex gap-2 text-sm text-gray-700">
+                      <span className="text-accent-600">•</span>
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             <p className="text-xs text-gray-500 mb-4">
-              The break-up proxy is the time until <em>you</em> notice blur — not a fluorescein or keratograph
-              break-up time. Redness is corrected for room-light colour; the Efron-style grade is an approximate
-              mapping, not yet validated against graded reference photos.
+              Blur-report time is how long until <em>you</em> noticed blur. It is not a fluorescein or keratograph
+              tear break-up time and is not interpreted against clinical cut-offs. The redness index is an
+              experimental pixel-colour measurement corrected for room-light colour; it has not been validated against
+              graded reference photos.
             </p>
 
             <SamdDisclaimer testType="dry_eye" className="mb-8" />
@@ -653,27 +677,21 @@ function EyeResultCard({ title, data }) {
   return (
     <div className="card">
       <h4 className="font-semibold text-gray-900 mb-3">{title}</h4>
-      <div className="text-3xl font-bold text-accent-700 mb-3">{data.health_score}</div>
       <dl className="space-y-1.5 text-sm">
         <div className="flex justify-between">
-          <dt className="text-gray-500">Redness (light-corrected)</dt>
-          <dd className="font-medium">{data.sclera_redness}%</dd>
-        </div>
-        {data.efron_style_grade != null && (
-          <div className="flex justify-between">
-            <dt className="text-gray-500">Efron-style grade (approx.)</dt>
-            <dd className="font-medium">{data.efron_style_grade} · {data.efron_style_label}</dd>
-          </div>
-        )}
-        <div className="flex justify-between">
-          <dt className="text-gray-500">Tear film smoothness</dt>
-          <dd className="font-medium">{data.tear_film_quality}%</dd>
+          <dt className="text-gray-500">Redness index</dt>
+          <dd className="font-medium">{data.sclera_redness ?? '—'}</dd>
         </div>
         <div className="flex justify-between">
-          <dt className="text-gray-500">Surface irregularity</dt>
-          <dd className="font-medium">{data.surface_irregularity}%</dd>
+          <dt className="text-gray-500">Reflection smoothness index</dt>
+          <dd className="font-medium">{data.tear_film_quality ?? '—'}</dd>
+        </div>
+        <div className="flex justify-between">
+          <dt className="text-gray-500">Surface texture index</dt>
+          <dd className="font-medium">{data.surface_irregularity ?? '—'}</dd>
         </div>
       </dl>
+      <p className="text-[11px] text-gray-400 mt-2">Experimental image indices (0–100), not clinical measurements.</p>
     </div>
   )
 }

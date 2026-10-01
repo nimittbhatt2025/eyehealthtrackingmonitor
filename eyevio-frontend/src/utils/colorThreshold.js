@@ -29,10 +29,20 @@ export const COPUNCTAL_UV = {
 }
 
 /**
- * Approximate upper limits of normal Trivector thresholds for young adults,
- * in 10⁻⁴ u'v' units. Tritan limits rise with age (lens yellowing).
+ * Provisional research reference values, in 10⁻⁴ u'v' units, taken from published
+ * Cambridge Colour Test Trivector limits for young adults. They are not EyeVio
+ * norms: no EyeVio-specific reference data exist yet. Tritan values rise with age.
  */
-export const TYPICAL_UPPER_LIMIT = { protan: 100, deutan: 100, tritan: 150 }
+export const PROVISIONAL_REFERENCE = { protan: 100, deutan: 100, tritan: 150 }
+
+/** An axis can only be tested if the screen reaches well beyond its reference value. */
+export const GAMUT_ADEQUACY_FACTOR = 4
+/** Posterior SD (log units) above which an axis threshold is reported as uncertain. */
+export const MAX_AXIS_SD = 0.3
+/** Luminance-defined catch trials, visible regardless of colour vision. */
+export const CATCH_TRIALS = 4
+export const CATCH_MIN_CORRECT = 3
+export const CATCH_LUMINANCE_GAIN = 2.2
 
 export const DOT_LUMINANCES = [0.13, 0.16, 0.19, 0.22, 0.25, 0.28]
 
@@ -133,45 +143,51 @@ export const distanceToLogSens = (d) => -Math.log10(d)
 export const logSensToDistance = (s) => 10 ** -s
 export const toUnits = (d) => d * 1e4
 
-/**
- * Score one axis: 100 at or below the typical limit, falling linearly in log
- * units to 0 at the screen's maximum displacement.
- */
-export function axisScore(threshold, axis, maxDistance) {
-  const limit = TYPICAL_UPPER_LIMIT[axis] * 1e-4
-  if (threshold <= limit) return 100
-  if (maxDistance <= limit) return 0
-  const frac = Math.log10(threshold / limit) / Math.log10(maxDistance / limit)
-  return Math.round(100 * Math.max(0, Math.min(1, 1 - frac)))
+export function gamutAdequate(axis, maxDistance, displayCoversSrgb = true) {
+  return displayCoversSrgb && maxDistance >= GAMUT_ADEQUACY_FACTOR * PROVISIONAL_REFERENCE[axis] * 1e-4
 }
 
 /**
+ * Per-axis thresholds against provisional research reference values. There is no
+ * 0–100 score: reference data for one do not exist.
+ *
+ * Reliability: the eye is unreliable when fewer than CATCH_MIN_CORRECT of the catch trials
+ * were right (a guesser passes with p ≈ 0.05), or when nothing was seen on any axis. An axis
+ * is `uncertain` when its posterior SD exceeds MAX_AXIS_SD, and `testable: false` when the
+ * screen cannot show a large enough difference along it. Neither counts towards a pattern.
+ *
  * @param {Record<string, {threshold:number, sd:number, maxDistance:number, beyondGamut:boolean}>} axes
+ * @param {{catchCorrect?: number, catchTotal?: number, displayCoversSrgb?: boolean}} [opts]
  */
-export function summarizeColorThresholds(axes) {
+export function summarizeColorThresholds(axes, { catchCorrect = null, catchTotal = 0, displayCoversSrgb = true } = {}) {
   const perAxis = {}
   for (const axis of COLOR_AXES) {
     const a = axes[axis]
     if (!a) continue
+    const testable = gamutAdequate(axis, a.maxDistance, displayCoversSrgb)
+    const uncertain = a.sd > MAX_AXIS_SD
     perAxis[axis] = {
       ...a,
       units: Math.round(toUnits(a.threshold)),
-      limitUnits: TYPICAL_UPPER_LIMIT[axis],
-      raised: a.beyondGamut || a.threshold > TYPICAL_UPPER_LIMIT[axis] * 1e-4,
-      score: axisScore(a.threshold, axis, a.maxDistance),
+      maxUnits: Math.round(toUnits(a.maxDistance)),
+      referenceUnits: PROVISIONAL_REFERENCE[axis],
+      testable,
+      uncertain,
+      aboveReference: testable && !uncertain && (a.beyondGamut || a.threshold > PROVISIONAL_REFERENCE[axis] * 1e-4),
     }
   }
   const tested = Object.values(perAxis)
-  const score = tested.length ? Math.min(...tested.map((a) => a.score)) : 0
-  const raised = (axis) => perAxis[axis]?.raised
-  const rg = raised('protan') || raised('deutan')
+  const above = (axis) => perAxis[axis]?.aboveReference
+  const rg = above('protan') || above('deutan')
   const allBeyond = tested.length === COLOR_AXES.length && tested.every((a) => a.beyondGamut)
+  const catchFailed = catchTotal > 0 && catchCorrect < Math.min(CATCH_MIN_CORRECT, catchTotal)
+  const reliable = !catchFailed && !allBeyond
 
   let pattern = 'none'
-  if (allBeyond) pattern = 'unreliable'
-  else if (rg && raised('tritan')) pattern = 'generalised'
+  if (!reliable) pattern = 'unreliable'
+  else if (rg && above('tritan')) pattern = 'generalised'
   else if (rg) pattern = 'red_green'
-  else if (raised('tritan')) pattern = 'tritan'
+  else if (above('tritan')) pattern = 'tritan'
 
   let leadingAxis = null
   if (pattern === 'red_green' && perAxis.protan && perAxis.deutan) {
@@ -180,7 +196,37 @@ export function summarizeColorThresholds(axes) {
     else if (ratio < 1 / 1.3) leadingAxis = 'deutan'
   }
 
-  return { perAxis, score, pattern, leadingAxis }
+  return {
+    perAxis,
+    pattern,
+    leadingAxis,
+    reliable,
+    reliability: {
+      catch_correct: catchCorrect,
+      catch_total: catchTotal,
+      catch_min_correct: catchTotal > 0 ? Math.min(CATCH_MIN_CORRECT, catchTotal) : null,
+      catch_failed: catchFailed,
+      nothing_seen_on_any_axis: allBeyond,
+      max_axis_sd: MAX_AXIS_SD,
+    },
+  }
+}
+
+/**
+ * Stable identifier for "this screen in this browser", so colour results are only ever
+ * compared with results from the same display. Not a person identifier.
+ */
+export function displayId(state, screenInfo = typeof screen !== 'undefined' ? screen : {}, dpr = typeof window !== 'undefined' ? window.devicePixelRatio : 1) {
+  const parts = [
+    state.platform, state.browser, screenInfo.width, screenInfo.height, Math.round((dpr || 1) * 100),
+    state.colorGamut, state.hdr ? 'hdr' : 'sdr', state.colorDepth,
+  ].join('|')
+  let h = 2166136261
+  for (let i = 0; i < parts.length; i++) {
+    h ^= parts.charCodeAt(i)
+    h = Math.imul(h, 16777619)
+  }
+  return (h >>> 0).toString(16).padStart(8, '0')
 }
 
 const mq = (query) => typeof window !== 'undefined' && !!window.matchMedia?.(query).matches
@@ -197,14 +243,23 @@ export function detectDisplayState() {
         : /Windows/.test(ua)
           ? 'windows'
           : 'other'
+  const browser = /Edg\//.test(ua) ? 'edge' : /Firefox\//.test(ua) ? 'firefox' : /Chrome\//.test(ua) ? 'chrome' : /Safari\//.test(ua) ? 'safari' : 'other'
   const hour = new Date().getHours()
+  // Reported by the browser (CSS media queries), not measured: the browser's description of the display.
+  const gamutQuerySupported = typeof window !== 'undefined' && window.matchMedia?.('(color-gamut: srgb)').media !== 'not all'
+  const colorGamut = !gamutQuerySupported
+    ? 'not_reported'
+    : mq('(color-gamut: rec2020)') ? 'rec2020' : mq('(color-gamut: p3)') ? 'p3' : mq('(color-gamut: srgb)') ? 'srgb' : 'below_srgb'
   return {
     platform,
+    browser,
     forcedColors: mq('(forced-colors: active)'),
     invertedColors: mq('(inverted-colors: inverted)'),
     monochrome: mq('(monochrome)'),
     highContrast: mq('(prefers-contrast: more)'),
-    wideGamut: mq('(color-gamut: p3)'),
+    colorGamut,
+    wideGamut: colorGamut === 'p3' || colorGamut === 'rec2020',
+    coversSrgb: colorGamut !== 'below_srgb',
     hdr: mq('(dynamic-range: high)'),
     colorDepth: typeof screen !== 'undefined' ? screen.colorDepth : null,
     localHour: hour,

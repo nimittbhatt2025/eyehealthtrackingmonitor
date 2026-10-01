@@ -20,7 +20,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from app.utils.change_detection import metric_for
+from app.utils.change_detection import NOT_TRACKED_TESTS, metric_for
 
 MIN_SESSIONS = 6
 MIN_SPAN_DAYS = 28
@@ -35,7 +35,6 @@ TEST_LABELS = {
     'peripheral_awareness': 'Side Vision Game',
     'side_vision': 'Side Vision Test',
     'dry_eye': 'Dry Eye Check',
-    'red_reflex': 'Eye Glow',
     'accommodative_lag': 'Near Blur Tolerance',
     'ocular_ergonomics': 'Posture & Lighting',
     'eye_tracking': 'Eye Tracking',
@@ -159,7 +158,8 @@ def build_per_test_trends(tests: Sequence[Any], with_forecast: bool = True) -> L
     """
     by_type: Dict[str, List[Any]] = defaultdict(list)
     for t in tests:
-        by_type[t.test_type].append(t)
+        if t.test_type not in NOT_TRACKED_TESTS:
+            by_type[t.test_type].append(t)
 
     out = []
     for test_type, rows in by_type.items():

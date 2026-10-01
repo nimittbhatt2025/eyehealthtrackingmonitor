@@ -4,30 +4,24 @@ import { visionTestAPI } from '../services/api'
 import { toast } from 'react-hot-toast'
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, LineChart, Line, Legend, RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis } from 'recharts'
 import SamdDisclaimer from '../components/SamdDisclaimer'
+import { DISPLAY_INDEX_LABEL } from '../utils/displayIndex'
 
 function DryEyeTestDetails({ testData, comparisonTests, navigate }) {
   const details = testData.test_details || {}
   const testDate = testData.created_at || testData.test_date
 
-  const riskBadge = (level) => {
-    const map = {
-      low: { label: 'Low signs', className: 'badge-success' },
-      moderate: { label: 'Mild signs', className: 'badge-warning' },
-      elevated: { label: 'Higher signs', className: 'badge-danger' },
-    }
-    return map[level] || map.moderate
-  }
-
   const comparisonData = comparisonTests
-    .filter((t) => t.test_type === 'dry_eye')
+    .filter((t) => t.test_type === 'dry_eye' && t.test_details?.osdi_score != null)
     .slice(0, 5)
     .reverse()
     .map((t) => ({
       date: new Date(t.created_at || t.test_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-      score: t.score,
+      osdi: t.test_details.osdi_score,
     }))
 
-  const badge = riskBadge(details.risk_level)
+  const natural = details.blink_interval
+  const blurReport = details.blur_report_time ?? details.tear_breakup_proxy
+  const photoTaken = details.photo_taken ?? details.metrics != null
 
   return (
     <div className="space-y-8">
@@ -51,58 +45,47 @@ function DryEyeTestDetails({ testData, comparisonTests, navigate }) {
           </p>
         </div>
         <div className="text-center">
-          <div className="text-5xl font-bold text-gray-900">{testData.score}</div>
-          <div className="text-sm text-gray-500">Combined score</div>
-          <span className={`inline-flex mt-2 ${badge.className}`}>{badge.label}</span>
+          <div className="text-5xl font-bold text-gray-900">{details.osdi_score ?? '—'}</div>
+          <div className="text-sm text-gray-500">OSDI (0–100, lower is better)</div>
+          {details.symptom_severity_label && (
+            <div className="text-xs text-gray-500 mt-1">{details.symptom_severity_label}</div>
+          )}
         </div>
       </div>
 
       <SamdDisclaimer testType="dry_eye" />
 
-      {details.risk_message && (
-        <div className="card p-6 bg-accent-50 border border-accent-100">
-          <p className="text-accent-900">{details.risk_message}</p>
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="card p-6 text-center">
-          <h3 className="font-semibold text-gray-900 mb-2">Symptoms (OSDI-lite)</h3>
-          <div className="text-4xl font-bold text-accent-700">{details.symptom_score ?? '—'}</div>
+          <h3 className="font-semibold text-gray-900 mb-2">Blinking while reading</h3>
+          <div className="text-4xl font-bold text-accent-700">{natural?.blinkRatePerMin ?? '—'}</div>
           <p className="text-sm text-gray-500 mt-1">
-            {details.symptom_severity_label || 'Symptom health score'}
-            {details.osdi_score != null && ` · OSDI ${details.osdi_score}/100`}
+            blinks/min
+            {natural?.medianInterBlinkSec != null && ` · ${natural.medianInterBlinkSec} s between blinks`}
           </p>
         </div>
         <div className="card p-6 text-center">
-          <h3 className="font-semibold text-gray-900 mb-2">Photo analysis</h3>
-          <div className="text-4xl font-bold text-accent-700">{details.cv_score ?? '—'}</div>
-          <p className="text-sm text-gray-500 mt-1">Redness & tear film surface</p>
+          <h3 className="font-semibold text-gray-900 mb-2">Blur-report time</h3>
+          <div className="text-4xl font-bold text-accent-700">
+            {blurReport?.medianSeconds != null ? `${blurReport.medianSeconds}s` : '—'}
+          </div>
+          <p className="text-sm text-gray-500 mt-1">until you reported blur (not a tear break-up time)</p>
+        </div>
+        <div className="card p-6 text-center">
+          <h3 className="font-semibold text-gray-900 mb-2">Redness index</h3>
+          <div className="text-4xl font-bold text-accent-700">
+            {photoTaken ? details.metrics?.avg_sclera_redness ?? '—' : '—'}
+          </div>
+          <p className="text-sm text-gray-500 mt-1">
+            {photoTaken ? 'Experimental image index, not a redness grade' : 'No photo taken'}
+          </p>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {details.left_eye && (
-          <div className="card p-6">
-            <h3 className="font-semibold text-gray-900 mb-3">Left eye</h3>
-            <div className="text-3xl font-bold text-accent-700 mb-3">{details.left_eye.health_score}</div>
-            <dl className="space-y-1.5 text-sm">
-              <div className="flex justify-between"><dt className="text-gray-500">Redness</dt><dd>{details.left_eye.sclera_redness}%</dd></div>
-              <div className="flex justify-between"><dt className="text-gray-500">Tear film</dt><dd>{details.left_eye.tear_film_quality}%</dd></div>
-            </dl>
-          </div>
-        )}
-        {details.right_eye && (
-          <div className="card p-6">
-            <h3 className="font-semibold text-gray-900 mb-3">Right eye</h3>
-            <div className="text-3xl font-bold text-accent-700 mb-3">{details.right_eye.health_score}</div>
-            <dl className="space-y-1.5 text-sm">
-              <div className="flex justify-between"><dt className="text-gray-500">Redness</dt><dd>{details.right_eye.sclera_redness}%</dd></div>
-              <div className="flex justify-between"><dt className="text-gray-500">Tear film</dt><dd>{details.right_eye.tear_film_quality}%</dd></div>
-            </dl>
-          </div>
-        )}
-      </div>
+      <p className="text-xs text-gray-500">
+        Each measure is reported on its own; there is no combined dry-eye score, and blur-report time has no
+        cut-off.
+      </p>
 
       {details.symptom_responses?.length > 0 && (
         <div className="card p-6">
@@ -131,14 +114,15 @@ function DryEyeTestDetails({ testData, comparisonTests, navigate }) {
 
       {comparisonData.length > 1 && (
         <div className="card p-8">
-          <h2 className="text-2xl font-serif font-bold text-gray-900 mb-6">Progress Over Time</h2>
+          <h2 className="text-2xl font-serif font-bold text-gray-900 mb-1">OSDI over time</h2>
+          <p className="text-xs text-gray-500 mb-6">OSDI symptom score, 0–100 (lower is fewer symptoms)</p>
           <ResponsiveContainer width="100%" height={300}>
             <LineChart data={comparisonData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
               <XAxis dataKey="date" stroke="#6b7280" style={{ fontSize: '12px' }} />
               <YAxis stroke="#6b7280" style={{ fontSize: '12px' }} domain={[0, 100]} />
               <Tooltip />
-              <Line type="monotone" dataKey="score" stroke="#7dcab9" strokeWidth={2} name="Combined score" dot={{ fill: '#7dcab9', r: 5 }} />
+              <Line type="monotone" dataKey="osdi" stroke="#7dcab9" strokeWidth={2} name="OSDI" dot={{ fill: '#7dcab9', r: 5 }} />
             </LineChart>
           </ResponsiveContainer>
         </div>
@@ -269,50 +253,6 @@ function TestDetails() {
     { metric: 'Focus', value: testData.correct_answers / testData.total_questions * 100, fullMark: 100 }
   ]
 
-  const getScoreColor = (score) => {
-    if (score >= 90) return 'text-green-600 bg-green-50 border-green-200'
-    if (score >= 75) return 'text-blue-600 bg-blue-50 border-blue-200'
-    if (score >= 60) return 'text-yellow-600 bg-yellow-50 border-yellow-200'
-    return 'text-red-600 bg-red-50 border-red-200'
-  }
-
-  // Text label so the score isn't judged by color alone
-  const getScoreLabel = (score) => {
-    if (score >= 90) return 'Excellent'
-    if (score >= 75) return 'Good'
-    if (score >= 60) return 'Fair'
-    return 'Needs attention'
-  }
-
-  const getPerformanceInsight = () => {
-    if (testData.score >= 90) return { 
-      icon: '✓', 
-      title: 'Excellent Performance', 
-      message: 'Your vision is performing exceptionally well!',
-      color: 'green'
-    }
-    if (testData.score >= 75) return { 
-      icon: '✓', 
-      title: 'Good Performance', 
-      message: 'Your vision is within normal range.',
-      color: 'blue'
-    }
-    if (testData.score >= 60) return { 
-      icon: '!', 
-      title: 'Fair Performance', 
-      message: 'Consider scheduling an eye exam if this persists.',
-      color: 'yellow'
-    }
-    return { 
-      icon: '!', 
-      title: 'Needs Attention', 
-      message: 'We recommend consulting with an eye care professional.',
-      color: 'red'
-    }
-  }
-
-  const insight = getPerformanceInsight()
-
   return (
     <div className="space-y-8">
       {/* Header */}
@@ -339,23 +279,18 @@ function TestDetails() {
             })}
           </p>
         </div>
-        <div className={`${getScoreColor(testData.score)} px-8 py-4 rounded-2xl border-2 text-center`}>
-          <div className="text-5xl font-bold leading-none">{testData.score}</div>
-          <div className="text-sm font-semibold mt-1">{getScoreLabel(testData.score)}</div>
+        <div className="text-gray-700 bg-gray-50 border-gray-200 px-6 py-3 rounded-2xl border text-center">
+          <div className="text-3xl font-semibold leading-none">{testData.score != null ? Math.round(testData.score) : '—'}</div>
+          <div className="text-xs mt-1 max-w-[12rem]">{testData.score != null ? DISPLAY_INDEX_LABEL : 'No display index for this test'}</div>
         </div>
       </div>
 
       <SamdDisclaimer testType={testData.test_type} />
 
-      {/* Performance Insight */}
-      <div className={`bg-${insight.color}-50 border-2 border-${insight.color}-200 rounded-2xl p-6`}>
-        <div className="flex items-start space-x-4">
-          <div className="text-4xl">{insight.icon}</div>
-          <div className="flex-1">
-            <h3 className={`text-xl font-semibold text-${insight.color}-900 mb-1`}>{insight.title}</h3>
-            <p className={`text-${insight.color}-700`}>{insight.message}</p>
-          </div>
-        </div>
+      <div className="bg-gray-50 border border-gray-200 rounded-2xl p-6 text-sm text-gray-700">
+        The 0–100 number is a display index chosen by the developer, not a clinical measure, and it is not
+        interpreted here. The test&apos;s own measurement (for example logMAR, Δ logCS or cm) is on its result page
+        and in your trends and reports.
       </div>
 
       {/* Summary Stats Grid */}

@@ -11,9 +11,6 @@ function Settings() {
   const [loading, setLoading] = useState(false)
   const [pushStatus, setPushStatus] = useState({ configured: false, subscriptions: 0 })
   const [activeTab, setActiveTab] = useState('notifications')
-  const [showDeleteModal, setShowDeleteModal] = useState(false)
-  const [deleteConfirmText, setDeleteConfirmText] = useState('')
-  
   const [settings, setSettings] = useState({
     // Notifications
     emailNotifications: true,
@@ -29,12 +26,6 @@ function Settings() {
     units: 'metric',
     language: 'en',
     dateFormat: 'MM/DD/YYYY',
-    
-    // Privacy
-    shareAnonymousData: false,
-    publicProfile: false,
-    dataRetention: '1year',
-    
     // Test Settings
     testDifficulty: 'standard',
     autoSaveTests: true,
@@ -159,25 +150,6 @@ function Settings() {
       }
     } catch (error) {
       toast.error(error.response?.data?.error || 'Failed to send test notification')
-    }
-  }
-
-  const handleDeleteAccount = async () => {
-    if (deleteConfirmText !== 'DELETE') {
-      toast.error('Please type DELETE to confirm')
-      return
-    }
-
-    try {
-      toast.success('Account deleted successfully')
-      setShowDeleteModal(false)
-      setTimeout(() => {
-        localStorage.clear()
-        window.location.href = '/'
-      }, 2000)
-    } catch (error) {
-      console.error('Failed to delete account:', error)
-      toast.error('Failed to delete account')
     }
   }
 
@@ -353,65 +325,48 @@ function Settings() {
         {activeTab === 'privacy' && (
           <div className="space-y-6">
             <h2 className="section-title mb-6">Privacy & Data</h2>
-            
-            {[
-              { key: 'shareAnonymousData', label: 'Share Anonymous Data', desc: 'Help improve EyeVio by sharing anonymized usage data' },
-              { key: 'publicProfile', label: 'Public Profile', desc: 'Allow others to see your achievements and progress' },
-            ].map((item) => (
-              <div key={item.key} className="flex items-center justify-between p-4 bg-gray-50 rounded-xl">
-                <div>
-                  <div className="font-semibold text-gray-900">{item.label}</div>
-                  <div className="text-sm text-gray-600 mt-1">{item.desc}</div>
-                </div>
-                <button
-                  onClick={() => handleToggle(item.key)}
-                  role="switch"
-                  aria-checked={settings[item.key]}
-                  aria-label={`${item.label}: ${settings[item.key] ? 'on' : 'off'}`}
-                  className={`relative inline-flex h-7 w-14 flex-shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-accent-400 focus:ring-offset-2 ${
-                    settings[item.key] ? 'bg-accent-600' : 'bg-gray-400'
-                  }`}
-                >
-                  <span
-                    className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
-                      settings[item.key] ? 'translate-x-8' : 'translate-x-1'
-                    }`}
-                  />
-                </button>
-              </div>
-            ))}
 
-            {/* Data Retention */}
-            <div>
-              <label className="block text-sm font-medium text-gray-600 mb-3">Data Retention</label>
-              <select
-                value={settings.dataRetention}
-                onChange={(e) => handleChange('dataRetention', e.target.value)}
-                className="input"
-              >
-                <option value="6months">6 Months</option>
-                <option value="1year">1 Year</option>
-                <option value="2years">2 Years</option>
-                <option value="forever">Forever</option>
-              </select>
+            <div className="p-4 bg-gray-50 rounded-xl">
+              <div className="font-semibold text-gray-900">Photos</div>
+              <div className="text-sm text-gray-600 mt-1">
+                Photos remain on-device by default; an upload occurs only after an explicit storage choice or disclosed fallback.
+                The choice is on each photo page (&ldquo;Save photos to my account&rdquo;).
+              </div>
             </div>
 
-            {/* Data Export */}
+            <div className="p-4 bg-gray-50 rounded-xl">
+              <div className="font-semibold text-gray-900">Data retention</div>
+              <div className="text-sm text-gray-600 mt-1">
+                Test results, saved photos and the measurements derived from them are kept until your account is deleted.
+                Automatic retention periods are not available in this build.
+              </div>
+            </div>
+
             <div className="pt-6 border-t border-gray-200">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Data Management</h3>
               <div className="space-y-3">
                 <button
-                  onClick={exportData}
+                  onClick={() => navigate('/profile')}
                   className="btn-primary w-full"
                 >
-                  Export My Data
+                  Export test and lifestyle data (Profile → Export Data)
                 </button>
                 <button
-                  onClick={() => { setDeleteConfirmText(''); setShowDeleteModal(true) }}
-                  className="w-full inline-flex items-center justify-center px-6 py-3 min-h-[44px] bg-red-600 text-white rounded-full font-semibold hover:bg-red-700 transition-colors focus:outline-none focus:ring-2 focus:ring-red-400"
+                  onClick={exportData}
+                  className="btn-secondary w-full"
+                >
+                  Download my settings (JSON)
+                </button>
+                <button
+                  disabled
+                  aria-describedby="delete-unavailable"
+                  className="w-full inline-flex items-center justify-center px-6 py-3 min-h-[44px] bg-gray-200 text-gray-500 rounded-full font-semibold cursor-not-allowed"
                 >
                   Delete Account
                 </button>
+                <p id="delete-unavailable" className="text-sm text-gray-600">
+                  Account deletion is not available in this build yet. Individual eye photos can be deleted from their timeline.
+                </p>
               </div>
             </div>
           </div>
@@ -513,57 +468,6 @@ function Settings() {
           </button>
         </div>
       </div>
-
-      {/* Delete Account Confirmation Modal */}
-      {showDeleteModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="delete-modal-title"
-          onClick={() => setShowDeleteModal(false)}
-        >
-          <div
-            className="bg-white rounded-2xl shadow-elevated max-w-md w-full p-6 sm:p-8"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 id="delete-modal-title" className="text-2xl font-serif font-bold text-gray-900 mb-3">
-              Delete your account?
-            </h2>
-            <p className="text-gray-700 mb-4">
-              This permanently deletes your account and all of your vision test
-              history. This <span className="font-semibold">cannot be undone</span>.
-            </p>
-            <label htmlFor="delete-confirm" className="block text-base font-medium text-gray-800 mb-2">
-              Type <span className="font-bold">DELETE</span> to confirm
-            </label>
-            <input
-              id="delete-confirm"
-              type="text"
-              value={deleteConfirmText}
-              onChange={(e) => setDeleteConfirmText(e.target.value)}
-              autoComplete="off"
-              className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl mb-6 focus:outline-none focus:ring-2 focus:ring-red-400 focus:border-transparent"
-              placeholder="DELETE"
-            />
-            <div className="flex flex-col sm:flex-row gap-3 sm:justify-end">
-              <button
-                onClick={() => setShowDeleteModal(false)}
-                className="px-6 py-3 min-h-[44px] bg-gray-100 text-gray-800 rounded-xl font-semibold hover:bg-gray-200 transition-colors focus:outline-none focus:ring-2 focus:ring-gray-400"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleDeleteAccount}
-                disabled={deleteConfirmText !== 'DELETE'}
-                className="px-6 py-3 min-h-[44px] bg-red-600 text-white rounded-xl font-semibold hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-red-400"
-              >
-                Delete Account
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

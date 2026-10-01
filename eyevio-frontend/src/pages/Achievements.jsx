@@ -87,8 +87,9 @@ function Achievements() {
   const calculateAchievements = (tests, logs) => {
     const testCount = tests.length
     const logCount = logs.length
-    const avgScore = tests.length > 0 ? tests.reduce((sum, t) => sum + t.score, 0) / tests.length : 0
-    const perfectScores = tests.filter(t => t.score >= 95).length
+    const indexed = tests.filter((t) => t.score != null)
+    const avgScore = indexed.length > 0 ? indexed.reduce((sum, t) => sum + t.score, 0) / indexed.length : 0
+    const perfectScores = indexed.filter(t => t.score >= 95).length
 
     return [
       // Test Milestones

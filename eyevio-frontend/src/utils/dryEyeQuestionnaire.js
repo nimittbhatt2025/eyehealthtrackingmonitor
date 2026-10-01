@@ -1,10 +1,19 @@
 /**
- * Ocular Surface Disease Index (OSDI), full 12 items.
- * Schiffman et al., Arch Ophthalmol 2000. © Allergan — commercial use needs a licence.
+ * Ocular Surface Disease Index (OSDI), full 12 items. Schiffman et al., Arch Ophthalmol 2000.
+ *
+ * OSDI is a copyrighted instrument (rights holder: AbbVie, formerly Allergan). Permission and
+ * applicable conditions of use must be confirmed with the rights holder or authorized licensing
+ * organization before public deployment or distribution. Until confirmed, the questionnaire
+ * should be used only within the scope expressly permitted by its license. The confirmation must
+ * cover electronic reproduction, automated scoring, translation, modification (including the
+ * N/A handling below), and inclusion in a publicly available app.
  *
  * Frequency 0–4; items 6–12 allow "N/A". Score = (sum × 25) / answered (0–100).
  * Bands: 0–12 normal, 13–22 mild, 23–32 moderate, 33–100 severe.
  */
+
+export const OSDI_LICENCE_NOTE =
+  'The Ocular Surface Disease Index (OSDI) is a copyrighted instrument (AbbVie, formerly Allergan). EyeVio uses it for research and education only, within the scope permitted by its license; terms for public distribution have not yet been confirmed.'
 
 export const FREQUENCY_OPTIONS = [
   { value: 4, label: 'All of the time' },
@@ -125,42 +134,21 @@ export function calculateOsdi(answers) {
 }
 
 /**
- * Symptomatic tear break-up proxy: median seconds from a forced blink to the
- * first reported blur (or an involuntary blink). Clinical fluorescein TBUT
- * < 10 s is commonly treated as unstable; this proxy is not equivalent.
+ * Blur-report time: median seconds from a forced blink to the moment the user
+ * reports blur (or blinks involuntarily, or reaches the cap). It is a subjective
+ * report, not a tear break-up time, and has no validated cut-offs, so no bands
+ * or score are derived from it. Raw seconds and how each hold ended are kept.
  */
-export function summarizeTearBreakup(trials) {
+export function summarizeBlurReportTime(trials) {
   const secs = trials.map((t) => t.seconds).filter(Number.isFinite).sort((a, b) => a - b)
   if (secs.length === 0) return null
   const median = secs[Math.floor(secs.length / 2)]
-  let band = 'typical'
-  if (median < 5) band = 'short'
-  else if (median < 10) band = 'borderline'
-  const score = Math.round(Math.max(0, Math.min(100, (median / 15) * 100)))
-  return { medianSeconds: Math.round(median * 10) / 10, band, score, trials }
-}
-
-/**
- * Weights: photo 0.4, symptoms 0.4, tear break-up proxy 0.2 (when measured).
- * Without the break-up proxy, photo 0.5 / symptoms 0.5.
- */
-export function combineDryEyeScores(cvScore, symptomHealthScore, tearScore = null) {
-  const parts = [
-    [cvScore, tearScore != null ? 0.4 : 0.5],
-    [symptomHealthScore, tearScore != null ? 0.4 : 0.5],
-  ]
-  if (tearScore != null) parts.push([tearScore, 0.2])
-  const combined = Math.round(parts.reduce((acc, [v, w]) => acc + v * w, 0))
-
-  let riskLevel = 'low'
-  let riskMessage = 'No significant dryness signs detected in symptoms, photo, or tear break-up check.'
-  if (combined < 50 || (cvScore < 55 && symptomHealthScore < 55)) {
-    riskLevel = 'elevated'
-    riskMessage = 'Your symptoms and home checks suggest possible dry eye signs. Consider an eye exam.'
-  } else if (combined < 70 || cvScore < 65 || symptomHealthScore < 65 || (tearScore != null && tearScore < 34)) {
-    riskLevel = 'moderate'
-    riskMessage = 'Some dryness signs noted. Artificial tears and screen breaks may help.'
+  const endedBy = (reason) => trials.filter((t) => t.endedBy === reason).length
+  return {
+    medianSeconds: Math.round(median * 10) / 10,
+    trials,
+    endedByBlur: endedBy('blur'),
+    endedByBlink: endedBy('blink'),
+    endedByCap: endedBy('cap'),
   }
-
-  return { combinedScore: combined, riskLevel, riskMessage }
 }

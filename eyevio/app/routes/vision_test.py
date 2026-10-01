@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from app.models import db, VisionTest, User, Alert
 from app.utils.analytics import detect_vision_decline
+from app.utils.change_detection import RETIRED_INDEX_TESTS
 from app.services import analysis_jobs
 from app.services.alert_delivery import create_and_deliver_alert
 from app.services.analysis_jobs import wants_async
@@ -16,6 +17,10 @@ from datetime import datetime, timedelta
 vision_test_bp = Blueprint('vision_test', __name__)
 
 DECLINE_ALERT_COOLDOWN_DAYS = 14
+# The earlier side-vision exercise used a disease name as its type id; it was never that test.
+LEGACY_TEST_TYPES = {'glaucoma_neural': 'side_vision_legacy'}
+# The display index is withheld when a session is unreliable or cannot be measured.
+OPTIONAL_INDEX_TESTS = frozenset({'accommodative_lag', 'near_point_convergence'})
 
 
 def _recent_decline_alert(user_id, test_type, method_version):
@@ -38,16 +43,16 @@ def submit_vision_test():
     """
     Submit a new vision test result
     
-    Supported home-check types (not diagnostic / not FDA-cleared SaMD):
+    Supported home-check types (research prototype; not clinically validated, not a medical device):
     - visual_acuity: Letter-chart home check (not a refraction)
     - color_vision: Confusion-axis colour thresholds, u'v' x 1e-4 (not occupational certification)
     - contrast_sensitivity: qCSF grating curve at 1 m (not a clinical CSF / Pelli-Robson exam)
     - side_vision: Relative four-quadrant asymmetry with perimetry-style reliability
-      indices (not a visual-field test; does not screen for glaucoma).
-      glaucoma_neural is the legacy type for the earlier version.
+      indices (not a visual-field test; cannot detect or rule out eye disease).
+      side_vision_legacy is the earlier exercise; its old type id is mapped on submit.
     - cataract_glare: Contrast loss under glare, Δ logCS (not cataract diagnosis / not LOCS)
     - red_reflex: Phone rear camera + torch, inter-ocular glow symmetry only (not a clinical red-reflex exam)
-    - accommodative_lag: Near-work comfort estimate
+    - accommodative_lag: Near Blur Tolerance, blur detection threshold in arcmin (v2; not accommodation)
     - peripheral_awareness: Side-awareness game (not a visual-field test)
     - ocular_ergonomics: Posture and lighting comfort
     - dry_eye: Symptom + photo home check (not dry-eye disease diagnosis)
@@ -58,10 +63,13 @@ def submit_vision_test():
         
         print(f"Received test submission: {data}")  # Debug log
         
-        # Validate required fields
-        if not data.get('test_type') or data.get('score') is None:
-            print(f"Missing required fields. test_type: {data.get('test_type')}, score: {data.get('score')}")
-            return jsonify({'error': 'test_type and score are required'}), 400
+        if not data.get('test_type'):
+            return jsonify({'error': 'test_type is required'}), 400
+        data['test_type'] = LEGACY_TEST_TYPES.get(data['test_type'], data['test_type'])
+        retired_index = data['test_type'] in RETIRED_INDEX_TESTS
+        if data.get('score') is None and not retired_index and data['test_type'] not in OPTIONAL_INDEX_TESTS:
+            return jsonify({'error': 'score is required for this test type'}), 400
+        score = None if retired_index else data['score']
         
         method_version = (data.get('test_details') or {}).get('method_version')
         quality_flag, quality_note = None, None
@@ -75,12 +83,12 @@ def submit_vision_test():
             data_quality_note=quality_note,
             user_id=user_id,
             test_type=data['test_type'],
-            score=data['score'],
+            score=score,
             response_time_ms=data.get('response_time_ms'),
             errors=data.get('errors', 0),
             test_details=data.get('test_details'),
-            left_eye_score=data.get('left_eye_score'),
-            right_eye_score=data.get('right_eye_score'),
+            left_eye_score=None if retired_index else data.get('left_eye_score'),
+            right_eye_score=None if retired_index else data.get('right_eye_score'),
             lighting_condition=data.get('lighting_condition'),
             device_type=data.get('device_type'),
             notes=data.get('notes')
@@ -110,9 +118,12 @@ def submit_vision_test():
                 create_and_deliver_alert(
                     user_id=user_id,
                     alert_type='vision_decline',
-                    severity='high',
-                    title='Confirmed change in a vision check',
-                    message=decline_info['message'],
+                    severity='medium',
+                    title='Repeated change in a home vision check',
+                    message=(
+                        f'{decline_info["message"]} This is a home check, not a diagnosis. '
+                        'If you have noticed a change in your vision, see an eye care professional.'
+                    ),
                     alert_data={
                         'test_type': data['test_type'],
                         'method_version': method_version,
@@ -212,6 +223,8 @@ def _analyze_dry_eye(data, image_data, frame_wb):
         )
     if results.get('error'):
         return results, 400
+    from app.ai_models.experimental_models import withhold_model_outputs
+    results = withhold_model_outputs(results)
     if upload_summary(data):
         results['upload'] = upload_summary(data)
 
@@ -285,14 +298,17 @@ def get_vision_test(test_id):
         
         if not test:
             return jsonify({'error': 'Test not found'}), 404
-        
+
+        from app.ai_models.experimental_models import withhold_model_outputs
+        details = withhold_model_outputs(test.test_details) if test.test_type == 'dry_eye' else test.test_details
+
         return jsonify({
             'id': test.id,
             'test_type': test.test_type,
             'score': test.score,
             'response_time_ms': test.response_time_ms,
             'errors': test.errors,
-            'test_details': test.test_details,
+            'test_details': details,
             'left_eye_score': test.left_eye_score,
             'right_eye_score': test.right_eye_score,
             'lighting_condition': test.lighting_condition,
@@ -334,16 +350,16 @@ def get_vision_stats():
                 'last_test_date': None
             }), 200
         
-        scores = [t.score for t in tests]
-        
+        scores = [t.score for t in tests if t.score is not None]
+
         import numpy as np
-        
+
         stats = {
             'total_tests': len(tests),
-            'average_score': float(np.mean(scores)),
-            'min_score': float(np.min(scores)),
-            'max_score': float(np.max(scores)),
-            'std_dev': float(np.std(scores)),
+            'average_score': float(np.mean(scores)) if scores else None,
+            'min_score': float(np.min(scores)) if scores else None,
+            'max_score': float(np.max(scores)) if scores else None,
+            'std_dev': float(np.std(scores)) if scores else None,
             'latest_score': tests[-1].score if tests else None,
             'first_test_date': tests[0].created_at.isoformat() if tests else None,
             'last_test_date': tests[-1].created_at.isoformat() if tests else None

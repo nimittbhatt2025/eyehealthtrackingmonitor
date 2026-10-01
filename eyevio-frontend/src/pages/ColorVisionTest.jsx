@@ -9,7 +9,12 @@ import {
   AXIS_LABELS,
   WHITE_UV,
   DOT_LUMINANCES,
-  TYPICAL_UPPER_LIMIT,
+  PROVISIONAL_REFERENCE,
+  GAMUT_ADEQUACY_FACTOR,
+  CATCH_TRIALS,
+  CATCH_LUMINANCE_GAIN,
+  MAX_AXIS_SD,
+  displayId,
   NIGHT_MODE_HELP,
   axisPlan,
   displacedUv,
@@ -55,13 +60,18 @@ function shuffle(list) {
   return a
 }
 
+/** Catch trials define the ring by brightness instead of colour, so anyone attending can see them. */
 function buildSchedule(perAxis) {
   const firsts = shuffle(COLOR_AXES).map((axis) => ({ axis, easy: true }))
-  const rest = shuffle(COLOR_AXES.flatMap((axis) => Array.from({ length: perAxis - 1 }, () => ({ axis, easy: false }))))
+  const catches = Array.from({ length: CATCH_TRIALS }, (_, i) => ({ axis: COLOR_AXES[i % COLOR_AXES.length], catch: true }))
+  const rest = shuffle([
+    ...COLOR_AXES.flatMap((axis) => Array.from({ length: perAxis - 1 }, () => ({ axis, easy: false }))),
+    ...catches,
+  ])
   return [...firsts, ...rest]
 }
 
-function paintColorStimulus(canvas, { dir, distance, gapAngle }) {
+function paintColorStimulus(canvas, { dir, distance, gapAngle, isCatch = false }) {
   const size = canvas.width
   const ctx = canvas.getContext('2d')
   ctx.fillStyle = PANEL_BG
@@ -75,7 +85,10 @@ function paintColorStimulus(canvas, { dir, distance, gapAngle }) {
     const radius = minDist * (0.3 + Math.random() * 0.17)
     if (Math.hypot(x, y) > R - radius) continue
     const Y = DOT_LUMINANCES[Math.floor(Math.random() * DOT_LUMINANCES.length)]
-    const [r, g, b] = dotRgb(inLandoltC(x, y, R, gapAngle) ? target : WHITE_UV, Y)
+    const inRing = inLandoltC(x, y, R, gapAngle)
+    const [r, g, b] = isCatch
+      ? dotRgb(WHITE_UV, inRing ? Y * CATCH_LUMINANCE_GAIN : Y)
+      : dotRgb(inRing ? target : WHITE_UV, Y)
     ctx.fillStyle = `rgb(${r},${g},${b})`
     ctx.beginPath()
     ctx.arc(p.x, p.y, radius, 0, 2 * Math.PI)
@@ -100,31 +113,36 @@ function AxisBars({ summary }) {
       {COLOR_AXES.map((axis) => {
         const a = summary.perAxis[axis]
         if (!a) return null
-        const maxUnits = Math.round(toUnits(a.maxDistance))
+        const maxUnits = a.maxUnits
         const pos = (u) => `${Math.max(0, Math.min(100, (100 * Math.log10(u / floor)) / Math.log10(maxUnits / floor)))}%`
         return (
           <div key={axis}>
             <div className="flex justify-between text-xs mb-1">
               <span className="font-semibold text-gray-800">{AXIS_LABELS[axis]}</span>
-              <span className={a.raised ? 'text-red-700 font-semibold' : 'text-gray-700'}>
+              <span className={a.aboveReference ? 'text-amber-800 font-semibold' : 'text-gray-700'}>
                 {a.beyondGamut ? `≥ ${maxUnits}` : a.units} × 10⁻⁴ u′v′
               </span>
             </div>
             <div className="relative h-3 rounded-full bg-gray-100">
-              <div className="absolute inset-y-0 left-0 rounded-full bg-green-100" style={{ width: pos(a.limitUnits) }} />
-              <div className="absolute -top-1 h-5 w-0.5 bg-gray-400" style={{ left: pos(a.limitUnits) }} title="Typical upper limit" />
+              <div className="absolute -top-1 h-5 w-0.5 bg-gray-400" style={{ left: pos(a.referenceUnits) }} title="Provisional research reference value" />
               <div
-                className={`absolute top-0 h-3 w-3 -ml-1.5 rounded-full ${a.raised ? 'bg-red-600' : 'bg-accent-600'}`}
+                className={`absolute top-0 h-3 w-3 -ml-1.5 rounded-full ${a.aboveReference ? 'bg-amber-600' : 'bg-accent-600'}`}
                 style={{ left: pos(a.beyondGamut ? maxUnits : a.units) }}
               />
             </div>
             <div className="relative flex justify-between text-[10px] text-gray-400 mt-0.5">
               <span>finer</span>
-              <span className="absolute -translate-x-1/2 whitespace-nowrap" style={{ left: pos(a.limitUnits) }}>
-                typical ≤ {a.limitUnits}
+              <span className="absolute -translate-x-1/2 whitespace-nowrap" style={{ left: pos(a.referenceUnits) }}>
+                provisional ref. {a.referenceUnits}
               </span>
               <span>screen max {maxUnits}</span>
             </div>
+            {!a.testable && (
+              <p className="text-[11px] text-amber-800 mt-1">This screen can&apos;t show a large enough colour difference along this axis to test it, so it is not interpreted.</p>
+            )}
+            {a.testable && a.uncertain && (
+              <p className="text-[11px] text-amber-800 mt-1">The estimate for this axis is too uncertain (± {a.sd.toFixed(2)} log units) to interpret.</p>
+            )}
           </div>
         )
       })}
@@ -134,9 +152,11 @@ function AxisBars({ summary }) {
 
 function describePattern(summary) {
   const p = summary.perAxis
+  const notInterpreted = COLOR_AXES.filter((axis) => p[axis] && (!p[axis].testable || p[axis].uncertain))
+  const caveat = notInterpreted.length ? ` (${notInterpreted.map((axis) => axis).join(' and ')} not interpreted — see above)` : ''
   switch (summary.pattern) {
     case 'none':
-      return 'Your colour discrimination was within the typical range on all three axes on this screen.'
+      return `Compared with provisional research reference values, no axis was above the reference on this screen${caveat}. These values are not EyeVio norms and this is not a colour vision diagnosis.`
     case 'red_green': {
       const lead =
         summary.leadingAxis === 'protan'
@@ -144,14 +164,16 @@ function describePattern(summary) {
           : summary.leadingAxis === 'deutan'
             ? ' The deutan (green) threshold was the higher of the two.'
             : ''
-      return `Thresholds were raised along the red–green confusion lines.${lead} This pattern is typical of an inherited red–green colour vision difference. A home screen can’t confirm the type — an eye-care professional can, with an anomaloscope or plate test.`
+      return `Compared with provisional research reference values, thresholds were higher along the red–green confusion lines.${lead} This pattern is typical of an inherited red–green colour vision difference. A home screen can’t confirm the type — an eye-care professional can, with an anomaloscope or plate test.`
     }
     case 'tritan':
-      return `The blue–yellow (tritan) threshold was raised (${p.tritan.beyondGamut ? 'beyond the screen range' : `${p.tritan.units}`}; typical ≤ ${p.tritan.limitUnits}). Inherited tritan differences are rare; this can come with age-related lens yellowing, some medicines, or eye conditions. Mention it at your next eye exam, especially if it is new.`
+      return `Compared with provisional research reference values, the blue–yellow (tritan) threshold was higher (${p.tritan.beyondGamut ? 'beyond the screen range' : `${p.tritan.units}`}; provisional reference ${p.tritan.referenceUnits}). Inherited tritan differences are rare; this can come with age-related lens yellowing, some medicines, or eye conditions. Mention it at your next eye exam, especially if it is new.`
     case 'generalised':
-      return 'Thresholds were raised on red–green and blue–yellow axes. The most common cause is the screen: Night Shift, True Tone, blue-light filters, low brightness or tinted glasses. Check them and retake. If it persists, see an eye-care professional.'
+      return 'Compared with provisional research reference values, thresholds were higher on red–green and blue–yellow axes. The most common cause is the screen: Night Shift, True Tone, blue-light filters, low brightness or tinted glasses. Check them and retake. If it persists, see an eye-care professional.'
     case 'unreliable':
-      return 'Even the strongest colour differences this screen can show were not picked out on any axis. This usually means a display setting (greyscale, colour filter) or a misunderstanding of the task — check and retake.'
+      return summary.reliability?.catch_failed
+        ? `Some check rings that anyone can see by brightness were missed (${summary.reliability.catch_correct} of ${summary.reliability.catch_total} right), so this run is unreliable and is not interpreted. Retake when you can give it your full attention.`
+        : 'Even the strongest colour differences this screen can show were not picked out on any axis. This usually means a display setting (greyscale, colour filter) or a misunderstanding of the task — check and retake.'
     default:
       return ''
   }
@@ -186,7 +208,7 @@ function ColorVisionTest() {
   const eyePlan = eyeMode === 'both' ? ['both'] : ['right', 'left']
   const currentEye = eyePlan[eyeIndex]
   const perAxis = TRIALS_PER_AXIS[eyeMode]
-  const totalTrials = PRACTICE_AXES.length + perAxis * COLOR_AXES.length
+  const totalTrials = PRACTICE_AXES.length + perAxis * COLOR_AXES.length + CATCH_TRIALS
   const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
   const stimCss = typeof window !== 'undefined' ? Math.min(440, window.innerWidth - 48) : 440
   const stimDevice = Math.round(stimCss * dpr)
@@ -203,13 +225,14 @@ function ColorVisionTest() {
         const item = practice ? { axis: PRACTICE_AXES[idx], easy: true } : scheduleRef.current[idx - PRACTICE_AXES.length]
         const { dir, max } = plan[item.axis]
         const easiest = distanceToLogSens(max)
-        const logSens = item.easy ? easiest : Math.max(easiest, questsRef.current[item.axis].next())
+        const logSens = item.easy || item.catch ? easiest : Math.max(easiest, questsRef.current[item.axis].next())
         setTrial({
           axis: item.axis,
           practice,
+          isCatch: !!item.catch,
           dir,
           logSens,
-          distance: logSensToDistance(logSens),
+          distance: item.catch ? 0 : logSensToDistance(logSens),
           gap: GAPS[Math.floor(Math.random() * GAPS.length)],
         })
         setStep('stim')
@@ -222,7 +245,7 @@ function ColorVisionTest() {
 
   useEffect(() => {
     if (step !== 'stim' || !trial || !canvasRef.current) return
-    paintColorStimulus(canvasRef.current, { dir: trial.dir, distance: trial.distance, gapAngle: trial.gap.angle })
+    paintColorStimulus(canvasRef.current, { dir: trial.dir, distance: trial.distance, gapAngle: trial.gap.angle, isCatch: trial.isCatch })
   }, [step, trial])
 
   const startEye = () => {
@@ -251,30 +274,36 @@ function ColorVisionTest() {
         ]
       })
     )
-    return { ...summarizeColorThresholds(axes), responses: responsesRef.current }
+    const catches = responsesRef.current.filter((r) => r.catch)
+    return {
+      ...summarizeColorThresholds(axes, {
+        catchCorrect: catches.filter((r) => r.correct).length,
+        catchTotal: catches.length,
+        displayCoversSrgb: displayState.coversSrgb,
+      }),
+      responses: responsesRef.current,
+    }
   }
 
   const finishAll = async (results) => {
     setPhase('results')
-    const eyes = Object.values(results)
-    const score = Math.round(eyes.reduce((a, r) => a + r.score, 0) / eyes.length)
     try {
       await visionTestAPI.submit({
         test_type: 'color_vision',
-        score,
-        right_eye_score: results.right?.score ?? null,
-        left_eye_score: results.left?.score ?? null,
+        score: null,
         test_details: {
           method: 'confusion_axis_threshold_4afc',
           method_version: 2,
           eye_mode: eyeMode,
+          display_index: null,
           eyes: Object.fromEntries(
             Object.entries(results).map(([eye, r]) => [
               eye,
               {
-                score: r.score,
                 pattern: r.pattern,
                 leading_axis: r.leadingAxis,
+                reliable: r.reliable,
+                reliability: r.reliability,
                 axes: Object.fromEntries(
                   Object.entries(r.perAxis).map(([axis, a]) => [
                     axis,
@@ -282,11 +311,13 @@ function ColorVisionTest() {
                       threshold_units: a.units,
                       threshold_uv: Number(a.threshold.toFixed(5)),
                       sd_log: a.sd,
+                      uncertain: a.uncertain,
                       beyond_screen_gamut: a.beyondGamut,
-                      screen_max_units: Math.round(toUnits(a.maxDistance)),
-                      typical_upper_limit_units: a.limitUnits,
-                      raised: a.raised,
-                      score: a.score,
+                      screen_max_units: a.maxUnits,
+                      screen_max_uv: Number(a.maxDistance.toFixed(5)),
+                      gamut_adequate: a.testable,
+                      provisional_reference_units: a.referenceUnits,
+                      above_provisional_reference: a.aboveReference,
                     },
                   ])
                 ),
@@ -296,15 +327,26 @@ function ColorVisionTest() {
             ])
           ),
           trials_per_axis: perAxis,
+          catch_trials: CATCH_TRIALS,
           threshold_units: '1e-4 CIE 1976 u\'v\'',
           white_point_uv: WHITE_UV,
           dot_luminances_rel: DOT_LUMINANCES,
           axis_direction_sign: Object.fromEntries(COLOR_AXES.map((axis) => [axis, plan[axis].sign])),
+          screen_gamut: {
+            reported_color_gamut: displayState.colorGamut,
+            reported_hdr: displayState.hdr,
+            color_depth: displayState.colorDepth,
+            max_displacement_units: Object.fromEntries(COLOR_AXES.map((axis) => [axis, Math.round(toUnits(plan[axis].max))])),
+            max_displacement_basis: 'Computed for sRGB primaries (D65) at the dot luminances; the physical display gamut is not measured.',
+            adequacy_rule: `axis testable when max displacement ≥ ${GAMUT_ADEQUACY_FACTOR} × provisional reference and the browser does not report a gamut below sRGB`,
+          },
+          display_id: displayId(displayState),
+          comparison_scope: 'same_display_only',
           display_state: displayState,
           display_checklist_confirmed: checklistDone,
           luminance_model: 'sRGB (D65) assumed, stochastic rounding per dot, luminance noise',
           scoring_note:
-            'Per-axis score is 100 at or below an approximate young-adult upper limit (protan/deutan 100, tritan 150 × 10⁻⁴ u′v′) and falls in log units to 0 at the screen gamut limit; test score is the lowest axis (mean of eyes). "Can\'t see it" answers are recorded as a random direction (unseen: true), keeping the 4AFC guess rate. Not a diagnostic colour vision test.',
+            `Thresholds are compared with provisional research reference values (protan/deutan 100, tritan 150 × 10⁻⁴ u′v′, published young-adult Trivector limits; not EyeVio norms). No 0–100 score. Reliability: ≥ 3 of ${CATCH_TRIALS} brightness-defined catch trials correct; an axis with posterior SD > ${MAX_AXIS_SD} log units is uncertain. "Can't see it" answers are recorded as a random direction (unseen: true), keeping the 4AFC guess rate. Results are compared only with results from the same display. Not a diagnostic colour vision test.`,
           timestamp: new Date().toISOString(),
         },
       })
@@ -329,11 +371,12 @@ function ColorVisionTest() {
       return
     }
 
-    questsRef.current[trial.axis].update(trial.logSens, correct)
+    if (!trial.isCatch) questsRef.current[trial.axis].update(trial.logSens, correct)
     responsesRef.current = [
       ...responsesRef.current,
       {
-        axis: trial.axis,
+        axis: trial.isCatch ? null : trial.axis,
+        ...(trial.isCatch && { catch: true }),
         units: Math.round(toUnits(trial.distance)),
         gap: trial.gap.id,
         answer: gapId,
@@ -434,6 +477,28 @@ function ColorVisionTest() {
               {displayState.evening && (
                 <p>It&apos;s evening where you are — night modes often switch on automatically at this time.</p>
               )}
+            </div>
+
+            <div className="border border-gray-200 rounded-xl p-4 mb-5 text-sm text-gray-700 space-y-1">
+              <p className="font-semibold text-gray-900">What your browser reports about this screen</p>
+              <p>
+                Colour range: <strong>{{ srgb: 'standard (sRGB)', p3: 'wide (Display P3)', rec2020: 'very wide (Rec. 2020)', below_srgb: 'narrower than sRGB', not_reported: 'not reported' }[displayState.colorGamut]}</strong>
+                {' · '}HDR: <strong>{displayState.hdr ? 'on' : 'off'}</strong>
+                {displayState.colorDepth ? <> · {displayState.colorDepth}-bit colour</> : null}
+                {displayState.highContrast ? <> · increased contrast requested</> : null}
+              </p>
+              {displayState.colorGamut === 'below_srgb' && (
+                <p className="text-amber-800">This screen reports less than the standard colour range, so no axis can be tested reliably here.</p>
+              )}
+              {(displayState.hdr || displayState.wideGamut) && (
+                <p className="text-amber-800">Wide-gamut and HDR screens are colour-managed by the browser, which can still shift colours slightly. Results are only compared with earlier results on this same screen.</p>
+              )}
+              {displayState.highContrast && (
+                <p className="text-amber-800">An increased-contrast setting is on; it can change on-screen colours.</p>
+              )}
+              <p className="text-xs text-gray-500">
+                These values come from the browser and are not measured. Night modes, True Tone and brightness are invisible to web pages, so they are covered only by the checklist below.
+              </p>
             </div>
 
             <div className="space-y-2 mb-6">
@@ -610,7 +675,7 @@ function ColorVisionTest() {
             {eyePlan.map((eye) => {
               const r = eyeResults[eye]
               if (!r) return null
-              const tone = r.pattern === 'none' ? 'border-green-300 bg-green-50' : r.pattern === 'unreliable' ? 'border-gray-300 bg-gray-50' : 'border-amber-300 bg-amber-50'
+              const tone = r.pattern === 'none' || r.pattern === 'unreliable' ? 'border-gray-300 bg-gray-50' : 'border-amber-300 bg-amber-50'
               return (
                 <div key={eye} className={`rounded-2xl border p-5 mb-6 ${tone}`}>
                   <h3 className="font-bold text-gray-900 mb-4">{eyeLabel(eye)}</h3>
@@ -625,12 +690,14 @@ function ColorVisionTest() {
             <div className="text-xs text-gray-500 mb-6 space-y-1">
               <p>
                 Thresholds are distances in the CIE 1976 u′v′ colour space (× 10⁻⁴), the units of the Cambridge Colour
-                Test. Typical limits (protan and deutan ≤ {TYPICAL_UPPER_LIMIT.protan}, tritan ≤ {TYPICAL_UPPER_LIMIT.tritan})
-                are approximate young-adult values; tritan thresholds rise with age.
+                Test. They are compared with provisional research reference values (protan and deutan {PROVISIONAL_REFERENCE.protan},
+                tritan {PROVISIONAL_REFERENCE.tritan}) from published young-adult studies. EyeVio has no reference data of its
+                own yet, so these are not norms; tritan thresholds also rise with age.
               </p>
               <p>
-                Colours are computed for a standard sRGB screen. Uncalibrated screens, night modes and brightness shift
-                the result, so compare results taken on the same screen.
+                Colours are computed for a standard sRGB screen; the screen&apos;s real colours are not measured. Night
+                modes, brightness and the screen itself shift the result, so EyeVio only compares a colour result with
+                earlier results from this same screen and browser, never across devices.
               </p>
             </div>
 

@@ -1,0 +1,669 @@
+{
+  "model": "cataract_resnet18_binary",
+  "version": "resnet_v2_calibrated",
+  "trained_at": "2026-09-29T01:51:36+00:00",
+  "labels": [
+    "cataract",
+    "normal"
+  ],
+  "positive_label": "cataract",
+  "temperature": 1.6237069368362427,
+  "temperature_fitted_unconstrained": 1.6237069368362427,
+  "thresholds": {
+    "rule_out": 0.2,
+    "rule_in": 0.8,
+    "balanced": 0.5
+  },
+  "threshold_info": {
+    "fitted": {
+      "rule_out": 0.6004055142402649,
+      "rule_in": 0.6004055142402649
+    },
+    "source": "prior (calibration pool near-separable; fitted thresholds degenerate)"
+  },
+  "ood": {
+    "threshold": 1.1089695692062378,
+    "layers": [
+      "layer1",
+      "layer2",
+      "layer3",
+      "layer4"
+    ],
+    "method": "class-conditional Mahalanobis (tied Ledoit-Wolf covariance) on pooled layer1-4 features; score = max_layer(d / val_p99_layer)"
+  },
+  "data": {
+    "source": "Zenodo 10.5281/zenodo.18250149 \u2014 external eye photographs, binary labels",
+    "train": 834,
+    "val": 160,
+    "test": 166,
+    "dedup": {
+      "val": {
+        "before": 178,
+        "after": 160,
+        "removed_near_duplicate_of_reference": 18,
+        "removed_internal_duplicate": 0
+      },
+      "test": {
+        "before": 180,
+        "after": 166,
+        "removed_near_duplicate_of_reference": 14,
+        "removed_internal_duplicate": 0
+      }
+    },
+    "dhash_max_distance": 6
+  },
+  "recipe": {
+    "backbone": "resnet18 (ImageNet)",
+    "trainable": "layer4 + fc",
+    "epochs": 12,
+    "lr": 0.0001,
+    "batch_size": 16,
+    "seed": 0,
+    "selection": "lowest validation NLL"
+  },
+  "headline": {
+    "test_clean_auc": 0.9998499399759904,
+    "test_webcam_sim_auc": 0.991296518607443,
+    "auc_eye_masked_out": 0.9983493397358943
+  },
+  "history": [
+    {
+      "epoch": 1,
+      "train_ce": 0.11909464031136294,
+      "val_nll": 0.05708174780011177,
+      "val_acc": 0.96875
+    },
+    {
+      "epoch": 2,
+      "train_ce": 0.05300860835811039,
+      "val_nll": 0.007556258700788021,
+      "val_acc": 1.0
+    },
+    {
+      "epoch": 3,
+      "train_ce": 0.043419509884908045,
+      "val_nll": 0.020192451775074005,
+      "val_acc": 0.99375
+    },
+    {
+      "epoch": 4,
+      "train_ce": 0.048311363100113316,
+      "val_nll": 0.005163162015378475,
+      "val_acc": 1.0
+    },
+    {
+      "epoch": 5,
+      "train_ce": 0.031461956705317366,
+      "val_nll": 0.011133494786918163,
+      "val_acc": 1.0
+    },
+    {
+      "epoch": 6,
+      "train_ce": 0.020452183740199137,
+      "val_nll": 0.005131122190505266,
+      "val_acc": 1.0
+    },
+    {
+      "epoch": 7,
+      "train_ce": 0.0174805343297519,
+      "val_nll": 0.007881848141551018,
+      "val_acc": 0.99375
+    },
+    {
+      "epoch": 8,
+      "train_ce": 0.009834598547754456,
+      "val_nll": 0.00030601423350162804,
+      "val_acc": 1.0
+    },
+    {
+      "epoch": 9,
+      "train_ce": 0.01397526171923854,
+      "val_nll": 0.0004000173357781023,
+      "val_acc": 1.0
+    },
+    {
+      "epoch": 10,
+      "train_ce": 0.0518893618024975,
+      "val_nll": 0.0017679972806945443,
+      "val_acc": 1.0
+    },
+    {
+      "epoch": 11,
+      "train_ce": 0.016309887133382387,
+      "val_nll": 0.0016910607228055596,
+      "val_acc": 1.0
+    },
+    {
+      "epoch": 12,
+      "train_ce": 0.03748537291442122,
+      "val_nll": 0.0005272665293887258,
+      "val_acc": 1.0
+    }
+  ],
+  "calibration_pool": {
+    "n": 320,
+    "n_pos": 126,
+    "n_neg": 194,
+    "auc": 0.9939862542955327,
+    "brier": 0.029338558031645052,
+    "ece": 0.03638758113083895,
+    "nll": 0.0980241358636742,
+    "at_rule_out": {
+      "threshold": 0.2,
+      "sensitivity": 0.9761904761904762,
+      "specificity": 0.9329896907216495,
+      "ppv": 0.9044117647058824,
+      "npv": 0.9836956521739131,
+      "accuracy": 0.95,
+      "confusion": {
+        "tp": 123,
+        "fn": 3,
+        "tn": 181,
+        "fp": 13
+      }
+    },
+    "at_rule_in": {
+      "threshold": 0.8,
+      "sensitivity": 0.8888888888888888,
+      "specificity": 1.0,
+      "ppv": 1.0,
+      "npv": 0.9326923076923077,
+      "accuracy": 0.95625,
+      "confusion": {
+        "tp": 112,
+        "fn": 14,
+        "tn": 194,
+        "fp": 0
+      }
+    },
+    "at_balanced": {
+      "threshold": 0.5,
+      "sensitivity": 0.9603174603174603,
+      "specificity": 0.9639175257731959,
+      "ppv": 0.9453125,
+      "npv": 0.9739583333333334,
+      "accuracy": 0.9625,
+      "confusion": {
+        "tp": 121,
+        "fn": 5,
+        "tn": 187,
+        "fp": 7
+      }
+    }
+  },
+  "test_clean_uncalibrated": {
+    "n": 166,
+    "n_pos": 68,
+    "n_neg": 98,
+    "auc": 0.9998499399759904,
+    "brier": 0.006011568392951307,
+    "ece": 0.006045264614325527,
+    "nll": 0.04141300544003645,
+    "at_rule_out": {
+      "threshold": 0.2,
+      "sensitivity": 1.0,
+      "specificity": 0.9897959183673469,
+      "ppv": 0.9855072463768116,
+      "npv": 1.0,
+      "accuracy": 0.9939759036144579,
+      "confusion": {
+        "tp": 68,
+        "fn": 0,
+        "tn": 97,
+        "fp": 1
+      }
+    },
+    "at_rule_in": {
+      "threshold": 0.8,
+      "sensitivity": 1.0,
+      "specificity": 0.9897959183673469,
+      "ppv": 0.9855072463768116,
+      "npv": 1.0,
+      "accuracy": 0.9939759036144579,
+      "confusion": {
+        "tp": 68,
+        "fn": 0,
+        "tn": 97,
+        "fp": 1
+      }
+    },
+    "at_balanced": {
+      "threshold": 0.5,
+      "sensitivity": 1.0,
+      "specificity": 0.9897959183673469,
+      "ppv": 0.9855072463768116,
+      "npv": 1.0,
+      "accuracy": 0.9939759036144579,
+      "confusion": {
+        "tp": 68,
+        "fn": 0,
+        "tn": 97,
+        "fp": 1
+      }
+    }
+  },
+  "test_clean": {
+    "n": 166,
+    "n_pos": 68,
+    "n_neg": 98,
+    "auc": 0.9998499399759904,
+    "brier": 0.005870620150843355,
+    "ece": 0.00599330113303049,
+    "nll": 0.027292992218274192,
+    "at_rule_out": {
+      "threshold": 0.2,
+      "sensitivity": 1.0,
+      "specificity": 0.9897959183673469,
+      "ppv": 0.9855072463768116,
+      "npv": 1.0,
+      "accuracy": 0.9939759036144579,
+      "confusion": {
+        "tp": 68,
+        "fn": 0,
+        "tn": 97,
+        "fp": 1
+      }
+    },
+    "at_rule_in": {
+      "threshold": 0.8,
+      "sensitivity": 1.0,
+      "specificity": 0.9897959183673469,
+      "ppv": 0.9855072463768116,
+      "npv": 1.0,
+      "accuracy": 0.9939759036144579,
+      "confusion": {
+        "tp": 68,
+        "fn": 0,
+        "tn": 97,
+        "fp": 1
+      }
+    },
+    "at_balanced": {
+      "threshold": 0.5,
+      "sensitivity": 1.0,
+      "specificity": 0.9897959183673469,
+      "ppv": 0.9855072463768116,
+      "npv": 1.0,
+      "accuracy": 0.9939759036144579,
+      "confusion": {
+        "tp": 68,
+        "fn": 0,
+        "tn": 97,
+        "fp": 1
+      }
+    }
+  },
+  "test_clean_ci95": {
+    "auc": [
+      0.9990996398559423,
+      1.0
+    ],
+    "brier": [
+      1.1230992380878649e-05,
+      0.017584945087907346
+    ],
+    "ece": [
+      0.0013124175084662255,
+      0.01843143867168165
+    ],
+    "at_rule_out.sensitivity": [
+      1.0,
+      1.0
+    ],
+    "at_rule_out.specificity": [
+      0.9651060191518468,
+      1.0
+    ],
+    "at_rule_out.ppv": [
+      0.949978813559322,
+      1.0
+    ],
+    "at_rule_out.npv": [
+      1.0,
+      1.0
+    ],
+    "at_rule_in.sensitivity": [
+      1.0,
+      1.0
+    ],
+    "at_rule_in.specificity": [
+      0.9651060191518468,
+      1.0
+    ],
+    "at_rule_in.ppv": [
+      0.949978813559322,
+      1.0
+    ],
+    "at_rule_in.npv": [
+      1.0,
+      1.0
+    ],
+    "at_balanced.sensitivity": [
+      1.0,
+      1.0
+    ],
+    "at_balanced.specificity": [
+      0.9651060191518468,
+      1.0
+    ],
+    "at_balanced.ppv": [
+      0.949978813559322,
+      1.0
+    ],
+    "at_balanced.npv": [
+      1.0,
+      1.0
+    ]
+  },
+  "test_webcam_sim_uncalibrated": {
+    "n": 166,
+    "n_pos": 68,
+    "n_neg": 98,
+    "auc": 0.991296518607443,
+    "brier": 0.039505253253116004,
+    "ece": 0.053522619002229384,
+    "nll": 0.12800182615458697,
+    "at_rule_out": {
+      "threshold": 0.2,
+      "sensitivity": 1.0,
+      "specificity": 0.8877551020408163,
+      "ppv": 0.8607594936708861,
+      "npv": 1.0,
+      "accuracy": 0.9337349397590361,
+      "confusion": {
+        "tp": 68,
+        "fn": 0,
+        "tn": 87,
+        "fp": 11
+      }
+    },
+    "at_rule_in": {
+      "threshold": 0.8,
+      "sensitivity": 0.9117647058823529,
+      "specificity": 0.9591836734693877,
+      "ppv": 0.9393939393939394,
+      "npv": 0.94,
+      "accuracy": 0.9397590361445783,
+      "confusion": {
+        "tp": 62,
+        "fn": 6,
+        "tn": 94,
+        "fp": 4
+      }
+    },
+    "at_balanced": {
+      "threshold": 0.5,
+      "sensitivity": 0.9558823529411765,
+      "specificity": 0.9285714285714286,
+      "ppv": 0.9027777777777778,
+      "npv": 0.9680851063829787,
+      "accuracy": 0.9397590361445783,
+      "confusion": {
+        "tp": 65,
+        "fn": 3,
+        "tn": 91,
+        "fp": 7
+      }
+    }
+  },
+  "test_webcam_sim": {
+    "n": 166,
+    "n_pos": 68,
+    "n_neg": 98,
+    "auc": 0.991296518607443,
+    "brier": 0.038601782051786104,
+    "ece": 0.048399769633739105,
+    "nll": 0.1262809051573484,
+    "at_rule_out": {
+      "threshold": 0.2,
+      "sensitivity": 1.0,
+      "specificity": 0.8571428571428571,
+      "ppv": 0.8292682926829268,
+      "npv": 1.0,
+      "accuracy": 0.9156626506024096,
+      "confusion": {
+        "tp": 68,
+        "fn": 0,
+        "tn": 84,
+        "fp": 14
+      }
+    },
+    "at_rule_in": {
+      "threshold": 0.8,
+      "sensitivity": 0.8676470588235294,
+      "specificity": 0.9795918367346939,
+      "ppv": 0.9672131147540983,
+      "npv": 0.9142857142857143,
+      "accuracy": 0.9337349397590361,
+      "confusion": {
+        "tp": 59,
+        "fn": 9,
+        "tn": 96,
+        "fp": 2
+      }
+    },
+    "at_balanced": {
+      "threshold": 0.5,
+      "sensitivity": 0.9558823529411765,
+      "specificity": 0.9285714285714286,
+      "ppv": 0.9027777777777778,
+      "npv": 0.9680851063829787,
+      "accuracy": 0.9397590361445783,
+      "confusion": {
+        "tp": 65,
+        "fn": 3,
+        "tn": 91,
+        "fp": 7
+      }
+    }
+  },
+  "test_webcam_sim_ci95": {
+    "auc": [
+      0.9811116309433141,
+      0.9981725933787408
+    ],
+    "brier": [
+      0.02174253165730997,
+      0.05887011456676113
+    ],
+    "ece": [
+      0.039014044143708355,
+      0.08483916703030936
+    ],
+    "at_rule_out.sensitivity": [
+      1.0,
+      1.0
+    ],
+    "at_rule_out.specificity": [
+      0.78125,
+      0.9204629837983798
+    ],
+    "at_rule_out.ppv": [
+      0.7435714285714285,
+      0.9036268361115695
+    ],
+    "at_rule_out.npv": [
+      1.0,
+      1.0
+    ],
+    "at_rule_in.sensitivity": [
+      0.7818039772727273,
+      0.9444444444444444
+    ],
+    "at_rule_in.specificity": [
+      0.9479029605263157,
+      1.0
+    ],
+    "at_rule_in.ppv": [
+      0.9154869897350203,
+      1.0
+    ],
+    "at_rule_in.npv": [
+      0.8571428571428571,
+      0.963302752293578
+    ],
+    "at_balanced.sensitivity": [
+      0.8985507246376812,
+      1.0
+    ],
+    "at_balanced.specificity": [
+      0.875,
+      0.9772727272727273
+    ],
+    "at_balanced.ppv": [
+      0.8333333333333334,
+      0.9682539682539683
+    ],
+    "at_balanced.npv": [
+      0.9285714285714286,
+      1.0
+    ]
+  },
+  "shortcut_probe": {
+    "eye_region": "centred disc, radius 0.35 \u00d7 image side",
+    "auc_eye_masked_out": 0.9983493397358943,
+    "auc_eye_only": 0.9995498199279712,
+    "auc_full": 0.9998499399759904,
+    "interpretation": "eye-masked AUC far above 0.5 means class is predictable from background/framing (source confound)"
+  },
+  "ood_eval": {
+    "method": "class-conditional Mahalanobis (tied Ledoit-Wolf covariance) on pooled layer1-4 features; score = max_layer(d / val_p99_layer)",
+    "threshold": 1.1089695692062378,
+    "layer_scales": {
+      "layer1": 12.051319122314453,
+      "layer2": 17.272483825683594,
+      "layer3": 23.57048225402832,
+      "layer4": 40.491214752197266
+    },
+    "val_flagged_fraction": 0.0125,
+    "val_webcam_sim_flagged_fraction": 0.75625,
+    "probe_sets": {
+      "uniform_noise": {
+        "n": 40,
+        "median_score": 18.695667266845703,
+        "flagged_fraction": 1.0
+      },
+      "heavy_blur_sigma12": {
+        "n": 40,
+        "median_score": 1.9613914489746094,
+        "flagged_fraction": 1.0
+      },
+      "underexposed_x0.12": {
+        "n": 40,
+        "median_score": 2.1407976150512695,
+        "flagged_fraction": 1.0
+      },
+      "flat_mean_colour": {
+        "n": 40,
+        "median_score": 2.5331482887268066,
+        "flagged_fraction": 1.0
+      },
+      "app_webcam_pupil_crops": {
+        "n": 4,
+        "median_score": 1.0716780424118042,
+        "flagged_fraction": 0.5,
+        "per_image": [
+          {
+            "file": "photo10_cataract_left.jpg",
+            "score": 0.976677417755127,
+            "calibrated_p": 0.23144719004631042
+          },
+          {
+            "file": "photo10_cataract_right.jpg",
+            "score": 0.9308091402053833,
+            "calibrated_p": 0.3816632330417633
+          },
+          {
+            "file": "photo12_cataract_left.jpg",
+            "score": 1.3461254835128784,
+            "calibrated_p": 0.04845540225505829
+          },
+          {
+            "file": "photo12_cataract_right.jpg",
+            "score": 1.1666786670684814,
+            "calibrated_p": 0.0047731720842421055
+          }
+        ]
+      },
+      "app_webcam_full_frames": {
+        "n": 7,
+        "median_score": 1.4219542741775513,
+        "flagged_fraction": 1.0,
+        "per_image": [
+          {
+            "file": "thumb10_cataract.jpg",
+            "score": 1.2918732166290283,
+            "calibrated_p": 0.4981318414211273
+          },
+          {
+            "file": "thumb11_dry_eye.jpg",
+            "score": 1.4219542741775513,
+            "calibrated_p": 0.8242529034614563
+          },
+          {
+            "file": "thumb12_cataract.jpg",
+            "score": 1.2462191581726074,
+            "calibrated_p": 0.1282234489917755
+          },
+          {
+            "file": "thumb13_dry_eye.jpg",
+            "score": 1.5739930868148804,
+            "calibrated_p": 0.8929840922355652
+          },
+          {
+            "file": "thumb4_dry_eye.jpg",
+            "score": 1.5496304035186768,
+            "calibrated_p": 0.6768274307250977
+          },
+          {
+            "file": "thumb6_dry_eye.jpg",
+            "score": 1.336667776107788,
+            "calibrated_p": 0.8730524182319641
+          },
+          {
+            "file": "thumb7_dry_eye.jpg",
+            "score": 1.6241471767425537,
+            "calibrated_p": 0.8205686807632446
+          }
+        ]
+      }
+    }
+  },
+  "gradcam_central_mass": {
+    "definition": "share of CAM energy inside centred disc radius 0.35",
+    "values": {
+      "cataract (test)": [
+        0.4875481426715851,
+        0.661994457244873,
+        0.6327806115150452,
+        0.560307502746582,
+        0.535700798034668,
+        0.6773109436035156
+      ],
+      "normal (test)": [
+        0.12982286512851715,
+        0.0,
+        0.018982775509357452,
+        0.019128689542412758,
+        0.00011699288006639108,
+        0.0
+      ],
+      "normal, eye masked": [
+        0.5811401605606079,
+        0.746208667755127,
+        0.5894604325294495,
+        0.5357749462127686,
+        0.9110727310180664,
+        0.6883587837219238
+      ],
+      "app webcam crop": [
+        0.10416928678750992,
+        0.06759420037269592,
+        0.0,
+        0.0
+      ]
+    }
+  },
+  "external_test_set": null,
+  "external_test_note": "No externally sourced labelled set is available; test is same-source after leakage removal, plus a webcam-simulated copy."
+}

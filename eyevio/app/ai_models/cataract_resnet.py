@@ -42,6 +42,7 @@ from app.ai_models.cnn_explain import (
     ood_score,
     overlay_data_url,
 )
+from app.ai_models.corn_gate import evaluate_corn_gate, feature_enabled, load_approval, sha256_file
 
 METHOD = 'resnet_v2_calibrated'
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -139,11 +140,12 @@ def _get_bundle() -> Optional[Dict[str, Any]]:
 
 _corn_bundle: Optional[Dict[str, Any]] = None
 _corn_attempted = False
+_corn_gate: Dict[str, Any] = {'enabled': False, 'failed': ['not_checked'], 'validation_failures': []}
 
 
 def _get_corn_bundle() -> Optional[Dict[str, Any]]:
-    """Ordinal CORN grader (train_cataract_corn.py). Absent until graded labels have been trained on."""
-    global _corn_bundle, _corn_attempted
+    """Ordinal CORN grader (train_cataract_corn.py); loads only if corn_gate passes."""
+    global _corn_bundle, _corn_attempted, _corn_gate
     with _lock:
         if _corn_bundle is not None or _corn_attempted:
             return _corn_bundle
@@ -153,9 +155,18 @@ def _get_corn_bundle() -> Optional[Dict[str, Any]]:
         meta_path = weights.with_name('cataract_corn_meta.json')
         ood_path = weights.with_name('cataract_corn_ood_stats.npz')
         if not (weights.is_file() and meta_path.is_file() and ood_path.is_file()):
+            _corn_gate = {'enabled': False, 'failed': ['artifacts_missing'], 'validation_failures': []}
             return None
         try:
             meta = json.loads(meta_path.read_text(encoding='utf-8'))
+        except ValueError:
+            _corn_gate = {'enabled': False, 'failed': ['meta_unreadable'], 'validation_failures': []}
+            return None
+        enabled = feature_enabled()
+        _corn_gate = evaluate_corn_gate(meta, load_approval(), sha256_file(weights) if enabled else None, enabled)
+        if not _corn_gate['enabled']:
+            return None
+        try:
             model = models.resnet18(weights=None)
             model.fc = nn.Linear(512, len(meta['levels']) - 1)
             model.load_state_dict(torch.load(str(weights), map_location='cpu'))
@@ -213,6 +224,7 @@ def model_status() -> Dict[str, Any]:
         'headline_metrics': meta.get('headline'),
         'model_card': MODEL_CARD,
         'ordinal_grader': bool(_get_corn_bundle()),
+        'ordinal_grader_gate': dict(_corn_gate),
     }
 
 

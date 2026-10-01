@@ -11,10 +11,10 @@ from app.ai_models.dry_eye_analysis import (
     check_photo_lighting_from_base64,
     decode_base64_image,
 )
+from app.ai_models.experimental_models import withhold_model_outputs
 from app.ai_models.on_device import OnDeviceValidationError, build_on_device_analysis, strip_images
 from app.models import EyePhoto, db
 from app.services import analysis_jobs
-from app.services.alert_delivery import create_and_deliver_alert
 from app.services.analysis_jobs import wants_async
 from app.utils.datetime_utils import utc_now
 from app.utils.image_upload import (
@@ -195,6 +195,7 @@ def _process_capture(user_id: int, data: dict, image_data, frame_wb) -> Tuple[di
         )
     if analysis.get('error'):
         return analysis, 400
+    analysis = withhold_model_outputs(analysis)
     store_image = bool(image_data) and data.get('store_image', True) is not False
     if upload_summary(data):
         analysis = {**analysis, 'upload': upload_summary(data)}
@@ -280,8 +281,9 @@ def _process_capture(user_id: int, data: dict, image_data, frame_wb) -> Tuple[di
         scores = dict(health_score=None, sclera_redness=None, tear_film_quality=None,
                       surface_irregularity=None, left_eye_score=None, right_eye_score=None)
     else:
+        score = analysis.get('score')
         scores = dict(
-            health_score=float(analysis.get('score', 0)),
+            health_score=float(score) if score is not None else None,
             sclera_redness=float(metrics.get('avg_sclera_redness') or 0),
             tear_film_quality=float(metrics.get('avg_tear_film_quality', 0)),
             surface_irregularity=float(metrics.get('avg_surface_irregularity', 0)),
@@ -301,7 +303,6 @@ def _process_capture(user_id: int, data: dict, image_data, frame_wb) -> Tuple[di
     db.session.flush()
 
     comparison = compare_to_historical(user_id, photo)
-    alert_created = None
 
     # Persist comparison snapshot on the photo for confirmation-retake logic.
     details = dict(photo.analysis_details or {})
@@ -309,45 +310,8 @@ def _process_capture(user_id: int, data: dict, image_data, frame_wb) -> Tuple[di
         details['comparison_snapshot'] = comparison_snapshot_from_result(comparison)
     photo.analysis_details = details
 
-    if comparison.get('deteriorated'):
-        severity = comparison.get('severity', 'medium')
-        alert_severity = 'critical' if severity in ('high', 'critical') else 'high'
-
-        doctor_months = int(data.get('doctor_visit_interval_months', 6))
-        alert = create_and_deliver_alert(
-            user_id=user_id,
-            alert_type='eye_health_deterioration',
-            severity=alert_severity,
-            title=f'{comparison.get("condition_label", "Eye health")} change detected',
-            message=comparison.get('message', 'Your eye photo metrics have worsened since last month.'),
-            alert_data={
-                'comparison': {
-                    k: v
-                    for k, v in comparison.items()
-                    if k
-                    not in (
-                        'baseline_thumbnail',
-                        'baseline_left_crop',
-                        'baseline_right_crop',
-                        'current_left_crop',
-                        'current_right_crop',
-                    )
-                },
-                'current_photo_id': photo.id,
-                'condition_type': condition_type,
-                'doctor_visit_interval_months': doctor_months,
-                'recommend_early_visit': comparison.get('recommend_doctor_visit', False),
-            },
-            is_actionable=True,
-            commit=False,
-        )
-        alert_created = {
-            'id': alert.id,
-            'severity': alert_severity,
-            'title': alert.title,
-            'message': alert.message,
-        }
-
+    # Photo comparisons rest on unvalidated 0–100 appearance indices, so they are shown on the
+    # page but never raise an alert.
     db.session.commit()
 
     return {
@@ -355,7 +319,7 @@ def _process_capture(user_id: int, data: dict, image_data, frame_wb) -> Tuple[di
         'photo': _serialize_photo(photo),
         'analysis': analysis,
         'comparison': comparison,
-        'alert': alert_created,
+        'alert': None,
         'lighting': lighting,
         'eyewear_warning': eyewear_warning,
     }, 201

@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from app.ai_models.eye_crop_alignment import compare_aligned_crops
+from app.ai_models.experimental_models import withhold_model_outputs
 from app.models import EyePhoto
 from app.utils.datetime_utils import serialize_utc_datetime, utc_now
 
@@ -76,7 +77,7 @@ CONDITION_LABELS = {
     'dry_eye': 'Dry eye',
     'cornea_scar': 'Cornea / surface changes',
     'glaucoma': 'Between-visit surface monitoring',
-    'cataract': 'Cataract screening',
+    'cataract': 'Lens photo timeline',
     'general': 'General eye health',
 }
 
@@ -99,9 +100,9 @@ CONDITION_SCOPE = {
         'surface_proxy_only': True,
     },
     'cataract': {
-        'tracks': ['Calibrated screening band (low / indeterminate / elevated, or cannot assess)', 'Aligned pupil-region appearance'],
+        'tracks': ['Aligned pupil-region appearance (side by side)'],
         'disclaimer': (
-            'Screening only — not a severity grade, not LOCS III and not a millimetre size measurement. '
+            'Photo comparison only — no cataract result, severity grade or size is produced. '
             'A dilated slit-lamp exam remains the clinical standard for cataract diagnosis.'
         ),
         'opacity_monitor': True,
@@ -250,7 +251,7 @@ def _asymmetry_from_photo(photo: EyePhoto) -> Dict[str, float]:
 
 def _screening_from_photo(photo: EyePhoto) -> Dict[str, Any]:
     """Calibrated screening result stored on a cataract photo; legacy opacity-score photos are unscored."""
-    details = _details(photo)
+    details = withhold_model_outputs(_details(photo)) or {}
     screening = details.get('screening')
     if isinstance(screening, dict) and screening.get('status'):
         return {
@@ -403,7 +404,8 @@ def compare_photos(
             cur_screen['likelihood'], base_screen['likelihood'], higher_is_worse=True,
         )
     screening_note = None
-    if condition == 'cataract' and (cur_screen['status'] != 'assessed' or base_screen['status'] != 'assessed'):
+    statuses = (cur_screen['status'], base_screen['status'])
+    if condition == 'cataract' and 'withheld' not in statuses and statuses != ('assessed', 'assessed'):
         screening_note = (
             'Model screening could not be compared because one of the two photos was not assessed '
             '(out of distribution, legacy score, or model unavailable). Only the visual side-by-side applies.'
@@ -799,7 +801,7 @@ def build_monthly_timeline(photos: List[EyePhoto]) -> List[Dict[str, Any]]:
         )
 
         screens = [_screening_from_photo(m) for m in models]
-        if any(sc['status'] for sc in screens):
+        if any(sc['status'] and sc['status'] != 'withheld' for sc in screens):
             assessed = [sc for sc in screens if sc['status'] == 'assessed']
             worst = max(assessed, key=lambda sc: sc['band_level']) if assessed else None
             legacy = sum(1 for sc in screens if sc['status'] == 'legacy_unscored')

@@ -104,7 +104,8 @@ class VisionTest(db.Model):
     test_type = db.Column(db.String(50), nullable=False)  # acuity, contrast, color
     
     # Test Results
-    score = db.Column(db.Float, nullable=False)  # Percentage or normalized score
+    # 0–100 display index; NULL for tests whose index was retired (see RETIRED_INDEX_TESTS).
+    score = db.Column(db.Float, nullable=True)
     response_time_ms = db.Column(db.Integer)  # Average response time in milliseconds
     errors = db.Column(db.Integer, default=0)  # Number of errors
     
@@ -407,6 +408,8 @@ class EyePhoto(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def to_dict(self, include_thumbnail=True):
+        from app.ai_models.experimental_models import withhold_model_outputs
+
         data = {
             'id': self.id,
             'condition_type': self.condition_type,
@@ -416,7 +419,7 @@ class EyePhoto(db.Model):
             'surface_irregularity': self.surface_irregularity,
             'left_eye_score': self.left_eye_score,
             'right_eye_score': self.right_eye_score,
-            'analysis_details': self.analysis_details,
+            'analysis_details': withhold_model_outputs(self.analysis_details),
             'vision_test_id': self.vision_test_id,
             'captured_at': serialize_utc_datetime(self.captured_at),
             'created_at': serialize_utc_datetime(self.created_at),

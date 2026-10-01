@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from datetime import datetime, timedelta
 from io import BytesIO
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from reportlab.lib.colors import HexColor, white
 
@@ -22,14 +22,14 @@ from app.models import (
     VisionTest,
     WebcamMetric,
 )
+from app.services.myopia_progression import classify_progression, progression_rate_d_per_year
+from app.utils.native_measures import native_summary
 
 INK = HexColor('#1c1917')
 MUTED = HexColor('#57534e')
 RULE = HexColor('#d6d3d1')
 TEAL = HexColor('#0f766e')
 TEAL_DARK = HexColor('#134e4a')
-AMBER = HexColor('#b45309')
-RED = HexColor('#b91c1c')
 CREAM = HexColor('#f5f0e8')
 
 TEST_LABELS = [
@@ -39,17 +39,36 @@ TEST_LABELS = [
     ('amsler_grid', 'Amsler (full + 5% contrast) / vernier'),
     ('near_point_convergence', 'Near point of convergence (camera-assisted)'),
     ('side_vision', 'Side-vision relative asymmetry (home check)'),
-    ('glaucoma_neural', 'Side-vision home check (earlier version)'),
+    ('side_vision_legacy', 'Side-vision home check (earlier version)'),
     ('cataract_glare', 'Glare / scatter'),
     ('dry_eye', 'Dry-eye home check'),
     ('peripheral_awareness', 'Peripheral awareness'),
 ]
 
 
-def _fmt_score(value: Optional[float]) -> str:
-    if value is None:
-        return '—'
-    return f'{float(value):.0f}'
+RETIRED_ALERT_TYPES = ('high_fatigue', 'lens_replacement', 'eye_health_deterioration')
+
+
+def _reportable(alert: Alert) -> bool:
+    """Alerts raised from display indices or research-only models never reach a clinician."""
+    if alert.alert_type in RETIRED_ALERT_TYPES:
+        return False
+    unit = (((alert.alert_data or {}).get('assessment') or {}).get('unit')) or ''
+    return not (unit.startswith('score') or unit.startswith('display index'))
+
+
+def _flag_text(alert: Alert):
+    """Myopia alerts are re-worded from their stored rate, so older stored wording is not shown."""
+    rate = (alert.alert_data or {}).get('rate_d_per_year')
+    if alert.alert_type != 'myopia_progression' or rate is None:
+        return alert.title, (alert.message or '')[:160]
+    name = (alert.title or '').split('—')[-1].strip()
+    title = f'Prescription change logged — {name}' if name else 'Prescription change logged'
+    return title, _first_sentence(classify_progression(rate)['summary'])
+
+
+def _first_sentence(text: str) -> str:
+    return text.split('. ')[0].rstrip('.') + '.'
 
 
 def _fmt_date(value) -> str:
@@ -110,9 +129,7 @@ def assemble_clinician_payload(user: User, days: int = 90) -> Dict[str, Any]:
         latest_by_type.append({
             'type': test.test_type,
             'label': label,
-            'score': test.score,
-            'od': test.right_eye_score,
-            'os': test.left_eye_score,
+            **native_summary(test.test_type, test.test_details),
             'date': test.created_at,
         })
 
@@ -136,10 +153,8 @@ def assemble_clinician_payload(user: User, days: int = 90) -> Dict[str, Any]:
         .order_by(WebcamMetric.created_at.desc())
         .all()
     )
-    latest_fatigue = metrics[0] if metrics else None
-    avg_fatigue = (
-        sum(m.fatigue_score for m in metrics) / len(metrics) if metrics else None
-    )
+    blink_rates = [m.blink_rate for m in metrics if m.blink_rate is not None]
+    avg_blink_rate = sum(blink_rates) / len(blink_rates) if blink_rates else None
 
     logs = (
         LifestyleLog.query.filter(
@@ -177,28 +192,8 @@ def assemble_clinician_payload(user: User, days: int = 90) -> Dict[str, Any]:
         flags.append({'severity': severity, 'title': title, 'detail': detail})
 
     for alert in alerts:
-        if alert.severity in ('high', 'critical', 'medium'):
-            add_flag(alert.severity, alert.title, (alert.message or '')[:160])
-
-    if tests_in_period and len(tests_in_period) >= 4:
-        recent = [t.score for t in tests_in_period[:3] if t.score is not None]
-        older = [t.score for t in tests_in_period[3:8] if t.score is not None]
-        if recent and older:
-            r_avg = sum(recent) / len(recent)
-            o_avg = sum(older) / len(older)
-            if o_avg > 0 and (o_avg - r_avg) / o_avg >= 0.10:
-                add_flag(
-                    'high',
-                    'Screening scores down ≥10%',
-                    f'Recent mean {r_avg:.0f} vs prior {o_avg:.0f} (app screening, not refraction).',
-                )
-
-    if avg_fatigue is not None and avg_fatigue >= 70:
-        add_flag(
-            'medium',
-            'Elevated digital-eye-strain / fatigue',
-            f'Mean fatigue score {avg_fatigue:.0f}/100 over {len(metrics)} webcam sessions.',
-        )
+        if alert.severity in ('high', 'critical', 'medium') and _reportable(alert):
+            add_flag('medium' if alert.alert_type == 'myopia_progression' else alert.severity, *_flag_text(alert))
 
     if lifestyle['screen'] is not None and lifestyle['screen'] >= 6:
         add_flag(
@@ -236,23 +231,18 @@ def assemble_clinician_payload(user: User, days: int = 90) -> Dict[str, Any]:
                 'date': latest.measured_at,
             }
             if len(entries) >= 2:
-                from app.services.myopia_progression import classify_progression, progression_rate_d_per_year
-
                 rate = progression_rate_d_per_year(entries[-2], latest, 'binocular')
                 klass = classify_progression(rate)
                 myopia['rate'] = rate
                 myopia['rate_label'] = klass['label']
                 if klass['label'] in ('fast', 'very_fast'):
-                    add_flag('high', 'Myopia progression (reported SE)', klass['summary'])
+                    add_flag('medium', 'Prescription change logged (reported SE)', _first_sentence(klass['summary']))
 
-    # Deduplicate by title, keep highest severity, cap at 5
-    rank = {'critical': 0, 'high': 1, 'medium': 2, 'low': 3}
+    # Deduplicate by title and cap at 5; notes are listed, not ranked by concern.
     uniq = {}
     for flag in flags:
-        key = flag['title']
-        if key not in uniq or rank.get(flag['severity'], 9) < rank.get(uniq[key]['severity'], 9):
-            uniq[key] = flag
-    flags = sorted(uniq.values(), key=lambda f: rank.get(f['severity'], 9))[:5]
+        uniq.setdefault(flag['title'], flag)
+    flags = list(uniq.values())[:5]
 
     return {
         'patient': {
@@ -277,8 +267,8 @@ def assemble_clinician_payload(user: User, days: int = 90) -> Dict[str, Any]:
         'latest_by_type': latest_by_type,
         'trend': acuity_points,
         'tests_in_period': len(tests_in_period),
-        'latest_fatigue': latest_fatigue.fatigue_score if latest_fatigue else None,
-        'avg_fatigue': avg_fatigue,
+        'avg_blink_rate': avg_blink_rate,
+        'webcam_sessions': len(metrics),
         'lifestyle': lifestyle,
         'myopia': myopia,
         'flags': flags,
@@ -339,8 +329,8 @@ def render_clinician_pdf(payload: Dict[str, Any]) -> BytesIO:
     c.setFont('Times-Bold', 16)
     c.drawString(ml, height - 0.36 * inch, 'EyeVio  ·  Home-check summary')
     c.setFont('Helvetica', 8)
-    c.drawRightString(width - mr, height - 0.28 * inch, 'ONE PAGE')
-    c.drawRightString(width - mr, height - 0.44 * inch, 'Not a diagnostic device  ·  Not FDA-cleared SaMD')
+    c.drawRightString(width - mr, height - 0.28 * inch, 'RESEARCH PROTOTYPE')
+    c.drawRightString(width - mr, height - 0.44 * inch, 'Not clinically validated  ·  Not a medical device')
 
     y = height - 0.82 * inch
     patient = payload['patient']
@@ -370,18 +360,20 @@ def render_clinician_pdf(payload: Dict[str, Any]) -> BytesIO:
     c.setLineWidth(1.2)
     c.line(ml, y, width - mr, y)
 
-    # Latest scores + sparkline
+    # Latest measurements (native units) + sparkline
     y -= 18
     c.setFillColor(TEAL_DARK)
     c.setFont('Times-Bold', 11)
-    c.drawString(ml, y, 'Latest home-check scores')
-    c.drawString(ml + content_w * 0.58, y, 'Acuity trend')
+    c.drawString(ml, y, 'Latest home-check measurements')
 
     y -= 12
     table_top = y
-    col_w = content_w * 0.56
+    col_w = content_w
     row_h = 14
-    headers = [('Test', 0), ('Score', 0.42 * col_w), ('OD / OS', 0.58 * col_w), ('Date', 0.78 * col_w)]
+    headers = [
+        ('Test', 0), ('Measurement', 0.30 * col_w), ('OD', 0.62 * col_w),
+        ('OS', 0.76 * col_w), ('Date', 0.89 * col_w),
+    ]
 
     c.setFillColor(CREAM)
     c.rect(ml, y - row_h, col_w, row_h, stroke=0, fill=1)
@@ -405,36 +397,44 @@ def render_clinician_pdf(payload: Dict[str, Any]) -> BytesIO:
                 c.rect(ml, y - row_h, col_w, row_h, stroke=0, fill=1)
             c.setFillColor(INK)
             c.setFont('Helvetica', 8)
-            c.drawString(ml + 4, y - 10, row['label'][:28])
+            c.drawString(ml + 4, y - 10, row['label'][:40])
             c.setFont('Helvetica-Bold', 8)
-            c.drawString(ml + 4 + 0.42 * col_w, y - 10, _fmt_score(row['score']))
-            c.setFont('Helvetica', 8)
-            odos = f"{_fmt_score(row['od'])} / {_fmt_score(row['os'])}"
-            c.drawString(ml + 4 + 0.58 * col_w, y - 10, odos)
+            c.drawString(ml + 4 + 0.30 * col_w, y - 10, row['measure'][:46])
+            c.setFont('Helvetica', 7.5)
+            c.drawString(ml + 4 + 0.62 * col_w, y - 10, row['od'][:20])
+            c.drawString(ml + 4 + 0.76 * col_w, y - 10, row['os'][:20])
             c.setFillColor(MUTED)
-            c.drawString(ml + 4 + 0.78 * col_w, y - 10, _fmt_date(row['date']))
+            c.drawString(ml + 4 + 0.89 * col_w, y - 10, _fmt_date(row['date']))
             y -= row_h
 
     table_bottom = y
     c.setStrokeColor(RULE)
     c.setLineWidth(0.4)
     c.rect(ml, table_bottom, col_w, table_top - table_bottom, stroke=1, fill=0)
-
-    spark_x = ml + content_w * 0.58
-    spark_w = content_w * 0.42
-    spark_h = max(table_top - table_bottom, 72)
-    spark_y = table_top - spark_h
-    _draw_sparkline(c, spark_x, spark_y, spark_w, spark_h, payload['trend'])
     c.setFillColor(MUTED)
     c.setFont('Helvetica', 7)
-    c.drawString(spark_x, spark_y - 11, 'Better-eye logMAR (home chart)  ·  up to 24 acuity tests  ·  plotted up = better')
+    c.drawString(
+        ml, table_bottom - 10,
+        'Each test in its own unit. 0–100 app indices are not clinically validated and are omitted.',
+    )
 
-    y = min(table_bottom, spark_y) - 26
-
-    # Flagged concerns
+    y = table_bottom - 28
     c.setFillColor(TEAL_DARK)
     c.setFont('Times-Bold', 11)
-    c.drawString(ml, y, 'Flagged concerns')
+    c.drawString(ml, y, 'Acuity trend')
+    spark_h = 64
+    spark_y = y - 8 - spark_h
+    _draw_sparkline(c, ml, spark_y, content_w, spark_h, payload['trend'])
+    c.setFillColor(MUTED)
+    c.setFont('Helvetica', 7)
+    c.drawString(ml, spark_y - 11, 'Better-eye logMAR (home chart)  ·  up to 24 acuity tests  ·  plotted up = better')
+
+    y = spark_y - 32
+
+    # Automated notes
+    c.setFillColor(TEAL_DARK)
+    c.setFont('Times-Bold', 11)
+    c.drawString(ml, y, 'Automated notes (not clinically validated)')
     y -= 6
     c.setStrokeColor(RULE)
     c.setLineWidth(0.5)
@@ -445,14 +445,12 @@ def render_clinician_pdf(payload: Dict[str, Any]) -> BytesIO:
     if not flags:
         c.setFillColor(MUTED)
         c.setFont('Times-Italic', 9)
-        c.drawString(ml, y, 'No automated flags in this window.')
+        c.drawString(ml, y, 'No automated notes in this window.')
         y -= 18
     else:
         for flag in flags:
-            sev = (flag['severity'] or 'medium').lower()
-            color = RED if sev in ('high', 'critical') else AMBER
-            c.setFillColor(color)
-            c.circle(ml + 4, y + 2, 3.2, stroke=0, fill=1)
+            c.setFillColor(MUTED)
+            c.circle(ml + 4, y + 2, 2.4, stroke=0, fill=1)
             c.setFillColor(INK)
             c.setFont('Helvetica-Bold', 9)
             c.drawString(ml + 14, y, flag['title'][:72])
@@ -493,10 +491,14 @@ def render_clinician_pdf(payload: Dict[str, Any]) -> BytesIO:
             ],
         ),
         (
-            'Fatigue / myopia',
+            'Blinking / myopia',
             [
-                f'Last fatigue  {_fmt_score(payload["latest_fatigue"])}/100',
-                f'Mean fatigue  {_fmt_score(payload["avg_fatigue"])}/100',
+                (
+                    f'Blink rate  {payload["avg_blink_rate"]:.0f} /min'
+                    if payload.get('avg_blink_rate') is not None
+                    else 'Blink rate  —'
+                ),
+                f'Webcam sessions  {payload.get("webcam_sessions", 0)}',
                 (
                     f'SE  {payload["myopia"]["se"]:+.2f} D'
                     if payload.get('myopia') and payload['myopia'].get('se') is not None
@@ -531,8 +533,10 @@ def render_clinician_pdf(payload: Dict[str, Any]) -> BytesIO:
     # Footer — stay on page 1
     c.setFillColor(MUTED)
     c.setFont('Helvetica', 7)
-    footer_1 = 'Not a diagnostic device. EyeVio is not FDA-cleared SaMD and is not intended to diagnose, treat, or prevent disease.'
-    footer_2 = 'Home scores are device/distance dependent. Not a refraction, not LOCS/ICD, not a comprehensive eye exam.'
+    footer_1 = ('EyeVio is a research and educational prototype. It has not been clinically validated, reviewed, '
+                'cleared, or approved as a medical device.')
+    footer_2 = ('Its outputs must not be used to diagnose, exclude, monitor, or treat an eye condition. '
+                'Home measurements depend on device and distance.')
     c.drawString(ml, 0.42 * inch, footer_1)
     c.drawString(ml, 0.30 * inch, footer_2)
     c.setFont('Helvetica', 7)

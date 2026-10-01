@@ -10,6 +10,10 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 from reportlab.lib.units import inch
 import numpy as np
 
+from app.utils.change_detection import DISPLAY_INDEX_LABEL
+from app.utils.native_measures import native_summary
+from app.utils.trend_forecast import TEST_LABELS
+
 report_bp = Blueprint('report', __name__)
 
 
@@ -68,36 +72,39 @@ def generate_report():
             'recommendations': []
         }
         
-        # Vision summary
+        # Vision summary: latest result per test, each in its own unit (no cross-test averaging).
         if vision_tests:
-            scores = [t.score for t in vision_tests]
+            latest = {}
+            sessions = {}
+            for t in vision_tests:
+                latest[t.test_type] = t
+                sessions[t.test_type] = sessions.get(t.test_type, 0) + 1
             report_data['vision_summary'] = {
                 'total_tests': len(vision_tests),
-                'average_score': float(np.mean(scores)),
-                'min_score': float(np.min(scores)),
-                'max_score': float(np.max(scores)),
-                'latest_score': scores[-1],
-                'trend': 'improving' if len(scores) > 1 and scores[-1] > scores[0] else 'stable' if scores[-1] == scores[0] else 'declining'
+                'by_test': [
+                    {
+                        'test_type': test_type,
+                        'label': TEST_LABELS.get(test_type, test_type.replace('_', ' ').title()),
+                        'sessions': sessions[test_type],
+                        'date': t.created_at.isoformat(),
+                        **native_summary(test_type, t.test_details),
+                    }
+                    for test_type, t in latest.items()
+                ],
+                'note': 'Each test is shown in its own unit. 0–100 app indices are not clinically validated and are not summarised.',
             }
-            
-            # Recommendations based on vision
-            if scores[-1] < np.mean(scores[:5]) * 0.9:
-                report_data['recommendations'].append("Vision has declined by more than 10%. Schedule an eye exam.")
-        
-        # Fatigue summary
+
+        # Webcam summary: blink rate is the measurement; the fatigue score is a display index.
         if webcam_metrics:
             fatigue_scores = [m.fatigue_score for m in webcam_metrics]
             blink_rates = [m.blink_rate for m in webcam_metrics if m.blink_rate]
-            
+
             report_data['fatigue_summary'] = {
                 'total_metrics': len(webcam_metrics),
+                'average_blink_rate': float(np.mean(blink_rates)) if blink_rates else None,
                 'average_fatigue': float(np.mean(fatigue_scores)),
-                'max_fatigue': float(np.max(fatigue_scores)),
-                'average_blink_rate': float(np.mean(blink_rates)) if blink_rates else None
+                'fatigue_label': DISPLAY_INDEX_LABEL,
             }
-            
-            if np.mean(fatigue_scores) > 60:
-                report_data['recommendations'].append("Average eye fatigue is high. Implement the 20-20-20 rule: every 20 minutes, look at something 20 feet away for 20 seconds.")
         
         # Lifestyle summary
         if lifestyle_logs:
@@ -124,11 +131,8 @@ def generate_report():
                 'lens_brand': lens_data.lens_brand,
                 'days_since_purchase': days_since_purchase,
                 'effectiveness_score': lens_data.effectiveness_score,
-                'replacement_recommended': lens_data.replacement_recommended
+                'effectiveness_label': DISPLAY_INDEX_LABEL,
             }
-            
-            if lens_data.replacement_recommended:
-                report_data['recommendations'].append("Lens effectiveness has declined. Consider getting new lenses.")
         
         # Return JSON format if requested
         if format_type == 'json':
@@ -155,14 +159,11 @@ def generate_report():
         # Vision Summary
         if report_data['vision_summary']:
             elements.append(Paragraph("<b>Vision Summary</b>", styles['Heading2']))
-            vision_data = [
-                ['Metric', 'Value'],
-                ['Total Tests', str(report_data['vision_summary']['total_tests'])],
-                ['Average Score', f"{report_data['vision_summary']['average_score']:.2f}"],
-                ['Latest Score', f"{report_data['vision_summary']['latest_score']:.2f}"],
-                ['Trend', report_data['vision_summary']['trend'].capitalize()]
+            vision_data = [['Test', 'Latest measurement', 'OD', 'OS']] + [
+                [row['label'], row['measure'], row['od'], row['os']]
+                for row in report_data['vision_summary']['by_test']
             ]
-            vision_table = Table(vision_data, colWidths=[3*inch, 2*inch])
+            vision_table = Table(vision_data, colWidths=[1.9*inch, 2.9*inch, 1.1*inch, 1.1*inch])
             vision_table.setStyle(TableStyle([
                 ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
                 ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
@@ -173,20 +174,23 @@ def generate_report():
                 ('GRID', (0, 0), (-1, -1), 1, colors.black)
             ]))
             elements.append(vision_table)
+            elements.append(Paragraph(report_data['vision_summary']['note'], styles['Italic']))
             elements.append(Spacer(1, 0.3*inch))
-        
-        # Fatigue Summary
+
+        # Webcam Summary
         if report_data['fatigue_summary']:
-            elements.append(Paragraph("<b>Eye Fatigue Summary</b>", styles['Heading2']))
+            elements.append(Paragraph("<b>Webcam Blink Summary</b>", styles['Heading2']))
             fatigue_data = [
                 ['Metric', 'Value'],
-                ['Total Measurements', str(report_data['fatigue_summary']['total_metrics'])],
-                ['Average Fatigue', f"{report_data['fatigue_summary']['average_fatigue']:.2f}"],
-                ['Max Fatigue', f"{report_data['fatigue_summary']['max_fatigue']:.2f}"]
+                ['Sessions', str(report_data['fatigue_summary']['total_metrics'])],
             ]
             if report_data['fatigue_summary']['average_blink_rate']:
-                fatigue_data.append(['Avg Blink Rate', f"{report_data['fatigue_summary']['average_blink_rate']:.2f} blinks/min"])
-            
+                fatigue_data.append(['Avg Blink Rate', f"{report_data['fatigue_summary']['average_blink_rate']:.1f} blinks/min"])
+            fatigue_data.append([
+                'Fatigue index (display only)',
+                f"{report_data['fatigue_summary']['average_fatigue']:.0f}",
+            ])
+
             fatigue_table = Table(fatigue_data, colWidths=[3*inch, 2*inch])
             fatigue_table.setStyle(TableStyle([
                 ('BACKGROUND', (0, 0), (-1, 0), colors.grey),

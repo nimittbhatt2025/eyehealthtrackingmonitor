@@ -10,11 +10,11 @@ def calculate_vision_trend(tests: List[VisionTest], period_days: int = 30) -> Di
         return {}
     
     cutoff_date = datetime.utcnow() - timedelta(days=period_days)
-    recent_tests = [t for t in tests if t.created_at >= cutoff_date]
-    
+    recent_tests = [t for t in tests if t.created_at >= cutoff_date and t.score is not None]
+
     if not recent_tests:
         return {}
-    
+
     scores = [t.score for t in recent_tests]
     
     return {
@@ -70,7 +70,9 @@ def calculate_lens_effectiveness(lens_data: LensData, recent_vision_tests: List[
     if not recent_vision_tests or not lens_data.baseline_vision_score:
         return 0.0
     
-    recent_scores = [t.score for t in recent_vision_tests[-5:]]  # Last 5 tests
+    recent_scores = [t.score for t in recent_vision_tests if t.score is not None][-5:]
+    if not recent_scores:
+        return 0.0
     current_avg = np.mean(recent_scores)
     
     # Calculate effectiveness as percentage of baseline
@@ -82,7 +84,8 @@ def calculate_lens_effectiveness(lens_data: LensData, recent_vision_tests: List[
 def detect_vision_decline(tests: List[VisionTest], test_type: str = None, method_version: Any = None) -> Dict[str, Any]:
     """
     Reliable-change decline check (see app.utils.change_detection).
-    `declined` is True only for a decline confirmed on two consecutive sessions.
+    `declined` is True only for a decline confirmed on two consecutive sessions
+    of a native-unit measure; display indices never count as declined.
     """
     from app.utils.change_detection import assess_tests, summary_message
 
@@ -92,7 +95,7 @@ def detect_vision_decline(tests: List[VisionTest], test_type: str = None, method
     flagged = [s for s in assessment['series'] if s['status'] == assessment['status']]
     lead = flagged[0] if flagged else {}
     return {
-        'declined': assessment['status'] == 'confirmed_decline',
+        'declined': assessment['status'] == 'confirmed_decline' and assessment['alerts_enabled'],
         'status': assessment['status'],
         'message': summary_message(assessment),
         'baseline_score': lead.get('baseline_mean'),
@@ -126,7 +129,7 @@ def correlate_lifestyle_with_vision(
     
     for log in lifestyle_logs:
         # Find vision tests on same date
-        matching_tests = [t for t in vision_tests if t.created_at.date() == log.log_date]
+        matching_tests = [t for t in vision_tests if t.created_at.date() == log.log_date and t.score is not None]
         if matching_tests:
             vision_scores.append(np.mean([t.score for t in matching_tests]))
         

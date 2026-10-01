@@ -577,11 +577,11 @@ export class MediaEyeTracker {
    */
   getFatigueRecommendation(score) {
     if (score < 30) {
-      return 'Your eyes are healthy! Keep up the good habits.'
+      return 'Keep up the good habits: regular breaks and the 20-20-20 rule.'
     } else if (score < 60) {
       return 'Consider taking a 5-minute break every hour. Try the 20-20-20 rule.'
     } else {
-      return 'High eye fatigue detected. Take a 10-minute break immediately. Reduce screen time.'
+      return 'Consider a 10-minute screen break now, and more frequent breaks today.'
     }
   }
 

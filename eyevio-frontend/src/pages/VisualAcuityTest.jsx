@@ -14,6 +14,7 @@ import SloanLetter, { E_DIRECTIONS, HOTV_LETTERS, SLOAN_LETTERS, TumblingE } fro
 import useDistanceMonitor from '../hooks/useDistanceMonitor'
 import { getScreenScale, optotypeHeightPx, smallestRenderableLogMAR } from '../utils/screenScale'
 import { AVG_IPD_MM } from '../utils/distanceCalibration'
+import { createRowGenerator, loadRecentRows, newChartSeed, saveRecentRows } from '../utils/acuityChart'
 import {
   ACUITY_CHART_RULES,
   ETDRS_LETTERS_PER_LINE,
@@ -62,7 +63,8 @@ const CHARTS = {
   },
 }
 
-// Median interpupillary distance by age (MacLachlan & Howland 2002; adults ≈ 63 mm).
+// Population median interpupillary distance by age (MacLachlan & Howland 2002; adults ≈ 63 mm).
+// An estimate for the age group, not this person's measurement.
 const CHILD_AGE_BANDS = [
   { id: '3-5', label: '3–5 years', ipdMm: 50 },
   { id: '6-8', label: '6–8 years', ipdMm: 53 },
@@ -72,34 +74,23 @@ const CHILD_AGE_BANDS = [
 
 const DIRECTION_LABEL = { up: 'Up', right: 'Right', down: 'Down', left: 'Left' }
 
-function shuffled(items) {
-  const a = [...items]
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1))
-    ;[a[i], a[j]] = [a[j], a[i]]
-  }
-  return a
-}
+const MANUAL_DISTANCE_METHODS = [
+  { id: 'tape_measure', label: 'Tape measure', hint: 'Measure 1 m from the screen to where your eyes will be.' },
+  { id: 'string', label: '1 m of string', hint: 'Cut or mark 1 m of string; hold one end at the screen and the other at your cheekbone.' },
+  { id: 'floor_marker', label: 'Floor marker', hint: 'Measure 1 m from the screen once and mark the spot on the floor with tape.' },
+  { id: 'helper', label: 'Helper checks', hint: 'A helper measures 1 m and checks you stay there during the test.' },
+]
 
-/** 5 symbols per line; 4-choice charts must repeat one, never twice in a row. */
-function lineSymbols(options, count) {
-  if (options.length >= count) return shuffled(options).slice(0, count)
-  const out = []
-  while (out.length < count) {
-    for (const s of shuffled(options)) {
-      if (out.length < count && s !== out[out.length - 1]) out.push(s)
-    }
-  }
-  return out
-}
-
-const emptyEye = () => ({ tested: {}, responses: [], logMAR: null, snellen: null, lettersCorrect: 0, lettersCredited: null, atFloor: false })
+const emptyEye = () => ({
+  tested: {}, responses: [], logMAR: null, logMARRaw: null, snellen: null,
+  lettersCorrect: 0, lettersCredited: null, baseTenths: null, beyondChartTop: false, atFloor: false,
+})
 
 const VisualAcuityTest = () => {
   const navigate = useNavigate()
   const { isCalibrated, needsRecalibration, getConfidence } = useCalibration()
   
-  // screen-size, distance-gate, instructions, voice-setup, glasses-check, eye-coverage-setup, testing, switch-eyes, results
+  // screen-size, distance-gate, manual-distance, instructions, voice-setup, glasses-check, eye-coverage-setup, testing, switch-eyes, results
   const [testState, setTestState] = useState(() => (getScreenScale().source === 'default' ? 'screen-size' : 'distance-gate'))
   const [distanceValid, setDistanceValid] = useState(false)
   const [currentEye, setCurrentEye] = useState('left') // left, right
@@ -111,6 +102,11 @@ const VisualAcuityTest = () => {
   const [pauseCount, setPauseCount] = useState(0)
   const [chartType, setChartType] = useState('sloan')
   const [childAge, setChildAge] = useState('13+')
+  const [distanceMode, setDistanceMode] = useState('camera')
+  const [manualMethod, setManualMethod] = useState('tape_measure')
+  const [manualConfirmed, setManualConfirmed] = useState(false)
+  const rowGenRef = useRef(null)
+  const chartSeedRef = useRef(null)
   const chart = CHARTS[chartType]
   const chartRules = ACUITY_CHART_RULES[chartType]
   const ipdMm = chartType === 'sloan' ? AVG_IPD_MM : CHILD_AGE_BANDS.find((b) => b.id === childAge).ipdMm
@@ -151,7 +147,7 @@ const VisualAcuityTest = () => {
   const [selectedAnswer, setSelectedAnswer] = useState(null)
   const [showFeedback, setShowFeedback] = useState(false)
 
-  const monitorActive = ['glasses-check', 'eye-coverage-setup', 'testing', 'switch-eyes'].includes(testState)
+  const monitorActive = distanceMode === 'camera' && ['glasses-check', 'eye-coverage-setup', 'testing', 'switch-eyes'].includes(testState)
   const distanceMonitor = useDistanceMonitor({ active: monitorActive, targetMm: TEST_DISTANCE_MM, tolerance: DISTANCE_TOLERANCE, ipdMm })
   const chartPaused = testState === 'testing' && distanceMonitor.paused
   const chartPausedRef = useRef(false)
@@ -361,14 +357,29 @@ const VisualAcuityTest = () => {
     return () => window.clearTimeout(t)
   }, [testState, voiceSetupPassed, stopSetupRecognition])
 
-  // Generate random letters for current line
-  const generateLetters = useCallback((numLetters) => lineSymbols(CHARTS[chartType].options, numLetters), [chartType])
+  // One seeded sequence per session, shared by both eyes, so no row repeats within the session
+  const generateLetters = useCallback(() => {
+    if (!rowGenRef.current) {
+      chartSeedRef.current = newChartSeed()
+      rowGenRef.current = createRowGenerator({
+        options: CHARTS[chartType].options,
+        count: ETDRS_LETTERS_PER_LINE,
+        seed: chartSeedRef.current,
+        recent: loadRecentRows(window.localStorage, chartType),
+      })
+    }
+    return rowGenRef.current.next()
+  }, [chartType])
+
+  useEffect(() => {
+    if (testState === 'results' && rowGenRef.current) saveRecentRows(window.localStorage, chartType, rowGenRef.current.shown)
+  }, [testState, chartType])
 
   // Start test for current eye
   const startEyeTest = useCallback(() => {
     setCurrentTenths(Math.max(START_TENTHS, floorTenths))
     setCurrentLetter(0)
-    setCurrentLetters(generateLetters(ETDRS_LETTERS_PER_LINE))
+    setCurrentLetters(generateLetters())
     setSelectedAnswer(null)
     setShowFeedback(false)
   }, [generateLetters, floorTenths])
@@ -486,7 +497,7 @@ const VisualAcuityTest = () => {
     }
     setCurrentTenths(next)
     setCurrentLetter(0)
-    setCurrentLetters(generateLetters(ETDRS_LETTERS_PER_LINE))
+    setCurrentLetters(generateLetters())
     setSelectedAnswer(null)
     setShowFeedback(false)
   }, [currentTenths, lineResults, currentEye, generateLetters, floorTenths, chartRules])
@@ -504,9 +515,12 @@ const VisualAcuityTest = () => {
         ...prev[currentEye],
         tested,
         logMAR: score.logMAR,
+        logMARRaw: score.logMARRaw,
         snellen: logMARToSnellen(score.logMAR),
         lettersCorrect: score.lettersCorrect,
         lettersCredited: score.lettersCredited,
+        baseTenths: score.baseTenths,
+        beyondChartTop: score.beyondChartTop,
         atFloor,
       }
     }))
@@ -546,9 +560,13 @@ const VisualAcuityTest = () => {
       const eyeDetails = (eye) => ({
         snellen: lineResults[eye].snellen,
         logMAR: lineResults[eye].logMAR,
+        logMAR_raw: lineResults[eye].logMARRaw,
+        logMAR_guess_adjusted: chartRules.guessRate > 0 ? lineResults[eye].logMAR : null,
         letters_correct: lineResults[eye].lettersCorrect,
         letters_credited: lineResults[eye].lettersCredited,
         letters_correct_by_line: lineResults[eye].tested,
+        base_line_logmar: lineResults[eye].baseTenths != null ? lineResults[eye].baseTenths / 10 : null,
+        beyond_chart_top: lineResults[eye].beyondChartTop,
         at_chart_floor: lineResults[eye].atFloor,
         responses: lineResults[eye].responses,
       })
@@ -563,10 +581,15 @@ const VisualAcuityTest = () => {
           chart_type: chartType,
           chart_rules: chartRules,
           child_age_band: chartType === 'sloan' ? null : childAge,
-          assumed_ipd_mm: ipdMm,
+          assumed_ipd_mm: distanceMode === 'camera' ? ipdMm : null,
+          ipd_source: distanceMode !== 'camera'
+            ? null
+            : chartType === 'sloan' || childAge === '13+' ? 'adult_population_mean_estimate' : 'age_band_median_estimate',
+          distance_method: distanceMode === 'camera' ? 'camera_pupil_distance_estimate' : `manual_${manualMethod}`,
+          chart_seed: chartSeedRef.current,
           scoring_note: chartRules.guessRate > 0
-            ? 'Four-choice chart: each line’s correct count is guess-corrected, (c − 1.25) / 0.75, before the 0.02 logMAR per-symbol credit; eye stops at ≤ 2 of 5.'
-            : 'Ten-choice Sloan chart: 0.02 logMAR per letter read; eye stops at ≤ 1 of 5.',
+            ? 'Four-choice chart: logMAR (guess-adjusted) credits each line as (c − 1.25) / 0.75 before 0.02 logMAR per symbol; logMAR_raw credits raw counts. Base line = largest line with ≥ 4/5 raw correct; eye stops when the smallest line shown has ≤ 2/5 or is the chart floor.'
+            : 'Ten-choice Sloan chart: 0.02 logMAR per letter read. Base line = largest line with ≥ 4/5 correct; eye stops when the smallest line shown has ≤ 1/5 or is the chart floor.',
           left_eye: eyeDetails('left'),
           right_eye: eyeDetails('right'),
           test_distance_mm: TEST_DISTANCE_MM,
@@ -649,7 +672,9 @@ const VisualAcuityTest = () => {
               ))}
             </select>
             <p className="text-sm text-gray-600 mt-2">
-              Children&apos;s eyes are closer together, so we use this to keep the camera&apos;s 1 m distance check accurate.
+              Children&apos;s eyes are closer together, so the camera&apos;s 1 m check uses the typical eye spacing for this age.
+              That is an estimate, not this child&apos;s own measurement, so the distance shown is approximate; for a more
+              reliable distance, measure 1 m by hand (tape, string or a floor marker).
               A helper should sit beside the screen, hold the child&apos;s hand over one eye, and tap the answer the child names or points to.
               Practise the {chartType === 'hotv' ? 'four letters' : 'four directions'} together at close range first.
             </p>
@@ -684,7 +709,12 @@ const VisualAcuityTest = () => {
             <span className="w-10 h-10 bg-accent-600 text-white rounded-full flex items-center justify-center font-bold flex-shrink-0">3</span>
             <div>
               <h3 className="font-bold text-lg text-gray-900">Stay at 1 Metre</h3>
-              <p className="text-gray-700">The camera keeps checking your distance. If you drift more than 10% closer or farther, the chart pauses until you move back. Every letter you get right counts toward your score, and the test ends when a row becomes unreadable.</p>
+              <p className="text-gray-700">
+                {distanceMode === 'manual'
+                  ? 'You measured 1 m by hand, so stay exactly where you measured.'
+                  : 'The camera keeps estimating your distance. If you drift more than 10% closer or farther, the chart pauses until you move back.'}{' '}
+                Every symbol you get right counts toward your score. The test ends when the smallest row so far has {chartRules.stopCorrect} or fewer of 5 right, or the screen can&apos;t draw a smaller row.
+              </p>
             </div>
           </div>
 
@@ -692,7 +722,7 @@ const VisualAcuityTest = () => {
             <span className="w-10 h-10 bg-accent-600 text-white rounded-full flex items-center justify-center font-bold flex-shrink-0">4</span>
             <div>
               <h3 className="font-bold text-lg text-gray-900">Get Your Results</h3>
-              <p className="text-gray-700">See a logMAR and Snellen (&quot;20/20&quot;) score for each eye. Home results usually read about one line worse than a clinic chart.</p>
+              <p className="text-gray-700">See a logMAR and Snellen (&quot;20/20&quot;) score for each eye. A home result is not the same as a clinic chart result.</p>
             </div>
           </div>
         </div>
@@ -902,6 +932,57 @@ const VisualAcuityTest = () => {
       </div>
     </div>
   )
+
+  const renderManualDistance = () => {
+    const method = MANUAL_DISTANCE_METHODS.find((m) => m.id === manualMethod)
+    return (
+      <div className="max-w-2xl mx-auto card space-y-5">
+        <div>
+          <h1 className="page-title mb-2">Measure 1 metre by hand</h1>
+          <p className="text-gray-700">
+            Use this if the camera can&apos;t estimate your distance, or for a child, where the camera&apos;s estimate is less reliable.
+            The camera will not check your distance during the test, so stay where you measured.
+          </p>
+        </div>
+        <div className="grid sm:grid-cols-2 gap-3" role="radiogroup" aria-label="How you will measure 1 metre">
+          {MANUAL_DISTANCE_METHODS.map((m) => (
+            <button
+              key={m.id}
+              type="button"
+              role="radio"
+              aria-checked={manualMethod === m.id}
+              onClick={() => setManualMethod(m.id)}
+              className={`text-left rounded-xl border-2 p-3 min-h-[44px] ${manualMethod === m.id ? 'border-accent-600 bg-accent-50' : 'border-gray-200 bg-white'}`}
+            >
+              <div className="font-semibold text-gray-900">{m.label}</div>
+            </button>
+          ))}
+        </div>
+        <p className="text-sm text-gray-700 bg-gray-50 rounded-lg p-3">{method?.hint} Measure to the eyes, not the chair or the desk edge.</p>
+        <label className="flex items-start gap-3 text-sm text-gray-800">
+          <input type="checkbox" className="mt-1" checked={manualConfirmed} onChange={(e) => setManualConfirmed(e.target.checked)} />
+          <span>My eyes are 1 m from the screen and I will stay there for the whole test.</span>
+        </label>
+        <div className="flex gap-3">
+          <button type="button" className="flex-1 btn-secondary min-h-[44px]" onClick={() => { setDistanceMode('camera'); setTestState('distance-gate') }}>
+            Use the camera instead
+          </button>
+          <button
+            type="button"
+            disabled={!manualConfirmed}
+            className="flex-1 btn-primary min-h-[44px] disabled:opacity-50"
+            onClick={() => {
+              setDistanceMode('manual')
+              setDistanceValid(true)
+              setTestState(voiceSupported ? 'voice-setup' : 'glasses-check')
+            }}
+          >
+            Continue
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   // Render Glasses/Contacts Check
   const renderGlassesCheck = () => (
@@ -1247,9 +1328,23 @@ const VisualAcuityTest = () => {
             )}
           </p>
           <p>
-            Home charts usually read about 0.05–0.1 logMAR (half to one line) <strong>worse</strong> than a clinic chart —
-            compare your results over time rather than with a clinic number.
+            Studies of standardised home ETDRS charts found reasonable agreement with clinic charts, with home results
+            often a little worse; how much depends on the protocol and the people tested. EyeVio does not apply a
+            correction for this — compare your results over time rather than with a clinic number.
           </p>
+          {chartRules.guessRate > 0 && (
+            <p>
+              Without the chance adjustment: left {lineResults.left.logMARRaw?.toFixed(2) ?? '—'}, right {lineResults.right.logMARRaw?.toFixed(2) ?? '—'} logMAR. Both are saved.
+            </p>
+          )}
+          {(lineResults.left.beyondChartTop || lineResults.right.beyondChartTop) && (
+            <p>No row reached 4 of 5 correct for an eye marked as beyond the chart; its true acuity may be worse than shown.</p>
+          )}
+          {distanceMode === 'manual' ? (
+            <p>Distance was measured by hand ({MANUAL_DISTANCE_METHODS.find((m) => m.id === manualMethod)?.label.toLowerCase()}), so the camera did not check it during the test.</p>
+          ) : (
+            <p>The camera distance is an estimate from typical eye spacing{chartType !== 'sloan' ? ' for this age group' : ''}, not a measurement of your own.</p>
+          )}
           {screenScale.source === 'default' && (
             <p className="text-amber-800">Your screen size wasn’t measured, so these values may be off by about a line.</p>
           )}
@@ -1316,6 +1411,8 @@ const VisualAcuityTest = () => {
               setPauseCount(0)
               setLineResults({ left: emptyEye(), right: emptyEye() })
               setCorrectionInfo(null)
+              rowGenRef.current = null
+              chartSeedRef.current = null
             }}
             className="flex-1 btn-secondary min-h-[44px]"
           >
@@ -1363,6 +1460,14 @@ const VisualAcuityTest = () => {
             testName="Visual Acuity Test"
           />
         )}
+        {testState === 'distance-gate' && (
+          <div className="text-center mt-4">
+            <button type="button" className="text-sm font-semibold text-accent-700 underline min-h-[44px]" onClick={() => setTestState('manual-distance')}>
+              Can&apos;t use the camera? Measure 1 m with a tape, string or floor marker
+            </button>
+          </div>
+        )}
+        {testState === 'manual-distance' && renderManualDistance()}
         {testState === 'screen-size' && (
           <ScreenSizeCalibration
             onDone={() => {

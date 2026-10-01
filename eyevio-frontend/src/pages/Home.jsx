@@ -183,7 +183,7 @@ function Home() {
               Available Vision Tests
             </h2>
             <p className="text-lg text-gray-600 max-w-2xl mx-auto">
-              Home vision checks for different everyday tasks. Not FDA-cleared diagnostic tests.
+              Home vision checks for different everyday tasks. A research and educational prototype: not clinically validated, and not for diagnosis or monitoring.
             </p>
           </div>
 
@@ -234,7 +234,7 @@ function Home() {
               { 
                 name: 'Near Blur Tolerance', 
                 time: '30 seconds',
-                description: 'Focusing fatigue index for screens and close-up work',
+                description: 'Blur detection threshold on near letters at 40 cm',
                 icon: 'M13 10V3L4 14h7v7l9-11h-7z',
                 badge: 'Camera'
               },

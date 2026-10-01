@@ -3,7 +3,7 @@ Production sclera redness inference — bounded ordinal ResNet-18 + smart-crop R
 
 Drop-in module for upload routes and standalone scoring. Dual-eye clinical analysis
 continues through dry_eye_analysis + ocular_ml_preprocess for webcam captures.
-Wellness tracking only — not a diagnosis.
+Experimental research model: outputs are withheld from users (see experimental_models.withhold_model_outputs).
 """
 
 from __future__ import annotations

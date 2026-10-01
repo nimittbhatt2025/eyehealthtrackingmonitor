@@ -82,6 +82,7 @@ def wait(client, auth, job_id, timeout=15):
 def test_async_capture_polls_to_result(client, auth, monkeypatch):
     from app.models import AnalysisJob, db
 
+    monkeypatch.setenv('EXPERIMENTAL_IMAGE_MODELS_USER_FACING', '1')
     monkeypatch.setattr('app.routes.eye_photo.analyze_cataract_from_base64', fake_cataract())
     job_id = submit(client, auth)
     job = wait(client, auth, job_id)

@@ -2,7 +2,7 @@ from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from app.models import db, WebcamMetric
 from app.utils.analytics import calculate_fatigue_score
-from app.services.alert_delivery import create_and_deliver_alert
+from app.utils.change_detection import DISPLAY_INDEX_LABEL
 from datetime import datetime, timedelta
 
 webcam_bp = Blueprint('webcam', __name__)
@@ -39,25 +39,13 @@ def submit_webcam_analysis():
         
         db.session.add(metric)
         db.session.commit()
-        
-        # Check if fatigue is high and create alert
-        from flask import current_app
-        threshold = current_app.config.get('FATIGUE_THRESHOLD', 70)
-        
-        if metric.fatigue_score >= threshold:
-            create_and_deliver_alert(
-                user_id=user_id,
-                alert_type='high_fatigue',
-                severity='medium' if metric.fatigue_score < 85 else 'high',
-                title='High Eye Fatigue Detected',
-                message=f'Your eye fatigue score is {metric.fatigue_score:.1f}. Consider taking a break.',
-                alert_data={'fatigue_score': metric.fatigue_score, 'metric_id': metric.id},
-            )
-        
+
+        # The fatigue score is a display index, so it never raises an alert.
         return jsonify({
             'message': 'Webcam analysis submitted successfully',
             'metric_id': metric.id,
             'fatigue_score': metric.fatigue_score,
+            'score_label': DISPLAY_INDEX_LABEL,
             'created_at': metric.created_at.isoformat()
         }), 201
         

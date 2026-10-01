@@ -40,9 +40,9 @@ export const OPTIMAL_DISTANCES = {
   
   // Legacy/fallback
   side_vision: 500,
-  glaucoma_neural: 457, // 18 inches
+  side_vision_legacy: 457, // 18 inches
   cataract_glare: 508,  // 20 inches
-  accommodative_lag: 406, // 16 inches
+  accommodative_lag: 400, // 40 cm near target
   default: 406 // 16 inches default
 }
 

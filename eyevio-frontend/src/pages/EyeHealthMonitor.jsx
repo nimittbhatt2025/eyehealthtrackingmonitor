@@ -19,7 +19,8 @@ import PhotoLightingBanner from '../components/PhotoLightingBanner'
 import EyewearReminderBanner from '../components/EyewearReminderBanner'
 import GlassesContactsCheck from '../components/GlassesContactsCheck'
 import SamdDisclaimer from '../components/SamdDisclaimer'
-import PathologyTriagePanel from '../components/PathologyTriagePanel'
+import ExperimentalModelNotice from '../components/ExperimentalModelNotice'
+import { DISPLAY_INDEX_LABEL } from '../utils/displayIndex'
 import { getLightingUiCopy } from '../utils/photoLightingCheck'
 import { formatLocalDate, formatLocalDateTime, getClientLocalDateString } from '../utils/formatDateTime'
 import OnDevicePrivacyToggle from '../components/OnDevicePrivacyToggle'
@@ -594,8 +595,10 @@ export default function EyeHealthMonitor() {
                       className="w-full aspect-[4/3] object-cover"
                     />
                     <div className="p-2 text-xs">
-                      <div className="font-semibold text-gray-900">
-                        {allPhotos.length === 1 ? 'Baseline' : `${photo.health_score}/100`}
+                      <div className="font-semibold text-gray-900" title={DISPLAY_INDEX_LABEL}>
+                        {allPhotos.length === 1 || photo.health_score == null
+                          ? 'Baseline'
+                          : `Display index ${Math.round(photo.health_score)}`}
                       </div>
                       <div className="text-gray-500">
                         {formatLocalDate(photo.captured_at)}
@@ -731,18 +734,18 @@ export default function EyeHealthMonitor() {
           <SamdDisclaimer testType={conditionType} />
 
           <div className={`card p-5 border-l-4 ${
-            lastResult.comparison?.deteriorated ? 'border-l-red-500' : 'border-l-emerald-500'
+            lastResult.comparison?.deteriorated ? 'border-l-amber-500' : 'border-l-emerald-500'
           }`}>
             <div className="flex items-start gap-3">
               {lastResult.comparison?.deteriorated ? (
-                <AlertTriangle className="w-6 h-6 text-red-600 shrink-0 mt-0.5" />
+                <AlertTriangle className="w-6 h-6 text-amber-600 shrink-0 mt-0.5" />
               ) : (
                 <Minus className="w-6 h-6 text-emerald-600 shrink-0 mt-0.5" />
               )}
               <div>
                 <h2 className="font-semibold text-gray-900">
                   {lastResult.comparison?.deteriorated
-                    ? 'Confirmed visible change'
+                    ? 'Photos look different from your reference'
                     : lastResult.comparison?.recommend_confirm_retake
                       ? 'Retake recommended'
                       : 'Photo saved'}
@@ -820,10 +823,7 @@ export default function EyeHealthMonitor() {
                     </p>
                   )}
                   <p className="text-xs text-gray-500">
-                    <strong>Analysis source:</strong>{' '}
-                    {lastResult.analysis?.ml_redness?.available
-                      ? 'ML redness model + heuristic surface metrics'
-                      : 'Heuristic surface metrics (ML model not available on this device)'}
+                    <strong>Analysis source:</strong> pixel colour and texture measurements
                     {lastResult.analysis?.crop_source && (
                       <> · crop: {lastResult.analysis.crop_source.replace(/_/g, ' ')}</>
                     )}
@@ -834,42 +834,17 @@ export default function EyeHealthMonitor() {
                       <> · confidence: {lastResult.analysis.confidence.level}</>
                     )}
                   </p>
-                  {lastResult.analysis?.ml_redness?.available && (
-                    <div className="mt-2 p-3 rounded-lg bg-teal-50 border border-teal-100">
-                      <p className="text-sm font-medium text-teal-900">Sclera redness (trained model)</p>
-                      <p className="text-sm text-teal-800 mt-1">
-                        Score: <strong>{lastResult.analysis.ml_redness.score?.toFixed(2)}</strong> / 4
-                        {' · '}
-                        Grade: <strong>{lastResult.analysis.ml_redness.discretized_grade}</strong>
-                        {' '}
-                        ({lastResult.analysis.ml_redness.grade_label})
-                      </p>
-                      <p className="text-xs text-teal-700/80 mt-1">
-                        Wellness tracking only — bounded ordinal model with test-time augmentation.
-                        {lastResult.analysis.ml_redness.uncertainty_std != null && (
-                          <> Uncertainty (σ): {lastResult.analysis.ml_redness.uncertainty_std.toFixed(3)}.</>
-                        )}
-                        {lastResult.analysis.ml_redness.webcam_calibrated && (
-                          <> Scored from tight ocular crops (webcam-calibrated).</>
-                        )}
-                      </p>
-                    </div>
+                  {lastResult.analysis?.metrics?.avg_sclera_redness != null && (
+                    <p>
+                      <strong>Experimental redness measurement:</strong>{' '}
+                      {lastResult.analysis.metrics.avg_sclera_redness}
+                      <span className="block text-xs text-gray-500">
+                        White-balanced colour of the white of the eye. Compare with your own earlier photos; it is
+                        not a redness grade and not clinically validated.
+                      </span>
+                    </p>
                   )}
-                  {!lastResult.analysis?.ml_redness?.available && (
-                    <div className="mt-2 p-3 rounded-lg bg-gray-50 border border-gray-200">
-                      <p className="text-sm font-medium text-gray-800">Heuristic scoring only</p>
-                      <p className="text-xs text-gray-600 mt-1">
-                        Trained sclera model weights are not loaded — scores use color/texture heuristics.
-                        Compare your own timeline month-over-month rather than absolute thresholds.
-                      </p>
-                      {lastResult.analysis?.heuristic_redness != null && (
-                        <p className="text-xs text-gray-700 mt-1">
-                          Heuristic redness: <strong>{lastResult.analysis.heuristic_redness}</strong>/100
-                        </p>
-                      )}
-                    </div>
-                  )}
-                  <PathologyTriagePanel triage={lastResult.analysis?.pathology_triage} />
+                  <ExperimentalModelNotice notice={lastResult.analysis?.experimental_models} className="mt-2" />
                   <p><strong>Condition:</strong> {conditionLabel(lastResult.photo.condition_type)}</p>
                   <p><strong>Saved:</strong> {formatLocalDateTime(lastResult.photo.captured_at)}</p>
                   <p className="text-xs text-gray-500 pt-2">
@@ -922,7 +897,7 @@ export default function EyeHealthMonitor() {
                   <p className="text-sm font-medium text-gray-900 mb-2">
                     {comparisonActionLabel(lastResult.comparison)}
                   </p>
-                  <MetricDelta label="Baseline consistency" change={lastResult.comparison.changes.health_score} />
+                  <MetricDelta label={`Appearance index (${DISPLAY_INDEX_LABEL.toLowerCase()})`} change={lastResult.comparison.changes.health_score} />
                   <MetricDelta label="Redness tint" change={lastResult.comparison.changes.sclera_redness} higherIsWorse />
                   {lastResult.comparison.eye_changes?.asymmetry_flag && (
                     <p className="text-xs text-amber-800 pt-2">
@@ -994,7 +969,7 @@ export default function EyeHealthMonitor() {
 
           {lastResult.analysis?.findings && (
             <div className="card p-5">
-              <h3 className="font-semibold text-gray-900 mb-2">Findings</h3>
+              <h3 className="font-semibold text-gray-900 mb-2">Photo measurements</h3>
               <ul className="text-sm text-gray-700 list-disc pl-5 space-y-1">
                 {lastResult.analysis.findings.map((f, i) => (
                   <li key={i}>{f}</li>

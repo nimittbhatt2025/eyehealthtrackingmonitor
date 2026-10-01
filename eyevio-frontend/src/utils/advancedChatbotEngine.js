@@ -6,6 +6,7 @@
 
 import { EYE_CONDITIONS, CONDITION_DATABASE } from './comprehensiveEyeConditions';
 import { getConditionIndex, searchConditions } from './conditionRetrieval';
+import { POSITIONING } from './samd';
 
 // ============================================================================
 // 1⃣ CONVERSATION MANAGER - Maintains context & conversation flow
@@ -97,21 +98,22 @@ class MedicalSafetyFilter {
       filtered.toLowerCase().includes(term)
     );
     
-    if (hasMedicalClaims) {
-      filtered = this.wrapWithDisclaimer(filtered);
-    }
-    
     // Replace dangerous language
     filtered = filtered.replace(/\bdiagnosis\b/gi, 'possible condition');
     filtered = filtered.replace(/\bdiagnose\b/gi, 'identify');
     filtered = filtered.replace(/\btreatment\b/gi, 'management strategy');
     filtered = filtered.replace(/\bcure\b/gi, 'help manage');
-    
+
+    // Wrap after the replacements so the positioning statement keeps its exact wording.
+    if (hasMedicalClaims) {
+      filtered = this.wrapWithDisclaimer(filtered);
+    }
+
     return filtered;
   }
 
   wrapWithDisclaimer(content) {
-    return `**Not a diagnostic device.** EyeVio is not FDA-cleared SaMD and cannot diagnose or prescribe treatment.\n\n${content}\n\nPlease consult an eye care professional for diagnosis and treatment.`
+    return `**Research prototype — not clinically validated.** ${POSITIONING}\n\n${content}\n\nPlease consult an eye care professional for diagnosis and treatment.`
   }
 
   requiresProfessionalConsult(userInput) {

@@ -341,10 +341,10 @@ def calculate_fatigue_score(
     # Normal blink rate: 15-20 per minute
     if blink_rate < 10:
         fatigue_score += 25
-        factors.append("Low blink rate (dry eyes)")
+        factors.append("Lower observed blink rate")
     elif blink_rate > 30:
         fatigue_score += 15
-        factors.append("High blink rate (irritation)")
+        factors.append("Higher observed blink rate")
     
     # Incomplete blinks indicate fatigue
     if incomplete_blinks > 5:

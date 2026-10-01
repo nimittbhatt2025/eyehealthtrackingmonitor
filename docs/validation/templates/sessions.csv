@@ -1,0 +1,1 @@
+participant_id,visit,test_type,started_at,status,failure_reason,correction,device_class,device_model,screen_diagonal_in,pixel_density_ppi,browser,os,camera,ambient_lux,notes

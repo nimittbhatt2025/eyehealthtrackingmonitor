@@ -40,7 +40,8 @@ export async function analyzeCapturedFrame(task, canvas, lightingPreview, { save
     throw err
   }
   try {
-    const out = await analyzeOnDevice(task, canvas, landmarks)
+    // Grad-CAM overlays belong to the research-only cataract model and are never displayed.
+    const out = await analyzeOnDevice(task, canvas, landmarks, { withCam: false })
     return { mode: 'on_device', payload: out.result, overlays: out.overlays, timings: out.timings }
   } catch (err) {
     if (!shouldFallBackToServer(err)) throw err

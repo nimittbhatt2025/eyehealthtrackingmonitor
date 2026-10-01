@@ -1,0 +1,13 @@
+{
+  "cataract_corn": {
+    "approved": false,
+    "model_card": "docs/model_cards/cataract_resnet18.md",
+    "model_version": "corn_v1",
+    "levels": ["normal", "immature", "mature"],
+    "dataset": null,
+    "weights_sha256": null,
+    "approved_by": null,
+    "approved_on": null,
+    "notes": "Not approved: no graded (normal / immature / mature) dataset has been trained on. Approval also requires a masked-eye shortcut control reviewed in the model card."
+  }
+}

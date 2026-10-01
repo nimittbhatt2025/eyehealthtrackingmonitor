@@ -1,6 +1,6 @@
 # Model card — Ocular pathology triage ResNet-18 (`pathology_resnet18_v1`)
 
-**One-line summary:** a four-class softmax classifier (cataract / conjunctivitis / normal / other) shown as a research-triage panel. It never changes any score or alert. It is the most eye-focused of the three models, but it still scores far above chance with the eye masked, and 15% of its test set duplicates training images.
+**One-line summary:** a four-class softmax classifier (cataract / conjunctivitis / normal / other), now **research lab only**: its class and probabilities are withheld from users and the former research-triage panel was removed. It is the most eye-focused of the three models, but it still scores far above chance with the eye masked, and 15% of its test set duplicates training images.
 
 | | |
 |---|---|
@@ -10,8 +10,9 @@
 
 ## Intended use
 
-- **Use:** a research panel ("closer to cataract / conjunctivitis / normal / other examples") on cataract and eye-photo results.
-- **Out of scope:** diagnosis, triage decisions, alerts, or anything that changes what a user does about care.
+- **Status:** research lab only (`/research-lab`). Where it runs, the app shows only the three experimental messages (`withhold_model_outputs()`).
+- **Original design (not deployed):** a research panel ("closer to cataract / conjunctivitis / normal / other examples") on cataract and eye-photo results.
+- **Out of scope:** any user-facing result, diagnosis, triage decisions, alerts, or anything that changes what a user does about care.
 
 ## Training data
 

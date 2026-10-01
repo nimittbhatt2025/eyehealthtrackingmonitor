@@ -156,21 +156,35 @@ export function paintVernier(canvas, { cx, cy, offsetPx, lengthPx, gapPx, sigmaP
   }
 }
 
-export const VERNIER_LIMITS = { minBiasArcsec: 60, biasToThreshold: 1.5, thresholdRatio: 3 }
+export const VERNIER_LIMITS = { minBiasArcsec: 60, biasToThreshold: 1.5, thresholdRatio: 3, maxBiasSdArcsec: 35, maxUncertainLocations: 1 }
 
 /**
  * Flag locations whose perceived alignment is shifted (bias) or whose
- * threshold is far above the other parafoveal locations.
+ * threshold is far above the other parafoveal locations (experimental: with 8–12
+ * trials the threshold posterior barely narrows from its prior, log SD ≈ 0.4 vs 0.49).
+ *
+ * Reliability: a location is uncertain when its bias posterior SD exceeds
+ * maxBiasSdArcsec (attentive observers ≈ 15–25″, random responders ≈ 30–45″);
+ * uncertain locations are never flagged. The eye's result is reliable when at most
+ * maxUncertainLocations locations are uncertain.
  */
 export function summarizeVernier(locations) {
   const entries = Object.entries(locations)
+  const uncertain = entries.filter(([, v]) => v.biasSd > VERNIER_LIMITS.maxBiasSdArcsec).map(([k]) => k)
   const parafoveal = entries.filter(([k]) => k !== 'center').map(([, v]) => v.threshold).sort((a, b) => a - b)
   const median = parafoveal.length ? parafoveal[Math.floor(parafoveal.length / 2)] : null
   const flags = []
   for (const [loc, v] of entries) {
+    if (uncertain.includes(loc)) continue
     const biasLimit = Math.max(VERNIER_LIMITS.minBiasArcsec, VERNIER_LIMITS.biasToThreshold * v.threshold)
     if (Math.abs(v.bias) > biasLimit && Math.abs(v.bias) > 2 * v.biasSd) flags.push({ location: loc, kind: 'bias' })
     if (loc !== 'center' && median && v.threshold > VERNIER_LIMITS.thresholdRatio * median) flags.push({ location: loc, kind: 'threshold' })
   }
-  return { flags, parafovealMedianThreshold: median, centerThreshold: locations.center?.threshold ?? null }
+  return {
+    flags,
+    parafovealMedianThreshold: median,
+    centerThreshold: locations.center?.threshold ?? null,
+    uncertainLocations: uncertain,
+    reliable: uncertain.length <= VERNIER_LIMITS.maxUncertainLocations,
+  }
 }

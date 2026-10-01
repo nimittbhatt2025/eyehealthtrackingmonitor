@@ -23,9 +23,9 @@ import {
 
 const BLINK_BAND_UI = {
   warming_up: { label: 'Measuring…', chip: 'bg-gray-600' },
-  low: { label: 'Low', chip: 'bg-orange-600' },
-  reduced: { label: 'A bit low', chip: 'bg-yellow-600' },
-  healthy: { label: 'Healthy', chip: 'bg-green-600' },
+  lower: { label: 'Lower observed rate', chip: 'bg-slate-600' },
+  intermediate: { label: 'Intermediate observed rate', chip: 'bg-slate-600' },
+  higher: { label: 'Higher observed rate', chip: 'bg-slate-600' },
 }
 
 const notificationsSupported = () => typeof window !== 'undefined' && 'Notification' in window
@@ -590,7 +590,7 @@ const OcularErgonomicsMonitor = () => {
     setBlinkRate(rate)
     setBlinkCount(countedBlinksRef.current)
 
-    if (blinkBand(rate) === 'low' && now - lastBlinkNudgeRef.current > BLINK_NUDGE_COOLDOWN_MS) {
+    if (blinkBand(rate) === 'lower' && now - lastBlinkNudgeRef.current > BLINK_NUDGE_COOLDOWN_MS) {
       lastBlinkNudgeRef.current = now
       blinkNudgesRef.current += 1
       generateAlert(
@@ -673,11 +673,11 @@ const OcularErgonomicsMonitor = () => {
     setBlinkSummary(blink)
     setBreakSummary(breaks)
 
-    if (blink.meanRatePerMin != null && blink.meanRatePerMin < BLINK_BANDS.healthy) {
+    if (blink.meanRatePerMin != null && blink.meanRatePerMin < BLINK_BANDS.higherFrom) {
       recs.push({
         type: 'blink',
-        title: 'Blink More Often',
-        description: `You averaged about ${Math.round(blink.meanRatePerMin)} blinks a minute. Relaxed blinking is around 15–20 a minute, and screen work often halves it, which can leave eyes dry and tired. Try a few slow, complete blinks whenever you finish a task, and set the screen slightly below eye level.`
+        title: 'Blink breaks',
+        description: `The camera counted about ${Math.round(blink.meanRatePerMin)} blinks a minute. Blinking often slows during screen work, which some people notice as dry or tired eyes. If that sounds familiar, try a few slow, complete blinks whenever you finish a task, and set the screen slightly below eye level. This is a coaching suggestion, not a health assessment.`
       })
     }
 
@@ -756,8 +756,10 @@ const OcularErgonomicsMonitor = () => {
             mean_rate_per_min: session.blink.meanRatePerMin,
             low_rate_fraction: session.blink.lowRateFraction,
             rated_seconds: session.blink.ratedSeconds,
-            low_threshold_per_min: BLINK_BANDS.low,
-            healthy_threshold_per_min: BLINK_BANDS.healthy,
+            coaching_category: blinkBand(session.blink.meanRatePerMin),
+            lower_below_per_min: BLINK_BANDS.lowerBelow,
+            higher_from_per_min: BLINK_BANDS.higherFrom,
+            category_note: 'Coaching categories for the observed rate (lower / intermediate / higher); not health classifications.',
             nudges: session.blink.nudges,
             counter_status: session.blink.counterStatus,
           },
@@ -1005,9 +1007,9 @@ const OcularErgonomicsMonitor = () => {
       if (breakCountdown != null) return 'Paused during your break.'
       if (!blinkCounting) return 'Face not in view — blink rate paused.'
       if (band === 'warming_up') return `Counting for ${blinkWarmupLeft}s more before showing a rate.`
-      if (band === 'low') return 'Well below the usual. Try a few slow, complete blinks.'
-      if (band === 'reduced') return 'Lower than when relaxed — common during screen work.'
-      return 'In the usual range for screen work.'
+      if (band === 'lower') return 'A few slow, complete blinks may feel more comfortable.'
+      if (band === 'intermediate') return 'Blinking often slows like this during screen work.'
+      return 'No blink prompt needed right now.'
     })()
 
     return (
@@ -1222,7 +1224,8 @@ const OcularErgonomicsMonitor = () => {
                 </div>
                 <p className="text-sm text-gray-300 mt-2" aria-live="polite">{blinkHint}</p>
                 <p className="text-xs text-gray-500 mt-1">
-                  {blinkCount} blink{blinkCount === 1 ? '' : 's'} counted. Relaxed blinking is about 15–20 a minute; below {BLINK_BANDS.low} is low.
+                  {blinkCount} blink{blinkCount === 1 ? '' : 's'} counted. Coaching categories: lower (under {BLINK_BANDS.lowerBelow}/min),
+                  intermediate ({BLINK_BANDS.lowerBelow}–{BLINK_BANDS.higherFrom - 1}), higher ({BLINK_BANDS.higherFrom}+). Not a health classification.
                 </p>
 
                 <div className="mt-4 pt-4 border-t border-gray-700 space-y-3">
@@ -1452,7 +1455,7 @@ const OcularErgonomicsMonitor = () => {
                     <div className="text-2xl font-bold text-cyan-700">
                       {blinkSummary.lowRateFraction != null ? `${Math.round(blinkSummary.lowRateFraction * 100)}%` : '—'}
                     </div>
-                    <div className="text-sm text-cyan-900">of time below {BLINK_BANDS.low}/min</div>
+                    <div className="text-sm text-cyan-900">of time below {BLINK_BANDS.lowerBelow}/min</div>
                   </div>
                   <div>
                     <div className="text-2xl font-bold text-cyan-700">
@@ -1466,11 +1469,7 @@ const OcularErgonomicsMonitor = () => {
                     ? blinkSummary.counterStatus === 'error'
                       ? 'The blink counter could not run on this device.'
                       : `Blink rate needs at least ${BLINK_WARMUP_MS / 1000} seconds with your face in view.`
-                    : blinkSummary.meanRatePerMin < BLINK_BANDS.low
-                      ? 'Your blink rate was low for much of this session. This is common while concentrating on a screen and is a feedback number, not a diagnosis.'
-                      : blinkSummary.meanRatePerMin < BLINK_BANDS.healthy
-                        ? 'Your blink rate was a little below relaxed levels, which is typical of screen work.'
-                        : 'Your blink rate stayed in the usual range.'}
+                    : `Observed blink rate: ${BLINK_BAND_UI[blinkBand(blinkSummary.meanRatePerMin)].label.toLowerCase()}. These are coaching categories for this session, not health classifications; camera counts vary with lighting, glasses and face angle.`}
                   {blinkSummary.nudges > 0 && ` We nudged you ${blinkSummary.nudges} time${blinkSummary.nudges === 1 ? '' : 's'}.`}
                 </p>
               </div>

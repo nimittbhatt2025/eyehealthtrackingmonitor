@@ -29,7 +29,7 @@ from app.utils.datetime_utils import serialize_utc_datetime
 from app.utils.trend_forecast import TEST_LABELS, build_per_test_trends
 
 # Bump when trend_forecast / change_detection output changes; old snapshots are then recomputed.
-ALGO_VERSION = 2
+ALGO_VERSION = 3
 
 
 def _json_safe(obj: Any) -> Any:

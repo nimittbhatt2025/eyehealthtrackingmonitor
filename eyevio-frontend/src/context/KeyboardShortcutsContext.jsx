@@ -15,7 +15,6 @@ export function KeyboardShortcutsProvider({ children }) {
     'g e': () => navigate('/eye-tracking-analysis'),
     'g l': () => navigate('/lifestyle'),
     'g a': () => navigate('/achievements'),
-    'g c': () => navigate('/community'),
     'g s': () => navigate('/settings'),
     'g h': () => navigate('/help'),
     'g p': () => navigate('/profile'),

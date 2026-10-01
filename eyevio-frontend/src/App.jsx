@@ -51,6 +51,7 @@ const BlinkCalibration = lazy(() => import('./pages/BlinkCalibration'))
 const EyeTrackingAnalysis = lazy(() => import('./pages/EyeTrackingAnalysis'))
 const EyeHealthMonitor = lazy(() => import('./pages/EyeHealthMonitor'))
 const CataractOpacityMonitor = lazy(() => import('./pages/CataractOpacityMonitor'))
+const ResearchLab = lazy(() => import('./pages/ResearchLab'))
 const MyopiaProgression = lazy(() => import('./pages/MyopiaProgression'))
 const DigitalWellbeing = lazy(() => import('./pages/DigitalWellbeing'))
 const FamilyDashboard = lazy(() => import('./pages/FamilyDashboard'))
@@ -160,6 +161,7 @@ function App() {
                 <Route path="/blink-calibration" element={<Navigate to="/calibrate-blink" replace />} />
                 
                 <Route path="/eye-conditions" element={<EyeConditions />} />
+                <Route path="/research-lab" element={<ResearchLab />} />
                 <Route path="/lifestyle" element={<Lifestyle />} />
                 <Route path="/achievements" element={<Achievements />} />
                 <Route path="/community" element={<Community />} />
