@@ -43,7 +43,7 @@ def submit_vision_test():
     """
     Submit a new vision test result
     
-    Supported home-check types (research prototype; not clinically validated, not a medical device):
+    Supported home-check types (unvalidated research and educational prototype; not clinically validated):
     - visual_acuity: Letter-chart home check (not a refraction)
     - color_vision: Confusion-axis colour thresholds, u'v' x 1e-4 (not occupational certification)
     - contrast_sensitivity: qCSF grating curve at 1 m (not a clinical CSF / Pelli-Robson exam)

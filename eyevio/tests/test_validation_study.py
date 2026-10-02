@@ -182,6 +182,22 @@ def test_analyze_script_simulated_end_to_end(tmp_path):
     assert results['paediatric']['measures']['acuity_logmar']['agreement']['n'] > 0
 
 
+def test_staged_acuity_only_analysis(tmp_path):
+    spec = importlib.util.spec_from_file_location('validation_analyze', REPO / 'scripts' / 'validation_analyze.py')
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert mod.main(['--simulate', '40', '--measures', 'acuity_logmar', '--out', str(tmp_path), '--no-plots']) == 0
+    results = json.loads((tmp_path / 'results.json').read_text(encoding='utf-8'))
+    assert list(results['measures']) == ['acuity_logmar']
+    assert results['measures_selected'] == ['acuity_logmar']
+    assert set(results['completion']) == {'visual_acuity'}
+    report = (tmp_path / 'report.md').read_text(encoding='utf-8')
+    assert 'Measures analysed (staged study): `acuity_logmar`' in report
+    assert 'Convergent validity' not in report and 'npc_break_cm' not in report
+    with pytest.raises(ValueError):
+        analyse([], [], measures=['not_a_measure'])
+
+
 def test_contrast_vs_pelli_robson_is_convergent_not_agreement():
     m = MEASURES['contrast_logcs_1cpd']
     assert m.comparison == 'convergent' and m.loa_target is None and m.icc_target is None

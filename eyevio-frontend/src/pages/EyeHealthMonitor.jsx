@@ -625,7 +625,7 @@ export default function EyeHealthMonitor() {
           ) : (
             <div className="card p-5 text-center text-sm text-gray-600">
               <p className="font-medium text-gray-900 mb-1">No saved photos yet</p>
-              <p>Take your first monthly photo — it will appear here with the date and health score.</p>
+              <p>Take your first monthly photo — it will appear here with its date and capture-quality checks.</p>
             </div>
           )}
 

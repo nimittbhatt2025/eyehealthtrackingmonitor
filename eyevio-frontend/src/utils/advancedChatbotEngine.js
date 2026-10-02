@@ -113,7 +113,7 @@ class MedicalSafetyFilter {
   }
 
   wrapWithDisclaimer(content) {
-    return `**Research prototype — not clinically validated.** ${POSITIONING}\n\n${content}\n\nPlease consult an eye care professional for diagnosis and treatment.`
+    return `**Unvalidated research and educational prototype.** ${POSITIONING}\n\n${content}\n\nPlease consult an eye care professional for diagnosis and treatment.`
   }
 
   requiresProfessionalConsult(userInput) {

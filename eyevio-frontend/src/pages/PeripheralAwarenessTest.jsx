@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { visionTestAPI } from '../services/api'
 import EyeTracker from '../utils/eyeTracker'
 import SamdDisclaimer from '../components/SamdDisclaimer'
+import { DISPLAY_INDEX_LABEL } from '../utils/displayIndex'
 import {
   scorePeripheralAwareness,
   eccentricityDeg,
@@ -861,20 +862,6 @@ const PeripheralAwarenessTest = () => {
 
   // Render results
   const renderResults = () => {
-    const getScoreColor = (score) => {
-      if (score >= 80) return 'text-green-600'
-      if (score >= 60) return 'text-yellow-600'
-      if (score >= 40) return 'text-orange-600'
-      return 'text-red-600'
-    }
-
-    const getScoreBg = (score) => {
-      if (score >= 80) return 'bg-green-100 border-green-300'
-      if (score >= 60) return 'bg-yellow-100 border-yellow-300'
-      if (score >= 40) return 'bg-orange-100 border-orange-300'
-      return 'bg-red-100 border-red-300'
-    }
-
     return (
       <div className="test-shell">
         <div className="max-w-4xl mx-auto">
@@ -887,28 +874,12 @@ const PeripheralAwarenessTest = () => {
 
           <div className="test-panel p-8 md:p-12">
             <div className="text-center mb-8">
-              <div className="text-4xl font-bold mb-4 text-gray-700">
-                {fieldScore >= 80 ? 'EXCELLENT' : fieldScore >= 60 ? 'GOOD' : fieldScore >= 40 ? 'FAIR' : 'NEEDS ATTENTION'}
-              </div>
-              <h1 className="page-title mb-2">Peripheral Vision Results</h1>
-            </div>
-
-            {/* Main score */}
-            <div className={`border-2 rounded-2xl p-8 mb-8 text-center ${getScoreBg(fieldScore)}`}>
-              <h3 className="text-sm font-semibold text-gray-700 mb-2">SIDE AWARENESS SCORE</h3>
-              <div className={`text-7xl font-bold ${getScoreColor(fieldScore)} mb-4`}>
-                {fieldScore}
-              </div>
-              <p className="text-lg font-semibold text-gray-700">
-                {fieldScore >= 80 ? 'Excellent Peripheral Awareness!' :
-                 fieldScore >= 60 ? 'Good - Some room for improvement' :
-                 fieldScore >= 40 ? 'Moderate - try again when rested' :
-                 'Low this game - check your setup and try again'}
-              </p>
+              <h1 className="page-title mb-2">Side Vision Game results</h1>
+              <p className="text-sm text-gray-600">A reaction game, not a visual-field test.</p>
             </div>
 
             {/* Stats */}
-            <div className="grid md:grid-cols-3 gap-4 mb-8">
+            <div className="grid md:grid-cols-3 gap-4 mb-2">
               <div className="bg-blue-50 rounded-xl p-6 text-center">
                 <div className="text-3xl font-bold text-blue-600 mb-2">{totalHits}</div>
                 <div className="text-sm text-blue-800">Targets Hit</div>
@@ -922,6 +893,9 @@ const PeripheralAwarenessTest = () => {
                 <div className="text-sm text-indigo-800">Avg Reaction Time</div>
               </div>
             </div>
+            <p className="text-xs text-gray-500 mb-8 text-center">
+              Game index {fieldScore}/100 — {DISPLAY_INDEX_LABEL.toLowerCase()}.
+            </p>
 
             {eccFit && eccFit.trials.length > 0 && (
               <div className="rounded-2xl border border-gray-200 p-6 mb-8">

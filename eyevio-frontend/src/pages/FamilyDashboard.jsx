@@ -396,7 +396,7 @@ function FamilyDashboard() {
                 <p className="text-xs text-gray-500 mt-3">
                   Last test:{' '}
                   {c.last_test
-                    ? `${c.last_test.test_type} · ${Math.round(c.last_test.score)}%`
+                    ? c.last_test.test_type.replace(/_/g, ' ')
                     : 'none yet'}
                   {c.test_overdue ? ' · overdue' : ''}
                   {c.myopia_se != null ? ` · SE ${c.myopia_se.toFixed(2)} D` : ''}

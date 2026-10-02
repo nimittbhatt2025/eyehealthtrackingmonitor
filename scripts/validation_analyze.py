@@ -12,6 +12,8 @@ and adult / paediatric populations reported separately.
       --sessions ../data/validation/sessions.csv \
       --out ../docs/validation/results
 
+Staged study (acuity first): add --measures acuity_logmar.
+
 Dry run on synthetic data (output is labelled SIMULATED):
   ... validation_analyze.py --simulate 60 --out /tmp/validation_demo
 
@@ -74,7 +76,8 @@ def simulate(n: int, seed: int = 7):
             'age_group': 'paediatric' if paediatric else 'adult',
             'consent_type': 'parental_permission' if paediatric else 'adult_consent', 'consent_version': 'SIM',
             'consent_date': (t0 + timedelta(days=i)).date().isoformat(), 'assent_obtained': 'yes' if paediatric else '',
-            'test_order': ';'.join(order), 'habitual_correction': correction, 'ocular_history': '',
+            'test_order': ';'.join(order), 'device_stratum': 'phone' if device[0] == 'phone' else 'computer',
+            'habitual_correction': correction, 'ocular_history': '',
             'withdrawn_at': (t0 + timedelta(days=i + 2)).date().isoformat() if i % 29 == 0 else '',
             'withdrawal_reason': 'SIM' if i % 29 == 0 else '', 'retain_until': '',
         })
@@ -182,6 +185,8 @@ def main(argv=None) -> int:
     p.add_argument('--eye-policy', choices=('one', 'all'), default='one',
                    help='one: right eye per participant (independent observations, primary); '
                         'all: both eyes with participant-cluster bootstrap CIs (sensitivity analysis)')
+    p.add_argument('--measures', nargs='+', metavar='MEASURE', choices=sorted(MEASURES),
+                   help='analyse only these measures (staged study, e.g. --measures acuity_logmar); default: all')
     p.add_argument('--simulate', type=int, metavar='N', help='ignore input files and use N synthetic participants')
     p.add_argument('--no-plots', action='store_true')
     args = p.parse_args(argv)
@@ -209,7 +214,8 @@ def main(argv=None) -> int:
     if unknown:
         print(f'Ignoring unknown reference measures: {", ".join(unknown)}', file=sys.stderr)
 
-    results = analyse(app, ref, eye_policy=args.eye_policy, sessions=sessions, participants=participants)
+    results = analyse(app, ref, eye_policy=args.eye_policy, sessions=sessions, participants=participants,
+                      measures=args.measures)
     results['simulated'] = bool(args.simulate)
     plots = {} if args.no_plots else make_plots(results, out)
     generated = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')

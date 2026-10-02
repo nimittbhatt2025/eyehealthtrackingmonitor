@@ -594,14 +594,14 @@ export default function EyeTrackingAnalysis() {
                 )}
 
                 <div className="grid grid-cols-2 gap-2">
-                  {renderMetricCard('Blink rate', metrics.blinkRate, '/min', 'Normal: 12–20', <Eye className="w-3.5 h-3.5" />)}
+                  {renderMetricCard('Blink rate', metrics.blinkRate, '/min', 'Typical at rest: 12–20', <Eye className="w-3.5 h-3.5" />)}
                   {renderMetricCard('Total blinks', metrics.totalBlinks, '', 'Detected', <Activity className="w-3.5 h-3.5" />)}
-                  {renderMetricCard('Avg duration', metrics.avgBlinkDuration, 'ms', 'Normal: 100–300', <Zap className="w-3.5 h-3.5" />)}
+                  {renderMetricCard('Avg duration', metrics.avgBlinkDuration, 'ms', 'Typical: 100–300', <Zap className="w-3.5 h-3.5" />)}
                   {renderMetricCard(
                     'Fatigue index',
                     metrics.fatigueScore,
                     '/100',
-                    'Display index',
+                    'Display index, not validated',
                     <TrendingUp className="w-3.5 h-3.5 text-gray-500" />
                   )}
                 </div>

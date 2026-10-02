@@ -43,7 +43,7 @@ APP_COLUMNS = ['participant_id', 'measure', 'eye', 'session', 'test_id', 'taken_
 REFERENCE_COLUMNS = ['participant_id', 'measure', 'eye', 'value', 'measured_at', 'examiner', 'correction', 'notes']
 PARTICIPANT_COLUMNS = [
     'participant_id', 'email', 'enrolled_at', 'age_years', 'age_group', 'consent_type', 'consent_version',
-    'consent_date', 'assent_obtained', 'test_order', 'habitual_correction', 'ocular_history',
+    'consent_date', 'assent_obtained', 'test_order', 'device_stratum', 'habitual_correction', 'ocular_history',
     'withdrawn_at', 'withdrawal_reason', 'retain_until',
 ]
 SESSION_COLUMNS = [
@@ -462,9 +462,11 @@ def _subgroups(m: Measure, ref_pairs: List[Dict[str, Any]], rt_pairs: List[Dict[
     return out
 
 
-def _analyse_population(app, reference, eye_policy: str, sessions: Optional[SessionIndex]) -> Dict[str, Any]:
+def _analyse_population(
+    app, reference, eye_policy: str, sessions: Optional[SessionIndex], selected: Sequence[Measure],
+) -> Dict[str, Any]:
     measures: Dict[str, Any] = {}
-    for m in MEASURES.values():
+    for m in selected:
         produced = [r for r in app if r['measure'] == m.name]
         at_limit = sum(1 for r in produced if _flags(r) & set(m.exclude_flags))
         exclusions: Dict[str, int] = {'at_test_limit': at_limit} if at_limit else {}
@@ -529,14 +531,28 @@ def analyse(
     eye_policy: str = 'one',
     sessions: Optional[Sequence[Dict[str, Any]]] = None,
     participants: Optional[Sequence[Dict[str, Any]]] = None,
+    measures: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
     """
     Primary population: adults. Paediatric participants are analysed separately and never
     pooled with adults. Withdrawn participants are removed from every analysis and counted.
     Without a participants file, everyone is analysed as one population.
+
+    `measures` restricts the analysis (and the testability table) to those measure names,
+    for a staged study such as acuity first. Default: every measure in MEASURES.
     """
+    if measures:
+        unknown = sorted(set(measures) - set(MEASURES))
+        if unknown:
+            raise ValueError(f'Unknown measures: {", ".join(unknown)}')
+        selected = [MEASURES[name] for name in measures]
+    else:
+        selected = list(MEASURES.values())
+    test_types = {m.test_type for m in selected}
+    if sessions:
+        sessions = [s for s in sessions if _clean(s.get('test_type')) in test_types]
     s_index = index_sessions(sessions) if sessions else None
-    results: Dict[str, Any] = {'eye_policy': eye_policy, 'rules': {
+    results: Dict[str, Any] = {'eye_policy': eye_policy, 'measures_selected': [m.name for m in selected], 'rules': {
         'max_reference_gap_hours': MAX_REFERENCE_GAP_HOURS,
         'retest_window_days': [RETEST_MIN_DAYS, RETEST_MAX_DAYS],
         'subgroup_min_n': SUBGROUP_MIN_N,
@@ -566,7 +582,7 @@ def analyse(
     for group, ids in groups.items():
         keep = (lambda r: True) if ids is None else (lambda r, ids=ids: r['participant_id'] in ids)
         measures = _analyse_population(
-            [r for r in app if keep(r)], [r for r in reference if keep(r)], eye_policy, s_index,
+            [r for r in app if keep(r)], [r for r in reference if keep(r)], eye_policy, s_index, selected,
         )
         completion = completion_summary(sessions, ids) if sessions else None
         if group == 'adult':
@@ -591,7 +607,9 @@ def _mark(ok: Optional[bool]) -> str:
 
 
 def _measure_tables(measures: Dict[str, Any], eye_policy: str) -> List[str]:
-    lines = [
+    has_agreement = any(e.get('agreement') for e in measures.values())
+    has_convergent = any(e.get('convergent') for e in measures.values())
+    lines = [] if not has_agreement else [
         '### Agreement with the clinical reference (same quantity)',
         '',
         'Differences are app − reference. LoA = bias ± 1.96·SD of differences. ICC(A,1) = two-way random, '
@@ -623,7 +641,7 @@ def _measure_tables(measures: Dict[str, Any], eye_policy: str) -> List[str]:
                 f'| ↳ participant-cluster bootstrap | | | {_ci(cb.get("bias_ci"))} '
                 f'| lower {_ci(cb.get("loa_lower_ci"))}, upper {_ci(cb.get("loa_upper_ci"))} | | | | |'
             )
-    lines += [
+    lines += [] if not has_convergent else [
         '',
         '### Convergent validity (related but different quantities)',
         '',
@@ -717,6 +735,12 @@ def report_markdown(results: Dict[str, Any], generated_at: str, plots: Dict[str,
         f'Rules: reference and app session 1 within {rules.get("max_reference_gap_hours", "—")} h; same correction for both '
         f'methods; retest {"–".join(str(d) for d in rules.get("retest_window_days", []))} days after session 1.',
         '',
+    ]
+    selected = results.get('measures_selected') or []
+    if selected and len(selected) < len(MEASURES):
+        lines += [f'Measures analysed (staged study): {", ".join(f"`{m}`" for m in selected)}. '
+                  'Other measures were not part of this analysis.', '']
+    lines += [
         '## Population',
         '',
     ]

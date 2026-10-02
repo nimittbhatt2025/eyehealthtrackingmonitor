@@ -179,7 +179,7 @@ function Dashboard() {
             <div>
               <p className="text-sm font-medium text-amber-800">Monthly eye photo due</p>
               <p className="text-gray-700 text-sm mt-1">
-                {photoStatus.message || 'Compare this month\'s photo to prior months and get alerted if your condition worsens.'}
+                {photoStatus.message || 'Take this month\'s photo to keep your photo timeline up to date.'}
               </p>
             </div>
             <span className="btn-primary min-h-[44px] inline-flex items-center">Take photo</span>
@@ -192,9 +192,6 @@ function Dashboard() {
           <p className="text-sm font-medium text-emerald-900">Eye photo up to date</p>
           <p className="text-sm text-emerald-800 mt-1">
             {photoStatus.message}
-            {photoStatus.last_health_score != null && (
-              <> · Last score: <strong>{photoStatus.last_health_score}</strong>/100</>
-            )}
           </p>
         </div>
       )}

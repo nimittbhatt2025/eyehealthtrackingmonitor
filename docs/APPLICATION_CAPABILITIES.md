@@ -368,7 +368,7 @@ Method: `eccentricity_psychometric`, version 2.
 - **Reaction time:** a Theil–Sen line of reaction time against eccentricity (ms per degree), plus the median reaction time.
 - Taps made while looking away from the centre count as misses but are left out of both fits.
 - **Eccentricity** uses the card-calibrated scale and an assumed 50.8 cm viewing distance.
-- The wording is "side awareness", not a vision measurement.
+- The wording is "side awareness", not a vision measurement. The results page is titled "Side Vision Game results — a reaction game, not a visual-field test". It leads with hits, misses, reaction time and the two fits. The 0–100 game index is a small labelled line with no grade.
 
 ### 4.13 Posture & Lighting Check — ocular ergonomics
 
@@ -383,7 +383,7 @@ Method: `eccentricity_psychometric`, version 2.
   - Every 20 min (or 30 min, or 1 min to try it out), an overlay offers a 20-second "look 6 metres away" break or "Snooze 5 min". "Break now" is always available.
   - With permission, a browser notification fires when the tab is in the background.
   - Distance and lighting alerts pause during a break.
-- **Display index** (not clinically validated): reflects lighting and distance alerts only. Blink nudges and breaks never lower it.
+- **Display index** (not clinically validated): reflects lighting and distance alerts only. Blink nudges and breaks never lower it. It is shown as a small "Setup index" line with no grade or colour; the results lead with duration, distance band, blinks and breaks.
 - **Saved data:** `blink_rate` and `breaks_20_20_20` in `test_details`.
 
 ---
@@ -495,7 +495,7 @@ Code: `eyevio/app/utils/change_detection.py`.
 ## 8. Reports and data export
 
 - **Health report** (`/reports`; `GET /api/report?days=30&format=pdf|json`): per-test latest native measurement (OD/OS) and session counts, webcam blink summary, lifestyle patterns and lens information for a chosen period. Fatigue and lens effectiveness appear only as labelled display indices; no score-based recommendations.
-- **Clinician one-pager** (`GET /api/report/clinician`): a single-page PDF headed "RESEARCH PROTOTYPE · Not clinically validated · Not a medical device". It contains:
+- **Clinician one-pager** (`GET /api/report/clinician`): a single-page PDF headed "UNVALIDATED RESEARCH & EDUCATIONAL PROTOTYPE · Not clinically validated · Not for diagnosis or treatment". It contains:
   - the latest home result per test **in native units** (logMAR, AULCSF, Δ logCS with the contrast multiplier, thresholds, deg², NPC cm with reported and camera values, Near Blur arcmin, OSDI, blink rate and blur-report time), with OD/OS and date. 0–100 app indices are omitted, and Eye Glow is left out entirely;
   - a sparkline of better-eye logMAR from the current acuity method;
   - up to five "automated notes (not clinically validated)", **unranked**, from alerts that are still in use;
@@ -547,7 +547,7 @@ Code: `eyevio/app/utils/change_detection.py`.
   - Each answer names the library entries it used, quotes the exact items that matched, and shows match strength as strong, moderate or partial.
   - It **abstains** when a message isn't about eyes or matches too weakly.
 - **Help & Resources** (`/help`): FAQ, eye-health tips, a vision glossary and a support contact.
-- **Achievements** (`/achievements`): 15 badges for test milestones, streaks (3-day, week, month), high scores, lifestyle logging and Early Adopter.
+- **Achievements** (`/achievements`): 12 badges for test milestones, streaks (3-day, week, month), lifestyle logging and Early Adopter. No badge depends on a test result or display index.
 - **Community:** roadmap only. It is not in the navigation or keyboard shortcuts of this build; the placeholder page at `/community` is labelled "Roadmap only" and has no posting, messaging or sharing.
 
 ---
@@ -735,7 +735,10 @@ Approval also requires a masked-eye shortcut control recorded in the model card.
 **What is not yet validated:** agreement of any home test with its clinical reference, and the real test–retest repeatability of each test on users' own devices.
 
 **Validation study (protocol v2.0, ready for ethics review and preregistration).** The protocol is in `docs/validation/PROTOCOL.md`.
-- **Design:** a clinic visit with masked reference tests and the app, plus an app retest at home 1–7 days later. Method order and app test order are randomised per participant.
+- **Design:** a clinic visit with masked reference tests and the app, plus an app retest at home 1–7 days later.
+  - **Randomisation:** method order and app test order are randomised per participant, stratified by arm and device class (phone vs computer).
+  - **Recruitment quota:** at least 25 analysable adults per device stratum.
+  - **Staging:** the study may run acuity first (stage 1, the primary endpoint), with an interim-report rule when fewer than 60 adults are analysable.
 - **Participants:** adults, 60 analysable (75 recruited), at least a third with reduced vision so the range is wide enough for ICC to mean something. A **separate paediatric arm** (8–17) is analysed and reported on its own, never pooled with adults, and starts only after the school or fair's human-participant requirements are met.
 - **Comparisons:**
   - **agreement** (same quantity): acuity against an ETDRS chart at 4 m; NPC against an RAF rule;
@@ -753,9 +756,10 @@ Approval also requires a masked-eye shortcut control recorded in the model card.
 - **Pre-specified targets:** primary endpoint is adult acuity agreement (|bias| ≤ 0.05 logMAR, LoA half-width ≤ 0.15 logMAR, ICC(A,1) lower CI ≥ 0.75). Key secondary: qCSF CoR at 1 c/deg ≤ 0.30 logCS. Contrast vs Pelli–Robson: Pearson r lower CI ≥ 0.50.
 - **Tools:**
   - `scripts/validation_export.py` pulls participants' results from the database (participant IDs only; withdrawn participants skipped) and can write a draft sessions file that includes unreliable attempts.
-  - `scripts/validation_analyze.py` reads app results, references, participants and sessions, and writes `report.md`, `results.json`, Bland–Altman plots for agreement and retest, and scatter plots for convergent validity. `--simulate N` runs a labelled dry run with synthetic devices, corrections, failures, withdrawals and a paediatric arm.
+  - `scripts/validation_analyze.py` reads app results, references, participants and sessions, and writes `report.md`, `results.json`, Bland–Altman plots for agreement and retest, and scatter plots for convergent validity. `--simulate N` runs a labelled dry run with synthetic devices, corrections, failures, withdrawals and a paediatric arm. `--measures acuity_logmar` restricts the analysis and the testability table to stage 1.
   - Templates (`participants.csv`, `reference_measurements.csv`, `sessions.csv`) are in `docs/validation/templates/`.
 - **Feedback into the product:** the measured test–retest SDs will replace the provisional priors in change detection.
+- **Science fair:** `docs/SCIENCE_FAIR.md` presents only the stage 1 acuity study as the experiment, with fixed hypotheses, a results table to fill in from the study and a pre-judging checklist. The rest of EyeVio appears there only as context.
 - **Later options for a true contrast agreement study:** an EyeVio Pelli–Robson-style letter task compared with the Pelli–Robson chart, or the qCSF compared with a validated CSF system at matched spatial frequencies.
 
 ---
@@ -906,7 +910,7 @@ All endpoints are under `/api` and need a JWT unless noted.
 | Vision-scoring checks (`scripts/run-vision-scoring-tests.mjs`) | 142 checks | Adaptive procedures and scoring in simulation, including guess correction, vernier, side-vision reliability and rates, glare ceiling, perfect-run behaviour, blur-report time, Eye Glow outcomes, the Near Blur protocol, NPC camera confidence and break combination, and blink coaching categories |
 | Chatbot retrieval checks | fixture set | Correct library entries and abstention |
 | On-device parity (`npm run test:parity`) | 276 checks on 6 fixtures (+ model outputs when weights are present) | Browser pipeline against the server pipeline, number by number |
-| Backend (`eyevio/tests/`) | 129 pytest tests | Change detection (native units, display index never alerts, same-display colour, separate glare sources, Eye Glow not tracked, NPC v2), submission rules (nullable score, retired indices, optional indices, legacy side-vision mapping), native-measure summaries and the clinician PDF, trends, cataract screening, CORN maths and release gate, on-device validation and output withholding, uploads, jobs, trend snapshots, the validation-study statistics (agreement, convergent validity, exclusions, completion, adult/paediatric split, cluster bootstrap), the API |
+| Backend (`eyevio/tests/`) | 130 pytest tests | Change detection (native units, display index never alerts, same-display colour, separate glare sources, Eye Glow not tracked, NPC v2), submission rules (nullable score, retired indices, optional indices, legacy side-vision mapping), native-measure summaries and the clinician PDF, trends, cataract screening, CORN maths and release gate, on-device validation and output withholding, uploads, jobs, trend snapshots, the validation-study statistics (agreement, convergent validity, exclusions, completion, adult/paediatric split, cluster bootstrap, acuity-only staging), the API |
 
 **Stimulus tests in detail**
 - They render gratings, vernier pairs, Gaussian blobs, Tumbling E and the Landolt C on a stub canvas.
@@ -990,7 +994,7 @@ All endpoints are under `/api` and need a JWT unless noted.
 
 ## 20. Roadmap
 
-1. **Obtain ethics approval, preregister and run the validation study** (Section 14), adults first. Publish the agreement, convergent-validity, repeatability and testability results, and replace the change-detection priors with the measured test–retest SDs. Start the paediatric arm only after the school or fair's requirements are met.
+1. **Obtain ethics approval, preregister and run the validation study** (Section 14), adults first, starting with the stage 1 acuity reference comparison and retest, **before the science fair is judged**. Publish the agreement, convergent-validity, repeatability and testability results, and replace the change-detection priors with the measured test–retest SDs. Start the paediatric arm only after the school or fair's requirements are met.
 2. **Confirm the OSDI licence** with AbbVie or its authorized licensing organization before any public deployment.
 3. **Image models:** collect an external, clinician-labelled test set from the same kind of camera, and repeat the masking test. No model returns a user-facing result until performance is shown to depend on the eye.
 4. **A Pelli–Robson-style letter contrast task,** so contrast can be validated by agreement with the chart.
@@ -1027,6 +1031,10 @@ All endpoints are under `/api` and need a JWT unless noted.
 - **Privacy and security documentation:**
   - Section 11 states each control as implemented, partial or not implemented, and adds retention and deletion of derived ocular metrics.
   - New standalone **Child privacy** section (Section 12); later sections renumbered.
+- **Positioning wording:** the in-app headline and the clinician PDF header read "Unvalidated research and educational prototype"; "Not a medical device" removed everywhere.
+- **0–100 numbers:** Ergonomics and Side Vision Game results no longer lead with a graded score (the index is a small labelled line). The Test Details "performance radar" (invented speed, consistency and focus percentages) was removed. The dashboard photo score and the Family dashboard percentage were removed. The three score-based achievement badges were removed.
+- **Validation protocol:** randomisation stratified by device class with a per-stratum recruitment quota (`device_stratum` in `participants.csv`); optional acuity-first staging with an interim rule; NPC row updated to method version 2; `validation_analyze.py --measures`.
+- **Science fair:** `docs/SCIENCE_FAIR.md`, the focused acuity experiment.
 - **In-app privacy copy:**
   - The Settings "Delete account" button no longer reports a deletion that never happened; it is disabled, with an explanation.
   - The browser-only retention, anonymous-data and public-profile controls were removed.

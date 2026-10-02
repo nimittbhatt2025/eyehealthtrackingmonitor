@@ -329,8 +329,8 @@ def render_clinician_pdf(payload: Dict[str, Any]) -> BytesIO:
     c.setFont('Times-Bold', 16)
     c.drawString(ml, height - 0.36 * inch, 'EyeVio  ·  Home-check summary')
     c.setFont('Helvetica', 8)
-    c.drawRightString(width - mr, height - 0.28 * inch, 'RESEARCH PROTOTYPE')
-    c.drawRightString(width - mr, height - 0.44 * inch, 'Not clinically validated  ·  Not a medical device')
+    c.drawRightString(width - mr, height - 0.28 * inch, 'UNVALIDATED RESEARCH & EDUCATIONAL PROTOTYPE')
+    c.drawRightString(width - mr, height - 0.44 * inch, 'Not clinically validated  ·  Not for diagnosis or treatment')
 
     y = height - 0.82 * inch
     patient = payload['patient']

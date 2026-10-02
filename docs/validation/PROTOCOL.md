@@ -20,7 +20,7 @@ A prospective method-comparison study with a test–retest arm.
 - **Visit 1 (clinic):** reference tests by an examiner, and the app tests done by the participant on their own device.
 - **Visit 2 (home):** the app tests are repeated 1–7 days later, with the same device and the same correction, and the time of day within ±2 h of visit 1 (recorded; not an exclusion).
 
-**Randomisation.** Before enrolment, a computer-generated sequence (block size 4, stratified by arm) allocates each participant:
+**Randomisation.** Before enrolment, a computer-generated sequence (block size 4, stratified by arm and by device class: phone or computer, with tablets in the computer stratum) allocates each participant:
 - **method order** at visit 1: app first or reference first;
 - **app test order**: a random permutation of the app tests, used at both visits.
 
@@ -68,6 +68,12 @@ Recorded for every app session in `sessions.csv`:
 | `camera` | front, built-in, external |
 | `ambient_lux` | lux meter reading at the participant's eye position |
 
+**Device stratification.** Participants use their own device, so device class can't be randomised. Instead, recruitment is stratified:
+- **Quota:** at least 25 analysable adults in each of the phone and computer strata.
+- **Recruiting:** once a stratum reaches its share of the 75 recruits (about 37), only the other stratum is recruited.
+- **Allocation:** the randomisation sequence is generated separately within each stratum, so method order and test order stay balanced inside each device class.
+- **Records:** the stratum is recorded at screening (`participants.csv`, `device_stratum`) and checked against `sessions.csv` `device_class` at visit 1. A participant who switches device class is analysed in the stratum of the device actually used and is counted.
+
 **Device-class analysis.** Agreement, correlation and repeatability are reported by device class when a class has at least 10 analysable pairs. These subgroup results are descriptive: the study is not powered to test differences between device classes.
 
 ## 5. Measurements
@@ -77,7 +83,7 @@ All monocular tests are done on each eye with the other eye covered by an occlud
 | `measure` (CSV) | App test (method version) | Reference | Comparison | `eye` values |
 |---|---|---|---|---|
 | `acuity_logmar` | Visual acuity, Sloan/ETDRS forced choice (v2) | ETDRS chart at 4 m, 80–320 cd/m² (ISO 8596), letter-by-letter scoring at 0.02 logMAR per letter, standard termination | Agreement | `right`, `left` |
-| `npc_break_cm` | Near point of convergence, camera (v1) | RAF rule push-up with an accommodative target, about 1–2 cm/s. Break = reported doubling or seen loss of convergence. Mean of 3 trials, measured from the outer canthus | Agreement | `both` |
+| `npc_break_cm` | Near point of convergence (v2): the earlier of the reported doubling and a camera break that passed its confidence checks | RAF rule push-up with an accommodative target, about 1–2 cm/s. Break = reported doubling or seen loss of convergence. Mean of 3 trials, measured from the outer canthus | Agreement | `both` |
 | `contrast_logcs_1cpd` | Contrast sensitivity, qCSF, logCS at 1 c/deg (v2) | Pelli–Robson chart at 1 m, 60–120 cd/m², letter-by-letter scoring at 0.05 logCS per letter (Elliott et al. 1991) | **Convergent** | `right`, `left` |
 | `contrast_aulcsf` | qCSF AULCSF (v2) | none | Repeatability only | `right`, `left` |
 | `glare_delta_logcs` | Glare Δ logCS (v2) | none | Repeatability only | `both` |
@@ -220,6 +226,15 @@ Keep the approvals and signed forms with the study file. If any item cannot be c
 
 ## 13. Preregistration and running the analysis
 
+### Staging: acuity first
+
+The study may run in two stages, declared in the preregistration before enrolment:
+- **Stage 1:** only the acuity reference test (ETDRS) and the app acuity test, at both visits. This answers the primary endpoint (acuity agreement) and acuity repeatability.
+- **Stage 2:** the remaining measures, with the same participants or new ones.
+
+Stage 1 is analysed with `--measures acuity_logmar`; its targets and exclusions are those in sections 7 and 9.
+- **Fewer than 60 analysable adults** at the stage 1 analysis: the report is labelled **interim**, all statistics are given with their CIs, and a target counts as met only under its pre-specified rule. Targets are not changed.
+
 ### Preregistration
 
 Before the first participant is enrolled, register the study publicly (for example on OSF Registries, or on a clinical trial registry if the review body requires it). The registration includes:
@@ -232,7 +247,7 @@ The final report lists every deviation from the registration with its reason.
 ### Running the analysis
 
 1. Copy `docs/validation/templates/*.csv` to `data/validation/`, which is gitignored and never committed.
-   - `participants.csv`: one row per participant. `participant_id` (P001…), app account email, age and `age_group` (`adult` / `paediatric`), consent and assent fields, the randomised `test_order`, `habitual_correction`, withdrawal and `retain_until`.
+   - `participants.csv`: one row per participant. `participant_id` (P001…), app account email, age and `age_group` (`adult` / `paediatric`), consent and assent fields, the randomised `test_order`, `device_stratum`, `habitual_correction`, withdrawal and `retain_until`.
    - `reference_measurements.csv`: one row per reference value, with the `measure` and `eye` names from section 5, `measured_at`, `examiner` and the `correction` worn.
    - `sessions.csv`: one row per attempted app test per visit, with `visit` (1 or 2), `status`, `failure_reason`, `correction` and the device and environment fields from section 4.
 2. Export the app results (the output contains participant IDs only; withdrawn participants are skipped). `--sessions-out` writes a draft `sessions.csv` from the stored attempts, including ones flagged unreliable; staff add the visit, correction, device details, and attempts that never reached the server:
@@ -261,7 +276,8 @@ The final report lists every deviation from the registration with its reason.
 ## 14. Changes from version 1.0
 
 - Contrast at 1 c/deg vs Pelli–Robson changed from agreement (Bland–Altman, ICC) to convergent validity (correlation only). qCSF repeatability is now the key secondary endpoint.
-- Added: randomised app test order; correction recording and the same-correction rule; device and environment recording with device-class analysis; time-gap and retest-window rules; a full list of pre-defined exclusions; failures recorded as testability outcomes; participant-cluster bootstrap for the both-eyes analysis; a separate paediatric arm; preregistration; consent, assent, withdrawal, retention and adverse-event procedures; the minors checklist.
+- Added: optional acuity-first staging with an interim-report rule; NPC updated to method version 2 (reported and camera breaks).
+- Added: randomised app test order, stratified by device class with a recruitment quota per stratum; correction recording and the same-correction rule; device and environment recording with device-class analysis; time-gap and retest-window rules; a full list of pre-defined exclusions; failures recorded as testability outcomes; participant-cluster bootstrap for the both-eyes analysis; a separate paediatric arm; preregistration; consent, assent, withdrawal, retention and adverse-event procedures; the minors checklist.
 - Recruitment target raised from 70 to 75 to allow for failed tests.
 
 ## References

@@ -3,6 +3,7 @@ import cameraManager from '../utils/cameraManager.js'
 import { useNavigate } from 'react-router-dom'
 import { visionTestAPI } from '../services/api'
 import SamdDisclaimer from '../components/SamdDisclaimer'
+import { DISPLAY_INDEX_LABEL } from '../utils/displayIndex'
 import StableLightingPreview from '../utils/stableLightingPreview'
 import { getLightingUiCopy } from '../utils/photoLightingCheck'
 import { PupilRegionTracker } from '../utils/pupilRegionDetector'
@@ -1186,13 +1187,9 @@ const OcularErgonomicsMonitor = () => {
                     <span className="font-mono font-bold">{totalAlerts}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-400">Score:</span>
-                    <span className={`font-mono font-bold ${
-                      ergonomicsScore >= 80 ? 'text-green-400' :
-                      ergonomicsScore >= 60 ? 'text-yellow-400' :
-                      'text-red-400'
-                    }`}>
-                      {ergonomicsScore}%
+                    <span className="text-gray-400" title={DISPLAY_INDEX_LABEL}>Setup index:</span>
+                    <span className="font-mono font-bold">
+                      {ergonomicsScore}/100
                     </span>
                   </div>
                   <div className="flex justify-between text-sm">
@@ -1382,18 +1379,6 @@ const OcularErgonomicsMonitor = () => {
 
   // Render results
   const renderResults = () => {
-    const getScoreColor = (score) => {
-      if (score >= 80) return 'text-green-600'
-      if (score >= 60) return 'text-yellow-600'
-      return 'text-red-600'
-    }
-
-    const getScoreBg = (score) => {
-      if (score >= 80) return 'bg-green-100 border-green-300'
-      if (score >= 60) return 'bg-yellow-100 border-yellow-300'
-      return 'bg-red-100 border-red-300'
-    }
-
     return (
       <div className="test-shell">
         <div className="max-w-4xl mx-auto">
@@ -1408,19 +1393,6 @@ const OcularErgonomicsMonitor = () => {
             <div className="text-center mb-8">
               <h1 className="page-title mb-2">Session Complete</h1>
               <p className="text-gray-600">Ergonomics Report</p>
-            </div>
-
-            {/* Score */}
-            <div className={`border-2 rounded-2xl p-8 mb-8 text-center ${getScoreBg(ergonomicsScore)}`}>
-              <h3 className="text-sm font-semibold text-gray-700 mb-2">ERGONOMICS SCORE</h3>
-              <div className={`text-7xl font-bold ${getScoreColor(ergonomicsScore)} mb-4`}>
-                {ergonomicsScore}
-              </div>
-              <p className="text-lg font-semibold text-gray-700">
-                {ergonomicsScore >= 80 ? 'Excellent Setup!' :
-                 ergonomicsScore >= 60 ? 'Room for Improvement' :
-                 'Needs Attention'}
-              </p>
             </div>
 
             {/* Stats */}
@@ -1492,6 +1464,10 @@ const OcularErgonomicsMonitor = () => {
                 </p>
               </div>
             )}
+
+            <p className="text-xs text-gray-500 mb-8">
+              Setup index {ergonomicsScore}/100 — {DISPLAY_INDEX_LABEL.toLowerCase()}. It summarises the reminders shown during this session and is not a measure of eye health.
+            </p>
 
             {/* Recommendations */}
             <div className="space-y-4 mb-8">

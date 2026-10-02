@@ -7,7 +7,7 @@
 | Code | `train_cataract_resnet.py`, `eyevio/app/ai_models/cataract_resnet.py`, `eyevio/app/ai_models/cnn_explain.py` |
 | Artifacts | `cataract_detection_resnet18.pth`, `cataract_model_meta.json`, `cataract_ood_stats.npz` (repo root) |
 | Evaluation dump | [`assets/cataract_eval.json`](assets/cataract_eval.json) |
-| Owner / status | EyeVio research and educational prototype; **research lab only, not active**. Not clinically validated and not a medical device |
+| Owner / status | EyeVio research and educational prototype; **research lab only, not active**. Unvalidated; not clinically validated, reviewed, cleared or approved |
 
 ## Intended use
 

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { visionTestAPI } from '../services/api'
 import { toast } from 'react-hot-toast'
-import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, LineChart, Line, Legend, RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis } from 'recharts'
+import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, LineChart, Line, Legend } from 'recharts'
 import SamdDisclaimer from '../components/SamdDisclaimer'
 import { DISPLAY_INDEX_LABEL } from '../utils/displayIndex'
 
@@ -244,15 +244,6 @@ function TestDetails() {
       accuracy: t.accuracy
     }))
 
-  // Performance radar
-  const radarData = [
-    { metric: 'Score', value: testData.score, fullMark: 100 },
-    { metric: 'Accuracy', value: testData.accuracy, fullMark: 100 },
-    { metric: 'Speed', value: Math.min(100, (1 / (testData.avg_response_time || 1)) * 50), fullMark: 100 },
-    { metric: 'Consistency', value: Math.min(100, 100 - (Math.max(0, testData.avg_response_time - 2) * 10)), fullMark: 100 },
-    { metric: 'Focus', value: testData.correct_answers / testData.total_questions * 100, fullMark: 100 }
-  ]
-
   return (
     <div className="space-y-8">
       {/* Header */}
@@ -346,20 +337,7 @@ function TestDetails() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Performance Radar */}
-        <div className="card p-8">
-          <h2 className="text-2xl font-serif font-bold text-gray-900 mb-6">Performance Profile</h2>
-          <ResponsiveContainer width="100%" height={300}>
-            <RadarChart data={radarData}>
-              <PolarGrid stroke="#e5e7eb" />
-              <PolarAngleAxis dataKey="metric" tick={{ fill: '#6b7280', fontSize: 12 }} />
-              <PolarRadiusAxis angle={90} domain={[0, 100]} tick={{ fill: '#6b7280', fontSize: 10 }} />
-              <Radar name="Performance" dataKey="value" stroke="#7dcab9" fill="#7dcab9" fillOpacity={0.6} />
-            </RadarChart>
-          </ResponsiveContainer>
-        </div>
-
+      <div>
         {/* Line-by-Line Accuracy */}
         {lineChartData.length > 0 && (
           <div className="card p-8">
@@ -436,12 +414,13 @@ function TestDetails() {
                 }}
               />
               <Legend />
-              <Line type="monotone" dataKey="score" stroke="#7dcab9" strokeWidth={2} name="Score" dot={{ fill: '#7dcab9', r: 5 }} />
+              <Line type="monotone" dataKey="score" stroke="#7dcab9" strokeWidth={2} name="Display index*" dot={{ fill: '#7dcab9', r: 5 }} />
               <Line type="monotone" dataKey="accuracy" stroke="#a39c85" strokeWidth={2} name="Accuracy %" dot={{ fill: '#a39c85', r: 5 }} />
             </LineChart>
           </ResponsiveContainer>
           <p className="text-sm text-gray-600 mt-4">
-            Compare this test with your previous {comparisonData.length - 1} {testData.test_type.replace('_', ' ')} tests
+            Compare this test with your previous {comparisonData.length - 1} {testData.test_type.replace('_', ' ')} tests.
+            * {DISPLAY_INDEX_LABEL}.
           </p>
         </div>
       )}

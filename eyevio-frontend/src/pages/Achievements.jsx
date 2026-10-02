@@ -87,10 +87,6 @@ function Achievements() {
   const calculateAchievements = (tests, logs) => {
     const testCount = tests.length
     const logCount = logs.length
-    const indexed = tests.filter((t) => t.score != null)
-    const avgScore = indexed.length > 0 ? indexed.reduce((sum, t) => sum + t.score, 0) / indexed.length : 0
-    const perfectScores = indexed.filter(t => t.score >= 95).length
-
     return [
       // Test Milestones
       {
@@ -182,41 +178,6 @@ function Achievements() {
         progress: Math.min(currentStreak, 30),
         total: 30,
         points: 200
-      },
-
-      // Performance Achievements
-      {
-        id: 'perfect_score',
-        title: 'Perfect Vision',
-        description: 'Score 95% or higher on a test',
-        icon: null,
-        category: 'performance',
-        unlocked: perfectScores >= 1,
-        progress: Math.min(perfectScores, 1),
-        total: 1,
-        points: 50
-      },
-      {
-        id: 'avg_80',
-        title: 'High Achiever',
-        description: 'Maintain 80% average score',
-        icon: null,
-        category: 'performance',
-        unlocked: avgScore >= 80,
-        progress: Math.min(avgScore, 80),
-        total: 80,
-        points: 75
-      },
-      {
-        id: 'avg_90',
-        title: 'Excellence',
-        description: 'Maintain 90% average score',
-        icon: null,
-        category: 'performance',
-        unlocked: avgScore >= 90,
-        progress: Math.min(avgScore, 90),
-        total: 90,
-        points: 150
       },
 
       // Lifestyle Achievements
@@ -381,7 +342,7 @@ function Achievements() {
           </div>
 
           {/* Achievements Grid by Category */}
-          {['tests', 'streaks', 'performance', 'lifestyle', 'special'].map((category) => {
+          {['tests', 'streaks', 'lifestyle', 'special'].map((category) => {
             const categoryAchievements = achievements.filter(a => a.category === category)
             if (categoryAchievements.length === 0) return null
 

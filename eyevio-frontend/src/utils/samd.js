@@ -9,7 +9,7 @@ export const POSITIONING =
 export const REGULATORY_NOTE =
   'The project reviews general-wellness and software-as-a-medical-device principles, but no regulatory classification has been obtained.'
 
-export const SAMD_HEADLINE = 'Research prototype — not clinically validated'
+export const SAMD_HEADLINE = 'Unvalidated research and educational prototype'
 
 export const SAMD_SHORT = `${SAMD_HEADLINE}. ${POSITIONING}`
 
