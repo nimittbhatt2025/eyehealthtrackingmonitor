@@ -92,12 +92,21 @@ def test_app_rows_extracts_measures_numbers_sessions_and_skips_bad_records():
         _test(4, 'visual_acuity', {**acuity(0.3, 0.3), 'method_version': 1}, t0 + timedelta(days=3)),
         _test(5, 'near_point_convergence', {'method_version': 2, 'npc_cm': 7.5, 'break_detected': True,
                                             'compared_approaches': 2, 'agreeing_approaches': 1}, t0),
-        _test(6, 'contrast_sensitivity', {'method_version': 2, 'eyes': {'right': {'aulcsf': 1.3, 'log_cs_at_cpd': {'1': 1.6}}}}, t0),
+        _test(6, 'contrast_sensitivity', {'method_version': 3, 'eyes': {
+            'right': {'aulcsf': 1.3, 'log_cs_at_cpd': {'1': 1.6, '3': 2.0}, 'display_ceiling_cpd': [3]},
+            'left': {'aulcsf': 1.2, 'log_cs_at_cpd': {'1': 2.0}, 'display_ceiling_cpd': [1]},
+        }}, t0),
+        _test(7, 'contrast_sensitivity', {'method_version': 2, 'eyes': {'right': {'aulcsf': 1.3, 'log_cs_at_cpd': {'1': 1.6}}}}, t0),
     ]
     rows = app_rows('P001', tests)
     right = [r for r in rows if r['measure'] == 'acuity_logmar' and r['eye'] == 'right']
     assert [(r['session'], r['test_id'], r['value'], r['flags']) for r in right] == [(1, 1, 0.0, 'at_chart_floor'), (2, 3, 0.1, '')]
     assert {r['measure'] for r in rows} == {'acuity_logmar', 'npc_break_cm', 'contrast_logcs_1cpd', 'contrast_aulcsf'}
+    contrast = {(r['measure'], r['eye']): r['flags'] for r in rows if r['measure'].startswith('contrast')}
+    assert contrast == {
+        ('contrast_logcs_1cpd', 'right'): '', ('contrast_logcs_1cpd', 'left'): 'at_display_ceiling',
+        ('contrast_aulcsf', 'right'): 'at_display_ceiling', ('contrast_aulcsf', 'left'): 'at_display_ceiling',
+    }
     assert all(r['participant_id'] == 'P001' and 'email' not in r for r in rows)
 
 

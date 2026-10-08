@@ -51,8 +51,8 @@ def test_session_sd_widens_interval():
     precise = base + [{'eyes': {'right': {'aulcsf': 1.2, 'aulcsf_sd': 0.05}}}] * 2
     vague = base + [{'eyes': {'right': {'aulcsf': 1.2, 'aulcsf_sd': 0.3}}}] * 2
     mk = lambda ds: [SimpleNamespace(score=0, test_details=d) for d in ds]
-    assert assess_tests(mk(precise), 'contrast_sensitivity', 2)['status'] == 'confirmed_decline'
-    assert assess_tests(mk(vague), 'contrast_sensitivity', 2)['status'] != 'confirmed_decline'
+    assert assess_tests(mk(precise), 'contrast_sensitivity', 3)['status'] == 'confirmed_decline'
+    assert assess_tests(mk(vague), 'contrast_sensitivity', 3)['status'] != 'confirmed_decline'
 
 
 def test_display_index_never_reports_decline():

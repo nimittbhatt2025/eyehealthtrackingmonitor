@@ -188,7 +188,7 @@ def _ergonomics(d):
 
 _BY_TYPE = {
     'visual_acuity': (_acuity, 2),
-    'contrast_sensitivity': (_contrast, 2),
+    'contrast_sensitivity': (_contrast, 3),
     'cataract_glare': (_glare, 2),
     'color_vision': (_colour, 2),
     'amsler_grid': (_amsler, 2),

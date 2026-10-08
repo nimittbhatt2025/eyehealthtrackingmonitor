@@ -196,6 +196,14 @@ describe('golden images', () => {
     expectGolden('vernier_lower_right', c.gray(), 96, 96)
   })
 
+  it('vernier pair, bold bars, lower line right', () => {
+    const c = fakeCanvas(96, 96)
+    paintVernier(c, { cx: 48, cy: 48, offsetPx: 4, lengthPx: 30, gapPx: 6, sigmaPx: 0.6, widthPx: 6 })
+    const g = c.gray()
+    assert.equal(g[30 * 96 + 46], 0, 'bar core is solid black')
+    expectGolden('vernier_bold_lower_right', g, 96, 96)
+  })
+
   for (const direction of E_DIRECTIONS) {
     it(`tumbling E ${direction}`, () => {
       expectGolden(`tumbling_e_${direction}`, rasterizeStrokePath(E_PATH, { size: 50, rotateDeg: E_ROTATION[direction] }), 50, 50)
@@ -239,10 +247,14 @@ describe('vernier lines', () => {
     return mx / m
   }
 
-  for (const offset of [2.6, -2.6, 0.3]) {
-    it(`offset ${offset} px puts the lower line ${offset > 0 ? 'right' : 'left'} by exactly that much`, () => {
+  const profiles = [
+    { name: 'thin', sigmaPx: 1.5 },
+    { name: 'bold bar', sigmaPx: 0.6, widthPx: 6 },
+  ]
+  for (const p of profiles) for (const offset of [2.6, -2.6, 0.3]) {
+    it(`${p.name}: offset ${offset} px puts the lower line ${offset > 0 ? 'right' : 'left'} by exactly that much`, () => {
       const c = fakeCanvas(120, 120)
-      paintVernier(c, { cx: 60, cy: 60, offsetPx: offset, lengthPx: 40, gapPx: 8, sigmaPx: 1.5 })
+      paintVernier(c, { cx: 60, cy: 60, offsetPx: offset, lengthPx: 40, gapPx: 8, sigmaPx: p.sigmaPx, widthPx: p.widthPx })
       const g = c.gray()
       const upper = centroidX(g, 120, 12, 56)
       const lower = centroidX(g, 120, 64, 104)

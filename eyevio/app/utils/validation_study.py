@@ -103,14 +103,25 @@ def _acuity(details: Dict[str, Any]) -> Extracted:
 
 def _contrast_at(cpd: str) -> Callable[[Dict[str, Any]], Extracted]:
     def extract(details):
-        eyes = details.get('eyes') or {}
-        return {eye: (_num(((eyes.get(eye) or {}).get('log_cs_at_cpd') or {}).get(cpd)), []) for eye in EYES if eye in eyes}
+        out: Extracted = {}
+        for eye, r in (details.get('eyes') or {}).items():
+            if eye not in EYES:
+                continue
+            r = r or {}
+            ceiling = [_num(f) for f in r.get('display_ceiling_cpd') or []]
+            flags = ['at_display_ceiling'] if _num(cpd) in ceiling else []
+            out[eye] = (_num((r.get('log_cs_at_cpd') or {}).get(cpd)), flags)
+        return out
     return extract
 
 
 def _aulcsf(details: Dict[str, Any]) -> Extracted:
-    eyes = details.get('eyes') or {}
-    return {eye: (_num((eyes.get(eye) or {}).get('aulcsf')), []) for eye in EYES if eye in eyes}
+    out: Extracted = {}
+    for eye, r in (details.get('eyes') or {}).items():
+        if eye in EYES:
+            r = r or {}
+            out[eye] = (_num(r.get('aulcsf')), ['at_display_ceiling'] if r.get('display_ceiling_cpd') else [])
+    return out
 
 
 def _glare(details: Dict[str, Any]) -> Extracted:
@@ -172,12 +183,13 @@ MEASURES: Dict[str, Measure] = {m.name: m for m in [
         exclude_flags=('at_chart_floor',),
     ),
     Measure(
-        'contrast_logcs_1cpd', 'contrast_sensitivity', 2, 'logCS', _contrast_at('1'),
+        'contrast_logcs_1cpd', 'contrast_sensitivity', 3, 'logCS', _contrast_at('1'),
         reference='Pelli–Robson letter chart at 1 m (letters, not a 1 c/deg grating)',
         comparison='convergent',
         r_target=0.50, cor_target=0.30,
+        exclude_flags=('at_display_ceiling',),
     ),
-    Measure('contrast_aulcsf', 'contrast_sensitivity', 2, 'AULCSF', _aulcsf, cor_target=0.20),
+    Measure('contrast_aulcsf', 'contrast_sensitivity', 3, 'AULCSF', _aulcsf, cor_target=0.20),
     Measure(
         'npc_break_cm', 'near_point_convergence', 2, 'cm', _npc,
         reference='RAF rule push-up, break point, mean of 3 trials',

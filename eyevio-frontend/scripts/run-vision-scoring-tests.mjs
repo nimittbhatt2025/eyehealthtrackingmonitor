@@ -47,9 +47,11 @@ import {
   nearBlurIndex,
   summarizeNearBlur,
 } from '../src/utils/nearBlur.js'
-import { createVernierPsi, pRight, summarizeVernier } from '../src/utils/vernier.js'
+import { createVernierPsi, pRight, summarizeVernier, vernierProfile } from '../src/utils/vernier.js'
 import { blinkBand, breakDue, rollingBlinkRate, summarizeBlinkSession } from '../src/utils/blinkCoach.js'
 import {
+  QCSF_EASY_MARGIN_LOG,
+  QCSF_MAX_STIMULUS_LOGCS,
   createQcsf,
   csfLogSensitivity,
   aulcsf,
@@ -209,6 +211,14 @@ assert(amslerMarkedAreaDeg2([], 0.05) === 0, 'no marks → no area')
     q.update(0, null)
     assert(Math.abs(q.estimate().bias - before) < 1e-6, 'one "looks aligned" at zero shift does not move the bias')
   }
+  assert(
+    vernierProfile(0, 6, 0.6) > 0.999 && vernierProfile(2.5, 6, 0.6) > 0.75 && Math.abs(vernierProfile(3, 6, 0.6) - 0.5) < 1e-6 && vernierProfile(5, 6, 0.6) < 0.001,
+    'vernier line is a solid bar with soft edges (black core, half darkness at the edge, white beyond)'
+  )
+  assert(
+    vernierProfile(2.9, 6, 0.6) > vernierProfile(3.1, 6, 0.6) && vernierProfile(3.1, 6, 0.6) > vernierProfile(3.3, 6, 0.6),
+    'vernier edge darkness changes smoothly, so sub-pixel shifts move the drawn line'
+  )
   const s = summarizeVernier({
     center: { bias: 0, biasSd: 5, threshold: 15 },
     up: { bias: 100, biasSd: 15, threshold: 30 },
@@ -443,8 +453,16 @@ assert(scorePeripheralAwareness(80, 50) >= scorePeripheralAwareness(80, 500), 'f
   }
   const freqs = [0.5, 1, 2, 4, 8, 16]
   const q = createQcsf({ frequencies: freqs, random: rng })
+  let maxShown = 0
+  let easyTooHard = 0
   for (let i = 0; i < 30; i++) {
-    const stim = q.next()
+    const easy = i % 5 === 0
+    const stim = q.next({ easy })
+    if (easy) {
+      const posterior = q.estimate([stim.frequency]).curve[0].logCS
+      if (stim.logCS > 0 && stim.logCS > posterior - QCSF_EASY_MARGIN_LOG + 0.05) easyTooHard++
+    }
+    maxShown = Math.max(maxShown, stim.logCS)
     const thr = csfLogSensitivity(Math.log10(stim.frequency), truth)
     q.update(stim, rng() < weibullPCorrect(stim.logCS, thr, { beta: 3, guessRate: 0.25, lapseRate: 0.04 }))
   }
@@ -452,6 +470,8 @@ assert(scorePeripheralAwareness(80, 50) >= scorePeripheralAwareness(80, 500), 'f
   const trueArea = aulcsf(truth, Math.log10(0.5), Math.log10(16))
   assert(Math.abs(est.aulcsf - trueArea) < 0.35, `qCSF recovers simulated AULCSF (${est.aulcsf.toFixed(2)} vs ${trueArea.toFixed(2)})`)
   assert(est.trials === 30 && est.curve.length === freqs.length, 'qCSF estimate reports curve at tested frequencies')
+  assert(maxShown <= QCSF_MAX_STIMULUS_LOGCS + 1e-9, `qCSF never draws below 1% contrast (faintest shown logCS ${maxShown})`)
+  assert(easyTooHard === 0, 'qCSF easy trials sit ≥ 0.6 log units easier than the current threshold estimate')
 }
 
 {

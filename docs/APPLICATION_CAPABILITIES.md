@@ -185,7 +185,7 @@ Method: `amsler_multicontrast_vernier`, version 2. "Perceived distortion" throug
 - One eye at a time.
 
 **Line alignment (vernier hyperacuity)** — `components/VernierTask.jsx`, `utils/vernier.js`
-- **Stimulus:** two vertical segments, 30′ long with a 4′ gap, flashed for 300 ms. Lines have a Gaussian profile and are gamma-linearised, so offsets far below one pixel can be drawn.
+- **Stimulus:** two solid black vertical bars, 40′ long with a 6′ gap, shown for 700 ms. Each bar is 6′ wide and never narrower than 3 CSS pixels; its soft, gamma-linearised edges let offsets far below one pixel be drawn. The duration, bar width, length and gap are saved with each result (`vernier.<eye>.stimulus`). Earlier sessions used 1–2 px Gaussian lines flashed for 300 ms, which many users found too faint and brief, so their thresholds are not directly comparable.
 - **Answers:** "Lower line is left", "Looks aligned" or "Lower line is right" (keys ←, ↓ or space, →).
   - "Looks aligned" counts as half a left and half a right answer. It favours a bias near that offset without pushing the estimate either way.
   - After each answer the chosen button stays highlighted and "✓ Answer recorded" shows for 0.6 s before the next pair. Later pairs look identical, so without this feedback answers seemed to be ignored.
@@ -206,14 +206,16 @@ Method: `amsler_multicontrast_vernier`, version 2. "Perceived distortion" throug
 
 ### 4.5 Faint Shapes Test — contrast sensitivity (qCSF)
 
-Method: `qcsf_4afc_grating`, version 2.
+Method: `qcsf_4afc_grating`, version 3.
 
 - **Stimulus:** a 5°-wide soft-edged sine grating at 1 m, card-calibrated and distance-monitored. The user picks the stripe direction from 4 choices, after 2 practice trials.
 - **Method:** quick CSF (Lesmes et al., 2010).
   - The curve is a truncated log-parabola with four parameters: peak sensitivity, peak frequency, bandwidth and low-frequency truncation.
   - A posterior over a parameter grid is updated after every trial, and the next frequency × contrast is drawn from the top 10% by expected information gain.
   - 25 trials per eye.
+  - **Easy trials:** the first test trial and every fifth are shown at about 4× the current threshold contrast (0.6 log units easier), so the user regularly sees a clear patch. Information-maximising trials sit near threshold by design, so many of the others are faint or invisible.
 - **Frequencies:** 0.5–24 c/deg, limited to what the screen can draw at 1 m.
+- **Contrast range:** 100% down to 1% (logCS 0–2.0). Version 2 went to logCS 2.4 (0.4%), which is about a quarter of one 8-bit grey level and below what typical 6-bit + dithering laptop panels reproduce, so those patches were blank on many screens. Estimates at 1% are shown as "1% or less" and saved in `display_ceiling_cpd` as bounds.
 - **Rendering:** gamma-linearised sRGB with random dithering, so contrasts below one 8-bit step average out correctly.
 - **Output:**
   - the full curve with uncertainty, AULCSF, the peak and the cut-off frequency;
@@ -904,10 +906,10 @@ All endpoints are under `/api` and need a JWT unless noted.
 
 | Suite | Size | Covers |
 |---|---|---|
-| Stimulus tests (`eyevio-frontend/tests/stimuli.test.mjs`) | 54 tests, 22 golden PNGs | All major psychophysical stimuli in every orientation: gratings (contrast and glare), side-vision blob, vernier pair, Tumbling E, colour-test Landolt C (see below). Not covered: Sloan and HOTV letters, the Amsler grid, Near Blur letters and blur, the NPC target and side-game targets |
+| Stimulus tests (`eyevio-frontend/tests/stimuli.test.mjs`) | 58 tests, 23 golden PNGs | All major psychophysical stimuli in every orientation: gratings (contrast and glare), side-vision blob, vernier pair, Tumbling E, colour-test Landolt C (see below). Not covered: Sloan and HOTV letters, the Amsler grid, Near Blur letters and blur, the NPC target and side-game targets |
 | Scoring tests (`tests/scoring.test.mjs`) | 15 tests | Optotype size, renderable logMAR, glare and convergence bands, CSF cut-off, OSDI completeness, display checks |
 | Research Lab assets (`tests/researchLabAssets.test.mjs`) | 7 tests | The lab's evaluation files match the model-card assets exactly; figures exist |
-| Vision-scoring checks (`scripts/run-vision-scoring-tests.mjs`) | 142 checks | Adaptive procedures and scoring in simulation, including guess correction, vernier, side-vision reliability and rates, glare ceiling, perfect-run behaviour, blur-report time, Eye Glow outcomes, the Near Blur protocol, NPC camera confidence and break combination, and blink coaching categories |
+| Vision-scoring checks (`scripts/run-vision-scoring-tests.mjs`) | 146 checks | Adaptive procedures and scoring in simulation, including the qCSF contrast floor and easy trials, guess correction, vernier (including the bold-bar line profile), side-vision reliability and rates, glare ceiling, perfect-run behaviour, blur-report time, Eye Glow outcomes, the Near Blur protocol, NPC camera confidence and break combination, and blink coaching categories |
 | Chatbot retrieval checks | fixture set | Correct library entries and abstention |
 | On-device parity (`npm run test:parity`) | 276 checks on 6 fixtures (+ model outputs when weights are present) | Browser pipeline against the server pipeline, number by number |
 | Backend (`eyevio/tests/`) | 130 pytest tests | Change detection (native units, display index never alerts, same-display colour, separate glare sources, Eye Glow not tracked, NPC v2), submission rules (nullable score, retired indices, optional indices, legacy side-vision mapping), native-measure summaries and the clinician PDF, trends, cataract screening, CORN maths and release gate, on-device validation and output withholding, uploads, jobs, trend snapshots, the validation-study statistics (agreement, convergent validity, exclusions, completion, adult/paediatric split, cluster bootstrap, acuity-only staging), the API |
@@ -1014,6 +1016,12 @@ All endpoints are under `/api` and need a JWT unless noted.
 ---
 
 ## Appendix A — Release notes
+
+**October 2026 — Straight-Line alignment lines**
+- The line-alignment pairs are now solid black bars at least 3 px wide (were faint 1–2 px lines) and stay on screen for 700 ms (was 300 ms). The stimulus settings are saved with each result.
+
+**October 2026 — Faint Shapes (contrast) v3**
+- The faintest grating is now 1% contrast (was 0.4%, which many screens cannot show), and the first trial and every fifth are clearly visible. Results at the 1% limit read "1% or less" and are flagged as bounds; the 1 c/deg value is excluded from the Pelli–Robson comparison when at that limit. Trends and change detection start a new baseline at version 3.
 
 **October 2026 — test-method honesty pass**
 - **Clear Vision:** base-row and stopping rules specified; raw and guess-adjusted logMAR both saved; camera distance described as an IPD-based estimate, with a hand-measured 1 m fallback; seeded chart randomisation with no repeated rows (seed saved); literature wording on home ETDRS agreement.

@@ -391,6 +391,7 @@ const AmslerGridTest = () => {
                 center_threshold_arcsec: v.centerThreshold,
                 parafoveal_median_threshold_arcsec: v.parafovealMedianThreshold,
                 arcsec_per_device_px: v.arcsecPerDevicePx,
+                stimulus: v.stimulus,
                 responses: v.responses,
               },
             ])

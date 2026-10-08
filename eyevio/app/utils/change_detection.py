@@ -156,7 +156,7 @@ METRICS: Dict[str, MetricSpec] = {
         source='Home/digital acuity 95% CoR ≈ ±0.1–0.15 logMAR; MCID one chart line (0.1 logMAR).',
     ),
     'contrast_sensitivity': MetricSpec(
-        'AULCSF', 'down', 0.10, 0.15, _contrast, _contrast_sd,
+        'AULCSF', 'down', 0.10, 0.15, _contrast, _contrast_sd, version=3,
         source='qCSF posterior SD per session; prior s_w 0.10 until personal repeatability is known.',
     ),
     'cataract_glare': MetricSpec(

@@ -15,11 +15,14 @@ const PRACTICE = [
   { offset: 360, location: 'left' },
 ]
 const FIELD_ARCMIN = 330
-const SEGMENT_ARCMIN = 30
-const GAP_ARCMIN = 4
-const SIGMA_ARCMIN = 0.8
+const SEGMENT_ARCMIN = 40
+const GAP_ARCMIN = 6
+// Solid black bar; never thinner than MIN_LINE_CSS_PX, which is what makes the lines read as bold on any screen.
+const LINE_WIDTH_ARCMIN = 6
+const MIN_LINE_CSS_PX = 3
+const EDGE_SIGMA_ARCMIN = 0.5
 const FIXATE_MS = 500
-const STIM_MS = 300
+const STIM_MS = 700
 const FEEDBACK_MS = 2000
 // Later pairs look identical, so each answer needs a visible acknowledgement before the next flash.
 const ACK_MS = 600
@@ -56,6 +59,7 @@ export default function VernierTask({ eye, distanceMm, pxPerMm, onDone, onSkip }
   const ppa = pxPerArcmin(distanceMm, pxPerMm, dpr)
   const sizeDevice = Math.round(FIELD_ARCMIN * ppa)
   const sizeCss = Math.round(sizeDevice / dpr)
+  const lineWidthPx = Math.max(MIN_LINE_CSS_PX * dpr, LINE_WIDTH_ARCMIN * ppa)
 
   const [stage, setStage] = useState('intro') // intro, running
   const [index, setIndex] = useState(0)
@@ -94,11 +98,12 @@ export default function VernierTask({ eye, distanceMm, pxPerMm, onDone, onSkip }
         offsetPx: (t.offset / 60) * ppa,
         lengthPx: SEGMENT_ARCMIN * ppa,
         gapPx: GAP_ARCMIN * ppa,
-        sigmaPx: Math.max(0.6, SIGMA_ARCMIN * ppa),
+        sigmaPx: Math.max(0.6, EDGE_SIGMA_ARCMIN * ppa),
+        widthPx: lineWidthPx,
         fixation: t.location === 'center' ? null : fixation,
       })
     },
-    [sizeDevice, ppa, dpr]
+    [sizeDevice, ppa, dpr, lineWidthPx]
   )
 
   const present = useCallback(
@@ -159,6 +164,12 @@ export default function VernierTask({ eye, distanceMm, pxPerMm, onDone, onSkip }
       ...summarizeVernier(locations),
       pxPerArcmin: Number(ppa.toFixed(3)),
       arcsecPerDevicePx: Math.round(60 / ppa),
+      stimulus: {
+        duration_ms: STIM_MS,
+        line_width_arcmin: Number((lineWidthPx / ppa).toFixed(1)),
+        segment_arcmin: SEGMENT_ARCMIN,
+        gap_arcmin: GAP_ARCMIN,
+      },
       responses: responsesRef.current,
     })
   }

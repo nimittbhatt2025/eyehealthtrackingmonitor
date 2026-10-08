@@ -121,10 +121,21 @@ export function pxPerArcmin(distanceMm, pxPerMm, dpr = 1) {
 }
 
 /**
- * Draw two dark vertical segments on white with a Gaussian cross-section, so
- * the line centre can sit between pixels (offsets finer than one pixel).
+ * Darkness (0–1) across a line at distance `d` px from its centre: a solid bar
+ * `widthPx` wide with Gaussian-blurred edges, or a pure Gaussian when widthPx is 0.
+ * The graded edge pixels let the line centre sit between pixels.
  */
-export function paintVernier(canvas, { cx, cy, offsetPx, lengthPx, gapPx, sigmaPx, fixation = null }) {
+export function vernierProfile(d, widthPx, sigmaPx) {
+  if (!(widthPx > 0)) return Math.exp(-(d * d) / (2 * sigmaPx * sigmaPx))
+  const k = Math.SQRT2 * sigmaPx
+  return 0.5 * (erf((d + widthPx / 2) / k) - erf((d - widthPx / 2) / k))
+}
+
+/**
+ * Draw two black vertical segments on white whose centres can sit between
+ * pixels (offsets finer than one pixel).
+ */
+export function paintVernier(canvas, { cx, cy, offsetPx, lengthPx, gapPx, sigmaPx, widthPx = 0, fixation = null }) {
   const w = canvas.width
   const h = canvas.height
   const ctx = canvas.getContext('2d')
@@ -134,13 +145,14 @@ export function paintVernier(canvas, { cx, cy, offsetPx, lengthPx, gapPx, sigmaP
     { xc: cx - offsetPx / 2, y0: cy - gapPx / 2 - lengthPx, y1: cy - gapPx / 2 },
     { xc: cx + offsetPx / 2, y0: cy + gapPx / 2, y1: cy + gapPx / 2 + lengthPx },
   ]
-  const reach = Math.ceil(sigmaPx * 3.5)
+  const reach = Math.ceil(widthPx / 2 + sigmaPx * 3.5)
+  const depth = widthPx > 0 ? 1 : 0.92
   for (const s of segments) {
     const x0 = Math.max(0, Math.floor(s.xc - reach))
     const x1 = Math.min(w - 1, Math.ceil(s.xc + reach))
     for (let x = x0; x <= x1; x++) {
-      const g = Math.exp(-((x + 0.5 - s.xc) ** 2) / (2 * sigmaPx * sigmaPx))
-      const v = Math.round(255 * linearToSrgb(1 - 0.92 * g))
+      const g = vernierProfile(x + 0.5 - s.xc, widthPx, sigmaPx)
+      const v = Math.round(255 * linearToSrgb(1 - depth * g))
       for (let y = Math.max(0, Math.round(s.y0)); y < Math.min(h, Math.round(s.y1)); y++) {
         const i = (y * w + x) * 4
         img.data[i] = img.data[i + 1] = img.data[i + 2] = v

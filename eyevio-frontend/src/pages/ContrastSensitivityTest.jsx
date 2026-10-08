@@ -14,6 +14,8 @@ import {
   aulcsfPercentOfReference,
   REFERENCE_CSF,
   QCSF_FREQUENCIES,
+  QCSF_MAX_STIMULUS_LOGCS,
+  QCSF_EASY_MARGIN_LOG,
 } from '../utils/qcsf'
 
 /**
@@ -39,6 +41,9 @@ const FIXATE_MS = 450
 const PRACTICE_FEEDBACK_MS = 800
 const ORIENTATIONS = GRATING_ORIENTATIONS
 const REPORT_FREQUENCIES = [1, 3, 6, 12]
+// The first test trial and every fifth after it are clearly visible.
+const EASY_EVERY = 5
+const atDisplayCeiling = (logCS) => logCS >= QCSF_MAX_STIMULUS_LOGCS - 0.05
 
 const eyeName = (eye) => (eye === 'right' ? 'right eye' : 'left eye')
 const otherEye = (eye) => (eye === 'right' ? 'left' : 'right')
@@ -169,8 +174,8 @@ const ContrastSensitivityTest = () => {
       timerRef.current = setTimeout(() => {
         const practice = idx < PRACTICE_TRIALS
         const stim = practice
-          ? { freqIndex: nearestIndex(frequencies, PRACTICE.frequency), logCS: PRACTICE.logCS }
-          : qcsfRef.current.next()
+          ? { freqIndex: nearestIndex(frequencies, PRACTICE.frequency), logCS: PRACTICE.logCS, easy: true }
+          : qcsfRef.current.next({ easy: (idx - PRACTICE_TRIALS) % EASY_EVERY === 0 })
         setTrial({
           ...stim,
           frequency: frequencies[stim.freqIndex],
@@ -223,6 +228,7 @@ const ContrastSensitivityTest = () => {
       at: Object.fromEntries(
         est.curve.filter((c) => REPORT_FREQUENCIES.includes(c.frequency)).map((c) => [c.frequency, round(c.logCS)])
       ),
+      ceilingFrequencies: est.curve.filter((c) => atDisplayCeiling(c.logCS)).map((c) => c.frequency),
       range,
       responses: responsesRef.current,
     }
@@ -240,7 +246,10 @@ const ContrastSensitivityTest = () => {
         left_eye_score: results.left?.percent ?? null,
         test_details: {
           method: 'qcsf_4afc_grating',
-          method_version: 2,
+          method_version: 3,
+          max_stimulus_log_cs: QCSF_MAX_STIMULUS_LOGCS,
+          easy_trial_every: EASY_EVERY,
+          easy_trial_margin_log: QCSF_EASY_MARGIN_LOG,
           eyes: Object.fromEntries(
             Object.entries(results).map(([eye, r]) => [
               eye,
@@ -254,6 +263,7 @@ const ContrastSensitivityTest = () => {
                 truncation_log: r.truncation,
                 cutoff_frequency_cpd: r.cutoffFrequency,
                 log_cs_at_cpd: r.at,
+                display_ceiling_cpd: r.ceilingFrequencies,
                 curve: r.curve,
                 responses: r.responses,
               },
@@ -270,7 +280,7 @@ const ContrastSensitivityTest = () => {
           screen_scale_source: screenScale.source,
           luminance_model: 'sRGB assumed, dithered',
           scoring_note:
-            'Score = AULCSF over the tested frequency range as a percentage of an approximate healthy young-adult CSF (peak logCS 2.1 at 3 cpd, 3-octave bandwidth), capped at 100; mean of tested eyes. Not a clinical CSF test.',
+            'Score = AULCSF over the tested frequency range as a percentage of an approximate healthy young-adult CSF (peak logCS 2.1 at 3 cpd, 3-octave bandwidth), capped at 100; mean of tested eyes. Faintest stimulus 1% contrast (logCS 2.0); estimates at or above it are flagged in display_ceiling_cpd as bounds. The first trial and every fifth are shown at about 4x the current threshold contrast (0.6 log units easier). Not a clinical CSF test.',
           timestamp: new Date().toISOString(),
         },
       })
@@ -297,7 +307,7 @@ const ContrastSensitivityTest = () => {
     qcsfRef.current.update(trial, correct)
     responsesRef.current = [
       ...responsesRef.current,
-      { frequency: trial.frequency, logCS: Number(trial.logCS.toFixed(2)), angle: trial.angle, answer: angle, correct },
+      { frequency: trial.frequency, logCS: Number(trial.logCS.toFixed(2)), easy: trial.easy, angle: trial.angle, answer: angle, correct },
     ]
 
     const next = trialIndex + 1
@@ -371,7 +381,10 @@ const ContrastSensitivityTest = () => {
                 barely visible. You pick the <strong>direction of the stripes</strong>. The test adapts after every
                 answer and maps how much contrast you need at each stripe size — your contrast sensitivity curve.
               </p>
-              <p>Many patches will be very faint. That&apos;s the point — <strong>always make your best guess</strong>.</p>
+              <p>
+                Some patches will be too faint to see — the test needs those to find your limit, so{' '}
+                <strong>always make your best guess</strong>. Every fifth patch is clearly visible.
+              </p>
             </div>
 
             <ul className="space-y-2 text-sm text-gray-700 mb-6 list-disc pl-5">
@@ -526,7 +539,12 @@ const ContrastSensitivityTest = () => {
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs mb-3">
                     {Object.entries(r.at).map(([f, s]) => (
                       <div key={f} className="rounded-lg bg-white/80 p-2 text-center">
-                        {s > 0 ? (
+                        {atDisplayCeiling(s) ? (
+                          <>
+                            <div className="font-bold text-gray-900">1% or less</div>
+                            <div className="text-gray-500">at {f} c/deg — the faintest this test shows</div>
+                          </>
+                        ) : s > 0 ? (
                           <>
                             <div className="font-bold text-gray-900">{(100 * 10 ** -s).toFixed(s > 1.5 ? 1 : 0)}%</div>
                             <div className="text-gray-500">contrast needed at {f} c/deg</div>
@@ -541,6 +559,12 @@ const ContrastSensitivityTest = () => {
                     ))}
                   </div>
                   <p className="text-sm text-gray-700">{describeEye(r)}</p>
+                  {r.ceilingFrequencies.length > 0 && (
+                    <p className="text-xs text-gray-600 mt-2">
+                      At {r.ceilingFrequencies.join(', ')} c/deg you saw even the faintest stripes this test draws (1% contrast),
+                      so your sensitivity there is at least this high; screens can&apos;t reliably show fainter stripes.
+                    </p>
+                  )}
                   <p className="text-xs text-gray-500 mt-2">
                     Peak {r.peakLogCS} log units at {r.peakFrequency} c/deg · AULCSF {r.aulcsf} ± {r.aulcsfSd}
                   </p>

@@ -35,6 +35,17 @@ export const REFERENCE_CSF = { peakGain: 2.1, peakFreq: Math.log10(3), bandwidth
 
 export const QCSF_FREQUENCIES = [0.5, 0.75, 1, 1.5, 2, 3, 4, 6, 8, 12, 16, 24]
 
+/**
+ * Faintest stimulus shown: 1% Michelson contrast. On an 8-bit sRGB screen at mid
+ * grey that is a modulation of about ±0.6 grey levels (rendered by dithering);
+ * fainter gratings are below what consumer screens, many of them 6-bit panels,
+ * reproduce reliably.
+ */
+export const QCSF_MAX_STIMULUS_LOGCS = 2.0
+
+/** Easy trials sit this far (log10 units, 4× contrast) above the current threshold estimate. */
+export const QCSF_EASY_MARGIN_LOG = 0.6
+
 function range(start, stop, step) {
   const out = []
   for (let v = start; v <= stop + 1e-9; v += step) out.push(Number(v.toFixed(4)))
@@ -104,7 +115,7 @@ function entropy(p) {
  */
 export function createQcsf({
   frequencies,
-  contrastsLog = range(0, 2.4, 0.05),
+  contrastsLog = range(0, QCSF_MAX_STIMULUS_LOGCS, 0.05),
   guessRate = 0.25,
   lapseRate = 0.04,
   slope = 3,
@@ -153,8 +164,13 @@ export function createQcsf({
   }
 
   return {
-    /** Next stimulus: { frequency, freqIndex, logCS }. */
-    next() {
+    /**
+     * Next stimulus: { frequency, freqIndex, logCS, easy }.
+     * With `easy`, the frequency is still chosen by information gain, but the
+     * contrast is set `margin` log units above the posterior-mean threshold there,
+     * so the grating is clearly visible to this observer.
+     */
+    next({ easy = false, margin = QCSF_EASY_MARGIN_LOG } = {}) {
       const w = weights()
       const active = []
       for (let t = 0; t < nTheta; t++) if (w[t] > 1e-6) active.push(t)
@@ -174,7 +190,13 @@ export function createQcsf({
       scored.sort((a, b) => b.gain - a.gain)
       const top = scored.slice(0, Math.max(1, Math.ceil(scored.length * 0.1)))
       const pick = top[Math.floor(random() * top.length)]
-      return { frequency: frequencies[pick.j], freqIndex: pick.j, logCS: pick.c }
+      if (!easy) return { frequency: frequencies[pick.j], freqIndex: pick.j, logCS: pick.c, easy: false }
+      let threshold = 0
+      for (const t of active) threshold += w[t] * S[t * nF + pick.j]
+      const lo = Math.min(...contrastsLog)
+      const target = Math.max(lo, Math.min(threshold - margin, Math.max(...contrastsLog)))
+      const logCS = contrastsLog.reduce((best, c) => (Math.abs(c - target) < Math.abs(best - target) ? c : best), lo)
+      return { frequency: frequencies[pick.j], freqIndex: pick.j, logCS, easy: true }
     },
 
     update({ freqIndex, logCS }, correct) {

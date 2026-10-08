@@ -84,8 +84,8 @@ All monocular tests are done on each eye with the other eye covered by an occlud
 |---|---|---|---|---|
 | `acuity_logmar` | Visual acuity, Sloan/ETDRS forced choice (v2) | ETDRS chart at 4 m, 80–320 cd/m² (ISO 8596), letter-by-letter scoring at 0.02 logMAR per letter, standard termination | Agreement | `right`, `left` |
 | `npc_break_cm` | Near point of convergence (v2): the earlier of the reported doubling and a camera break that passed its confidence checks | RAF rule push-up with an accommodative target, about 1–2 cm/s. Break = reported doubling or seen loss of convergence. Mean of 3 trials, measured from the outer canthus | Agreement | `both` |
-| `contrast_logcs_1cpd` | Contrast sensitivity, qCSF, logCS at 1 c/deg (v2) | Pelli–Robson chart at 1 m, 60–120 cd/m², letter-by-letter scoring at 0.05 logCS per letter (Elliott et al. 1991) | **Convergent** | `right`, `left` |
-| `contrast_aulcsf` | qCSF AULCSF (v2) | none | Repeatability only | `right`, `left` |
+| `contrast_logcs_1cpd` | Contrast sensitivity, qCSF, logCS at 1 c/deg (v3) | Pelli–Robson chart at 1 m, 60–120 cd/m², letter-by-letter scoring at 0.05 logCS per letter (Elliott et al. 1991) | **Convergent** | `right`, `left` |
+| `contrast_aulcsf` | qCSF AULCSF (v3) | none | Repeatability only | `right`, `left` |
 | `glare_delta_logcs` | Glare Δ logCS (v2) | none | Repeatability only | `both` |
 | `colour_protan_log10`, `colour_deutan_log10`, `colour_tritan_log10` | Colour thresholds (v2) | none. An anomaloscope or HRR result is a categorical reference and needs a diagnostic-accuracy analysis, not Bland–Altman | Repeatability only | `right`, `left` (`both` if the app was set to binocular; keep the same mode at both visits) |
 
@@ -120,7 +120,7 @@ Exclusions are fixed in this protocol and the analysis code before unblinding. E
 - found after enrolment to meet an exclusion criterion.
 
 **Pair level (a measure for one participant):**
-- **at a test limit**, because those values are bounds rather than measurements: acuity at the chart floor; glare with the no-glare result at the ceiling; colour beyond the screen gamut; NPC with no break found;
+- **at a test limit**, because those values are bounds rather than measurements: acuity at the chart floor; glare with the no-glare result at the ceiling; colour beyond the screen gamut; NPC with no break found; contrast at 1 c/deg at the display ceiling (logCS ≥ 1.95, since nothing fainter than 1% contrast is drawn). AULCSF is not excluded for a ceiling, because that would drop most healthy participants; the `at_display_ceiling` flag is exported and counted instead;
 - reference and app more than 24 h apart;
 - correction mismatch between reference and app;
 - retest outside the 1–7 day window.
@@ -277,6 +277,7 @@ The final report lists every deviation from the registration with its reason.
 
 - Contrast at 1 c/deg vs Pelli–Robson changed from agreement (Bland–Altman, ICC) to convergent validity (correlation only). qCSF repeatability is now the key secondary endpoint.
 - Added: optional acuity-first staging with an interim-report rule; NPC updated to method version 2 (reported and camera breaks).
+- Contrast updated to method version 3: the faintest stimulus is 1% contrast (logCS 2.0), the first trial and every fifth are clearly visible, and 1 c/deg values at the display ceiling are excluded as bounds. Version 2 sessions are not pooled with version 3.
 - Added: randomised app test order, stratified by device class with a recruitment quota per stratum; correction recording and the same-correction rule; device and environment recording with device-class analysis; time-gap and retest-window rules; a full list of pre-defined exclusions; failures recorded as testability outcomes; participant-cluster bootstrap for the both-eyes analysis; a separate paediatric arm; preregistration; consent, assent, withdrawal, retention and adverse-event procedures; the minors checklist.
 - Recruitment target raised from 70 to 75 to allow for failed tests.
 
