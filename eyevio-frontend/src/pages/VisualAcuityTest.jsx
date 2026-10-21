@@ -12,6 +12,7 @@ import CalibrationBadge from '../components/CalibrationBadge'
 import ScreenSizeCalibration from '../components/ScreenSizeCalibration'
 import SloanLetter, { E_DIRECTIONS, HOTV_LETTERS, SLOAN_LETTERS, TumblingE } from '../components/SloanLetter'
 import useDistanceMonitor from '../hooks/useDistanceMonitor'
+import useVoiceCommands from '../hooks/useVoiceCommands'
 import { getScreenScale, optotypeHeightPx, smallestRenderableLogMAR } from '../utils/screenScale'
 import { AVG_IPD_MM } from '../utils/distanceCalibration'
 import { createRowGenerator, loadRecentRows, newChartSeed, saveRecentRows } from '../utils/acuityChart'
@@ -90,8 +91,10 @@ const VisualAcuityTest = () => {
   const navigate = useNavigate()
   const { isCalibrated, needsRecalibration, getConfidence } = useCalibration()
   
-  // screen-size, distance-gate, manual-distance, instructions, voice-setup, glasses-check, eye-coverage-setup, testing, switch-eyes, results
-  const [testState, setTestState] = useState(() => (getScreenScale().source === 'default' ? 'screen-size' : 'distance-gate'))
+  // All close-up selections come first (screen-size, instructions, glasses-check),
+  // then distance: distance-gate, manual-distance, voice-setup, eye-coverage-setup,
+  // testing, switch-eyes, results — so the user never walks back to tap mid-test.
+  const [testState, setTestState] = useState(() => (getScreenScale().source === 'default' ? 'screen-size' : 'glasses-check'))
   const [distanceValid, setDistanceValid] = useState(false)
   const [currentEye, setCurrentEye] = useState('left') // left, right
   const [currentTenths, setCurrentTenths] = useState(START_TENTHS)
@@ -124,6 +127,7 @@ const VisualAcuityTest = () => {
   const [voiceMicFailed, setVoiceMicFailed] = useState(false)
   const [lastHeardRaw, setLastHeardRaw] = useState('')
   const voiceFatalErrorRef = useRef(false)
+  const voiceNetworkErrorsRef = useRef(0)
   const handleLetterSelectRef = useRef(null)
   const advanceToNextLineRef = useRef(null)
   const finishEyeTestRef = useRef(null)
@@ -147,8 +151,19 @@ const VisualAcuityTest = () => {
   const [selectedAnswer, setSelectedAnswer] = useState(null)
   const [showFeedback, setShowFeedback] = useState(false)
 
-  const monitorActive = distanceMode === 'camera' && ['glasses-check', 'eye-coverage-setup', 'testing', 'switch-eyes'].includes(testState)
+  const monitorActive = distanceMode === 'camera' && ['eye-coverage-setup', 'testing', 'switch-eyes'].includes(testState)
   const distanceMonitor = useDistanceMonitor({ active: monitorActive, targetMm: TEST_DISTANCE_MM, tolerance: DISTANCE_TOLERANCE, ipdMm })
+  // Voice confirm on the switch-eyes screen, so the user stays at 1 m.
+  const switchVoice = useVoiceCommands({
+    active: testState === 'switch-eyes' && voiceEnabled,
+    onTranscript: (transcripts) => {
+      if (voiceRecognition.parseConfirmCommand(transcripts)) {
+        setCurrentEye('right')
+        setTestState('eye-coverage-setup')
+      }
+    },
+  })
+
   const chartPaused = testState === 'testing' && distanceMonitor.paused
   const chartPausedRef = useRef(false)
   useEffect(() => {
@@ -203,8 +218,9 @@ const VisualAcuityTest = () => {
   const safeStartRecognition = useCallback(() => {
     if (!recognitionRef.current || voiceFatalErrorRef.current || showFeedbackRef.current) return
     try {
+      // isListening is set by onstart only — claiming "listening" here hid
+      // speech-service failures behind a convincing red dot.
       recognitionRef.current.start()
-      setIsListening(true)
     } catch {
       // already started
     }
@@ -213,10 +229,24 @@ const VisualAcuityTest = () => {
   const handleVoiceError = useCallback((error, { duringSetup = false } = {}) => {
     if (duringSetup && voiceSetupCompleteRef.current) return
     if (error === 'aborted' || error === 'no-speech') return
-    // Edge/Chrome often emit transient "network" after a successful stop — not a mic block.
+    // Browser speech recognition is an online service (Chrome/Edge send audio to
+    // their vendor). A single "network" error is often transient, but repeated
+    // ones mean the service is unreachable — stop restarting and say so, rather
+    // than showing "Listening…" while nothing can be heard.
     if (error === 'network') {
-      if (duringSetup || voiceSetupCompleteRef.current) return
-      setVoiceNotice('Voice service unreachable — check internet, or use the on-screen buttons.')
+      if (voiceSetupCompleteRef.current) return
+      voiceNetworkErrorsRef.current += 1
+      if (voiceNetworkErrorsRef.current >= 2) {
+        voiceFatalErrorRef.current = true
+        voiceSessionActiveRef.current = false
+        setIsListening(false)
+        if (duringSetup) setVoiceMicFailed(true)
+        setVoiceNotice(
+          'Your browser’s speech service can’t be reached, so voice answers won’t work right now. It needs Chrome or Edge with internet access. Use the letter buttons below, or tap Mic to try again.'
+        )
+      } else {
+        setVoiceNotice('Voice service hiccup — retrying…')
+      }
       return
     }
 
@@ -224,7 +254,7 @@ const VisualAcuityTest = () => {
     if (['not-allowed', 'service-not-allowed'].includes(error)) {
       voiceFatalErrorRef.current = true
       voiceSessionActiveRef.current = false
-      setVoiceNotice('Microphone blocked — allow mic access in Edge site settings, or use the letter buttons.')
+      setVoiceNotice('Microphone blocked — allow mic access in your browser’s site settings, or use the letter buttons.')
       if (duringSetup) setVoiceMicFailed(true)
     } else if (error === 'audio-capture') {
       setVoiceNotice('Microphone busy — close Zoom/Teams, then tap the button to try again.')
@@ -232,8 +262,12 @@ const VisualAcuityTest = () => {
   }, [])
 
   const attachRecognitionHandlers = useCallback((recognition) => {
-    recognition.onstart = () => setIsListening(true)
+    recognition.onstart = () => {
+      voiceNetworkErrorsRef.current = 0
+      setIsListening(true)
+    }
     recognition.onresult = (event) => {
+      voiceNetworkErrorsRef.current = 0
       const transcripts = collectTranscripts(event)
       if (!transcripts.length) return
 
@@ -297,16 +331,17 @@ const VisualAcuityTest = () => {
 
     recognition.continuous = false
     recognition.interimResults = false
-    recognition.lang = 'en-US'
     recognition.maxAlternatives = 5
     setupRecognitionRef.current = recognition
 
     recognition.onstart = () => {
+      voiceNetworkErrorsRef.current = 0
       setIsListening(true)
       setVoiceNotice(`Listening — say one now (${voiceChoicesText})`)
     }
 
     recognition.onresult = (event) => {
+      voiceNetworkErrorsRef.current = 0
       const transcripts = collectTranscripts(event)
       if (!transcripts.length) return
 
@@ -352,7 +387,7 @@ const VisualAcuityTest = () => {
     if (testState !== 'voice-setup' || !voiceSetupPassed) return undefined
     const t = window.setTimeout(() => {
       stopSetupRecognition()
-      setTestState('glasses-check')
+      setTestState('eye-coverage-setup')
     }, 900)
     return () => window.clearTimeout(t)
   }, [testState, voiceSetupPassed, stopSetupRecognition])
@@ -585,7 +620,11 @@ const VisualAcuityTest = () => {
           ipd_source: distanceMode !== 'camera'
             ? null
             : chartType === 'sloan' || childAge === '13+' ? 'adult_population_mean_estimate' : 'age_band_median_estimate',
-          distance_method: distanceMode === 'camera' ? 'camera_pupil_distance_estimate' : `manual_${manualMethod}`,
+          distance_method: distanceMode === 'camera'
+            ? 'camera_pupil_distance_estimate'
+            : distanceMode === 'unmonitored'
+              ? 'camera_unavailable_continued_unmonitored'
+              : `manual_${manualMethod}`,
           chart_seed: chartSeedRef.current,
           scoring_note: chartRules.guessRate > 0
             ? 'Four-choice chart: logMAR (guess-adjusted) credits each line as (c − 1.25) / 0.75 before 0.02 logMAR per symbol; logMAR_raw credits raw counts. Base line = largest line with ≥ 4/5 raw correct; eye stops when the smallest line shown has ≤ 2/5 or is the chart floor.'
@@ -845,11 +884,12 @@ const VisualAcuityTest = () => {
             voiceFatalErrorRef.current = false
             setVoiceMicFailed(false)
             setVoiceSetupPassed(false)
-            setTestState(voiceSupported ? 'voice-setup' : 'glasses-check')
+            // Close-up selections (chart, correction) come before distance setup.
+            setTestState('glasses-check')
           }}
           className="flex-1 btn-primary min-h-[44px]"
         >
-          Start Test 
+          Start Test
         </button>
       </div>
 
@@ -910,7 +950,7 @@ const VisualAcuityTest = () => {
         )}
 
         <div className="flex gap-3 pt-2">
-          <button type="button" onClick={() => setTestState('instructions')} className="flex-1 btn-secondary min-h-[44px]">
+          <button type="button" onClick={() => setTestState(distanceMode === 'manual' ? 'manual-distance' : 'distance-gate')} className="flex-1 btn-secondary min-h-[44px]">
             Back
           </button>
           <button
@@ -922,7 +962,7 @@ const VisualAcuityTest = () => {
                 voiceFatalErrorRef.current = false
               }
               stopSetupRecognition()
-              setTestState('glasses-check')
+              setTestState('eye-coverage-setup')
             }}
             className="flex-1 btn-primary min-h-[44px] disabled:opacity-50"
           >
@@ -974,7 +1014,7 @@ const VisualAcuityTest = () => {
             onClick={() => {
               setDistanceMode('manual')
               setDistanceValid(true)
-              setTestState(voiceSupported ? 'voice-setup' : 'glasses-check')
+              setTestState(voiceSupported ? 'voice-setup' : 'eye-coverage-setup')
             }}
           >
             Continue
@@ -985,11 +1025,13 @@ const VisualAcuityTest = () => {
   }
 
   // Render Glasses/Contacts Check
+  // Before distance setup on purpose: the user is still at the screen here, so
+  // the yes/no selection and the "I have removed them" checkbox cost no walking.
   const renderGlassesCheck = () => (
     <GlassesContactsCheck
       onConfirm={(info) => {
         setCorrectionInfo(info)
-        setTestState('eye-coverage-setup')
+        setTestState('distance-gate')
       }}
     />
   )
@@ -997,6 +1039,7 @@ const VisualAcuityTest = () => {
   // Render Eye Coverage Setup
   const renderEyeCoverageSetup = () => (
     <EyeCoverageVerification
+      voiceConfirm={voiceEnabled}
       expectedEye={currentEye === 'left' ? 'right' : 'left'}
       onVerified={() => {
         setTestState('testing')
@@ -1052,12 +1095,20 @@ const VisualAcuityTest = () => {
                 <p className="text-xl font-bold text-gray-900 mb-1">Paused — check your distance</p>
                 <p className="text-gray-600">
                   {distanceMonitor.reason === 'no_face'
-                    ? 'The camera can’t see your face. Face the screen from about 1 m.'
+                    ? 'The camera can’t see your face. Keep the same eye covered, face the screen from about 1 m, and give it a few seconds — you don’t need to come closer or tap anything.'
                     : distanceMonitor.reason === 'too_close'
                       ? `You’re at about ${distanceCm} cm — step back to 1 m.`
                       : `You’re at about ${distanceCm} cm — come closer to 1 m.`}
                 </p>
                 <p className="text-xs text-gray-400 mt-2">The chart resumes automatically.</p>
+                <button
+                  type="button"
+                  onClick={() => setDistanceMode('unmonitored')}
+                  className="mt-4 text-sm font-semibold text-accent-700 underline min-h-[44px]"
+                >
+                  Camera can’t track me — continue without distance checks
+                </button>
+                <p className="text-xs text-gray-400">Only use this if you are still 1 m away; the result is saved as not distance-checked.</p>
               </div>
             )}
           </div>
@@ -1086,6 +1137,7 @@ const VisualAcuityTest = () => {
                 type="button"
                 onClick={() => {
                   voiceFatalErrorRef.current = false
+                  voiceNetworkErrorsRef.current = 0
                   recognitionRef.current = null
                   startVoiceSession()
                 }}
@@ -1173,6 +1225,23 @@ const VisualAcuityTest = () => {
         </p>
       </div>
 
+      {voiceEnabled && switchVoice.supported && (
+        <div className="border-2 border-indigo-300 bg-indigo-50 rounded-xl p-4 space-y-2 text-left" aria-live="polite">
+          {switchVoice.listening ? (
+            <p className="flex items-center gap-2 text-sm font-medium text-indigo-900">
+              <span className="w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse" />
+              Mic listening — cover your LEFT eye, then say &quot;ready&quot; to continue from 1 m
+            </p>
+          ) : (
+            <button type="button" onClick={switchVoice.startListening} className="w-full min-h-[44px] bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-sm">
+              Enable microphone to continue by voice
+            </button>
+          )}
+          {switchVoice.lastHeard && <p className="text-xs text-indigo-800">Last heard: &quot;{switchVoice.lastHeard}&quot;</p>}
+          {switchVoice.hint && <p className="text-xs text-indigo-950 bg-white/70 border border-indigo-200 rounded-lg px-2 py-1.5">{switchVoice.hint}</p>}
+        </div>
+      )}
+
       <button
         onClick={() => {
           setTestState('eye-coverage-setup')
@@ -1180,7 +1249,7 @@ const VisualAcuityTest = () => {
         }}
         className="btn-primary px-12 min-h-[44px]"
       >
-        Test Right Eye 
+        Test Right Eye
       </button>
     </div>
   )
@@ -1342,6 +1411,8 @@ const VisualAcuityTest = () => {
           )}
           {distanceMode === 'manual' ? (
             <p>Distance was measured by hand ({MANUAL_DISTANCE_METHODS.find((m) => m.id === manualMethod)?.label.toLowerCase()}), so the camera did not check it during the test.</p>
+          ) : distanceMode === 'unmonitored' ? (
+            <p>The camera could not keep tracking your face, so you continued without distance checks. The result is saved that way and may be less accurate if you moved.</p>
           ) : (
             <p>The camera distance is an estimate from typical eye spacing{chartType !== 'sloan' ? ' for this age group' : ''}, not a measurement of your own.</p>
           )}
@@ -1450,9 +1521,9 @@ const VisualAcuityTest = () => {
                   setVoiceSetupPassed(true)
                   setVoiceSetupHeard('ready')
                   voiceFatalErrorRef.current = false
-                  return 'glasses-check'
+                  return 'eye-coverage-setup'
                 }
-                return voiceSupported ? 'voice-setup' : 'glasses-check'
+                return voiceSupported ? 'voice-setup' : 'eye-coverage-setup'
               })()
               setTestState(nextState)
             }}
@@ -1472,9 +1543,9 @@ const VisualAcuityTest = () => {
           <ScreenSizeCalibration
             onDone={() => {
               setScreenScale(getScreenScale())
-              setTestState('distance-gate')
+              setTestState('glasses-check')
             }}
-            onSkip={() => setTestState('distance-gate')}
+            onSkip={() => setTestState('glasses-check')}
           />
         )}
         {monitorActive && (

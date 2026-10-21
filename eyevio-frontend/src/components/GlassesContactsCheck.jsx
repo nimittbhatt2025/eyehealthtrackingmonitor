@@ -1,16 +1,21 @@
 import { useState } from 'react'
+import useVoiceCommands from '../hooks/useVoiceCommands'
+import voiceRecognition from '../utils/voiceRecognition'
 
 /**
  * GlassesContactsCheck Component
- * Verifies that user has removed corrective lenses for testing
+ * Verifies that user has removed corrective lenses for testing.
+ * With `voiceControl`, answers can be spoken from test distance:
+ * "yes" / "no", then "removed", then "ready".
  */
-const GlassesContactsCheck = ({ 
-  onConfirm, 
-  onComplete, 
-  onBack, 
+const GlassesContactsCheck = ({
+  onConfirm,
+  onComplete,
+  onBack,
   testType = 'Vision Test',
   requirement = 'required',
-  message 
+  message,
+  voiceControl = false,
 }) => {
   const [wearsCorrection, setWearsCorrection] = useState(null)
   const [hasRemoved, setHasRemoved] = useState(false)
@@ -28,6 +33,30 @@ const GlassesContactsCheck = ({
   }
 
   const canContinue = wearsCorrection === false || (wearsCorrection === true && hasRemoved)
+
+  const voice = useVoiceCommands({
+    active: voiceControl,
+    onTranscript: (transcripts) => {
+      const text = (Array.isArray(transcripts) ? transcripts.join(' ') : String(transcripts || '')).toLowerCase()
+      if (wearsCorrection === null) {
+        if (/\bno\b|don'?t|do not/.test(text)) setWearsCorrection(false)
+        else if (/\byes\b|glasses|contacts?|lenses/.test(text)) setWearsCorrection(true)
+        return
+      }
+      if (wearsCorrection === true && !hasRemoved) {
+        if (/removed|taken (them )?off|took (them )?off/.test(text)) setHasRemoved(true)
+        return
+      }
+      if (voiceRecognition.parseConfirmCommand(transcripts)) handleContinue()
+    },
+  })
+
+  const voicePrompt =
+    wearsCorrection === null
+      ? 'Say "yes" if you wear glasses or contacts, or "no" if you don’t'
+      : wearsCorrection === true && !hasRemoved
+        ? 'Remove them, then say "removed"'
+        : 'Say "ready" to continue'
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
@@ -145,6 +174,23 @@ const GlassesContactsCheck = ({
           </li>
         </ul>
       </div>
+
+      {voiceControl && voice.supported && (
+        <div className="border-2 border-indigo-300 bg-indigo-50 rounded-xl p-4 space-y-2" aria-live="polite">
+          {voice.listening ? (
+            <p className="flex items-center gap-2 text-sm font-medium text-indigo-900">
+              <span className="w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse" />
+              Mic listening — {voicePrompt}
+            </p>
+          ) : (
+            <button type="button" onClick={voice.startListening} className="w-full min-h-[44px] bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-sm">
+              Enable microphone to answer by voice
+            </button>
+          )}
+          {voice.lastHeard && <p className="text-xs text-indigo-800">Last heard: &quot;{voice.lastHeard}&quot;</p>}
+          {voice.hint && <p className="text-xs text-indigo-950 bg-white/70 border border-indigo-200 rounded-lg px-2 py-1.5">{voice.hint}</p>}
+        </div>
+      )}
 
       {/* Continue Button */}
       <div className="flex gap-4">

@@ -475,6 +475,26 @@ assert(scorePeripheralAwareness(80, 50) >= scorePeripheralAwareness(80, 500), 'f
 }
 
 {
+  // Voice letter parsing against the transcripts recognisers typically return
+  // for isolated letter names (the module touches `window` on import).
+  globalThis.window = globalThis.window || {}
+  const { default: voiceRecognition } = await import('../src/utils/voiceRecognition.js')
+  const SLOAN = ['C', 'D', 'H', 'K', 'N', 'O', 'R', 'S', 'V', 'Z']
+  const heard = {
+    see: 'C', sea: 'C', dee: 'D', aitch: 'H', okay: 'K', kay: 'K', en: 'N', oh: 'O',
+    are: 'R', yes: 'S', ess: 'S', vee: 'V', bee: 'V', zed: 'Z', zee: 'Z',
+  }
+  for (const [said, letter] of Object.entries(heard)) {
+    assert(voiceRecognition.parseOptotypeLetter([said], SLOAN) === letter, `spoken "${said}" parses as ${letter}`)
+  }
+  assert(voiceRecognition.parseOptotypeLetter(['the letter dee'], SLOAN) === 'D', 'letter name after filler words parses')
+  assert(voiceRecognition.parseOptotypeLetter(['hello'], SLOAN) === null, 'unrelated speech parses as nothing')
+  assert(voiceRecognition.parseOptotypeLetter(['the'], SLOAN) === null, '"the" alone is not a letter answer')
+  assert(voiceRecognition.parseDirection(['right']) === 'right' && voiceRecognition.parseDirection(['write']) === 'right', 'spoken directions parse')
+  assert(voiceRecognition.parseConfirmCommand(['my left eye is covered, ready']) === true, 'coverage confirm phrase parses')
+}
+
+{
   const start = 0
   const every3s = Array.from({ length: 40 }, (_, i) => (i + 1) * 3000) // 20/min
   assert(rollingBlinkRate(every3s, 20000, { startedAt: start }) === null, 'blink rate withheld during warm-up')

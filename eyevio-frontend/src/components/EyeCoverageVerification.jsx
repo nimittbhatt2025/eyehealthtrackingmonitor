@@ -1,13 +1,17 @@
 import { useState, useRef, useEffect } from 'react'
 import EyeCoverageDetector from '../utils/eyeCoverageDetector'
 import cameraManager from '../utils/cameraManager'
+import useVoiceCommands from '../hooks/useVoiceCommands'
+import voiceRecognition from '../utils/voiceRecognition'
 import { VisionTestShell } from './TestPrepLayout'
 
 /**
  * EyeCoverageVerification Component
- * Webcam-based verification that the correct anatomical eye is covered
+ * Webcam-based verification that the correct anatomical eye is covered.
+ * With `voiceConfirm`, the user can confirm from test distance by saying
+ * "ready" or that the eye is covered, instead of walking up to tap Continue.
  */
-const EyeCoverageVerification = ({ expectedEye, onVerified, onSkip, splitLayout = false, testName = '' }) => {
+const EyeCoverageVerification = ({ expectedEye, onVerified, onSkip, splitLayout = false, testName = '', voiceConfirm = false }) => {
   const [detector, setDetector] = useState(null)
   const [status, setStatus] = useState(null)
   const [isChecking, setIsChecking] = useState(false)
@@ -254,15 +258,66 @@ const EyeCoverageVerification = ({ expectedEye, onVerified, onSkip, splitLayout 
     autoDetected ||
     status?.detected === 'unknown' ||
     permissionState === 'denied'
+  useEffect(() => {
+    canContinueRef.current = canContinue
+  }, [canContinue])
+
+  const canContinueRef = useRef(false)
+  const handleContinueRef = useRef(() => {})
+
+  const voice = useVoiceCommands({
+    active: voiceConfirm,
+    onTranscript: (transcripts) => {
+      const saidCovered = (Array.isArray(transcripts) ? transcripts : [transcripts]).some((t) =>
+        /cover|ready/i.test(String(t || ''))
+      )
+      if (voiceRecognition.parseConfirmCommand(transcripts) || saidCovered) handleContinueRef.current()
+    },
+  })
+  const voiceRef = useRef(voice)
+  voiceRef.current = voice
 
   const handleContinue = () => {
+    voiceRef.current.stopListening()
     cleanup()
     onVerified()
   }
+  handleContinueRef.current = () => {
+    if (canContinueRef.current) handleContinue()
+  }
 
   const handleSkip = () => {
+    voiceRef.current.stopListening()
     cleanup()
     onSkip()
+  }
+
+  const renderVoicePanel = () => {
+    if (!voiceConfirm) return null
+    if (!voice.supported) {
+      return (
+        <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+          Voice is not supported in this browser, so you will need to tap Continue.
+        </p>
+      )
+    }
+    return (
+      <div className="border-2 border-indigo-300 bg-indigo-50 rounded-xl p-3 space-y-2" aria-live="polite">
+        {voice.listening ? (
+          <p className="flex items-center gap-2 text-sm font-medium text-indigo-900">
+            <span className="w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse" />
+            Mic listening — from where you will take the test, say &quot;ready&quot; or &quot;my {eyeLabel.toLowerCase()} eye is covered&quot;
+          </p>
+        ) : (
+          <button type="button" onClick={voice.startListening} className="w-full min-h-[44px] bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-sm">
+            Enable microphone to confirm by voice
+          </button>
+        )}
+        {voice.lastHeard && <p className="text-xs text-indigo-800">Last heard: &quot;{voice.lastHeard}&quot;</p>}
+        {voice.hint && <p className="text-xs text-indigo-950 bg-white/70 border border-indigo-200 rounded-lg px-2 py-1.5">{voice.hint}</p>}
+        {!canContinue && <p className="text-xs text-indigo-800">Voice confirm works once this screen is ready (a couple of seconds).</p>}
+      </div>
+    )
   }
 
   const renderVideoFeed = () => (
@@ -300,12 +355,14 @@ const EyeCoverageVerification = ({ expectedEye, onVerified, onSkip, splitLayout 
         Cover your <strong>{eyeLabel}</strong> eye with your palm — do not press on the eye.
       </li>
       <li>When detection turns green, tap Continue — or tap Continue yourself once your eye is covered.</li>
+      {voiceConfirm && <li>Staying at test distance? Just say &quot;ready&quot; or &quot;my eye is covered&quot; instead of tapping.</li>}
       <li>Auto-detection can miss a palm; self-confirm is OK for this screening step.</li>
     </ul>
   )
 
   const renderActionButtons = (compact = false) => (
     <div className={`flex flex-col gap-2 ${compact ? '' : 'gap-4'}`}>
+      {renderVoicePanel()}
       {(permissionState === 'denied' || permissionState === 'prompt') && (
         <div className="flex gap-2">
           <button type="button" onClick={tryAcquire} className="flex-1 btn-primary min-h-[44px] text-sm">

@@ -3,8 +3,11 @@ import cameraManager from '../utils/cameraManager'
 import { PupilRegionTracker } from '../utils/pupilRegionDetector'
 import { AVG_IPD_MM, estimateDistanceCmFromPixelIpd } from '../utils/distanceCalibration'
 
-const BASELINE_SAMPLES = 15
+const BASELINE_SAMPLES = 8
 const BASELINE_TIMEOUT_MS = 3000
+const BASELINE_MIN_SAMPLES = 3
+const FACE_LOST_PAUSE_MS = 4000
+const DISTANCE_WINDOW = 5
 
 function median(values) {
   const v = values.filter(Number.isFinite).sort((a, b) => a - b)
@@ -17,7 +20,12 @@ function median(values) {
  * Absolute distance is taken once from pupil separation while both eyes are
  * uncovered, then tracked through face-oval width, which still works when a
  * palm covers one eye. Reports `paused` when distance drifts beyond
- * `tolerance` (fraction of target) for `outMs`, or the face is lost.
+ * `tolerance` (fraction of target) for `outMs`. A lost face pauses only after
+ * `lostMs` plus a grace period, and brief losses are ignored: covering an eye
+ * with a palm makes face tracking drop out for seconds at a time, and pausing
+ * on every dropout traps the user mid-test. The baseline is never guessed
+ * from the target distance — a baseline taken while the user is still close
+ * to the screen tapping would make every later reading wrong.
  * Pass `ipdMm` for people whose eye spacing differs from the adult average (children).
  */
 export default function useDistanceMonitor({ active, targetMm, tolerance = 0.1, outMs = 800, backMs = 500, lostMs = 2500, ipdMm = AVG_IPD_MM }) {
@@ -30,6 +38,7 @@ export default function useDistanceMonitor({ active, targetMm, tolerance = 0.1, 
     const tracker = new PupilRegionTracker()
     const baseline = { ipdMm: [], faceWidth: [], startedAt: performance.now(), k: null, source: null }
     const timing = { outSince: null, inSince: null, lastFaceAt: performance.now(), paused: false, reason: null }
+    const recentDistances = []
 
     const run = async () => {
       try {
@@ -61,17 +70,23 @@ export default function useDistanceMonitor({ active, targetMm, tolerance = 0.1, 
               if (cm) baseline.ipdMm.push(cm * 10)
             }
             const enough = baseline.ipdMm.length >= BASELINE_SAMPLES
-            const timedOut = now - baseline.startedAt > BASELINE_TIMEOUT_MS && baseline.faceWidth.length >= 5
-            if (enough || timedOut) {
-              const dist = enough ? median(baseline.ipdMm) * (ipdMm / AVG_IPD_MM) : targetMm
+            const partial =
+              now - baseline.startedAt > BASELINE_TIMEOUT_MS && baseline.ipdMm.length >= BASELINE_MIN_SAMPLES
+            if (enough || partial) {
+              const dist = median(baseline.ipdMm) * (ipdMm / AVG_IPD_MM)
               baseline.k = dist * median(baseline.faceWidth)
-              baseline.source = enough ? 'pupil_separation' : 'assumed_target'
+              baseline.source = 'pupil_separation'
             }
           }
         }
 
         if (baseline.k != null) {
-          const distanceMm = regions?.faceWidthPx ? baseline.k / regions.faceWidthPx : null
+          let distanceMm = regions?.faceWidthPx ? baseline.k / regions.faceWidthPx : null
+          if (distanceMm != null) {
+            recentDistances.push(distanceMm)
+            if (recentDistances.length > DISTANCE_WINDOW) recentDistances.shift()
+            distanceMm = median(recentDistances)
+          }
           const faceLost = now - timing.lastFaceAt > lostMs
           const drift = distanceMm != null ? (distanceMm - targetMm) / targetMm : null
           const outside = faceLost || (drift != null && Math.abs(drift) > tolerance)
@@ -79,7 +94,7 @@ export default function useDistanceMonitor({ active, targetMm, tolerance = 0.1, 
           if (outside) {
             timing.inSince = null
             timing.outSince ??= now
-            if (!timing.paused && now - timing.outSince >= (faceLost ? 0 : outMs)) timing.paused = true
+            if (!timing.paused && now - timing.outSince >= (faceLost ? FACE_LOST_PAUSE_MS : outMs)) timing.paused = true
           } else if (distanceMm != null) {
             timing.outSince = null
             timing.inSince ??= now

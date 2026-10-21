@@ -12,14 +12,16 @@ const ACUITY_LETTER_PHONETICS = {
   T: ['T', 'TEE', 'TEA', 'TI', 'TE'],
   Z: ['Z', 'ZEE', 'ZED', 'ZED', 'ZED'],
   // Sloan letters (C D H K N O R S V Z); only matched when in the allowed set.
-  C: ['C', 'SEE', 'SEA', 'CEE', 'SI'],
+  // Isolated letter names are the hardest thing for speech recognition, so the
+  // list includes the spellings and near-words recognisers commonly return.
+  C: ['C', 'SEE', 'SEA', 'CEE', 'SI', 'CE'],
   D: ['D', 'DEE', 'DI', 'DE'],
-  H: ['H', 'AITCH', 'HAITCH', 'ACHE', 'AGE'],
-  K: ['K', 'KAY', 'OKAY', 'CAY', 'KAYE'],
-  N: ['N', 'EN', 'AN', 'IN', 'END'],
+  H: ['H', 'AITCH', 'HAITCH', 'ACHE', 'AGE', 'EITCH'],
+  K: ['K', 'KAY', 'OKAY', 'CAY', 'KAYE', 'KEI'],
+  N: ['N', 'EN', 'AN', 'IN', 'END', 'ENN'],
   R: ['R', 'ARE', 'AR', 'ARR', 'OUR'],
   S: ['S', 'ES', 'ESS', 'YES', 'AS'],
-  V: ['V', 'VEE', 'VI', 'WE'],
+  V: ['V', 'VEE', 'VI', 'WE', 'BEE'],
 }
 
 const DIRECTION_WORDS = {
@@ -49,6 +51,11 @@ function matchLetterFromToken(token, allowedSet) {
   return null
 }
 
+/** Browser language for recognition; a close accent match beats a forced en-US. */
+export function recognitionLang() {
+  return (typeof navigator !== 'undefined' && navigator.language) || 'en-US'
+}
+
 class VoiceRecognition {
   constructor() {
     this.recognition = null
@@ -60,6 +67,7 @@ class VoiceRecognition {
     this.lastLoggedError = null
     this.micPrimed = false
     this._startPending = false
+    this._networkErrors = 0
 
     this._initRecognition()
   }
@@ -71,15 +79,17 @@ class VoiceRecognition {
     this.recognition = new SpeechRecognition()
     this.recognition.continuous = true
     this.recognition.interimResults = false
-    this.recognition.lang = 'en-US'
+    this.recognition.lang = recognitionLang()
     this.recognition.maxAlternatives = 5
 
     this.recognition.onstart = () => {
+      this._networkErrors = 0
       this.isListening = true
       this.onStartCallback?.()
     }
 
     this.recognition.onresult = (event) => {
+      this._networkErrors = 0
       const transcripts = []
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i]
@@ -94,10 +104,13 @@ class VoiceRecognition {
     }
 
     this.recognition.onerror = (event) => {
-      // Chrome often emits transient "network" errors; don't kill the session.
+      // Chrome often emits transient "network" errors; don't kill the session on the
+      // first one. But the browser speech service is online — if it stays unreachable,
+      // stop restarting forever and let the caller tell the user honestly.
       // "aborted" is expected when we call stop().
+      if (event.error === 'network') this._networkErrors += 1
       const fatalErrors = ['not-allowed', 'service-not-allowed', 'audio-capture']
-      const isFatal = fatalErrors.includes(event.error)
+      const isFatal = fatalErrors.includes(event.error) || (event.error === 'network' && this._networkErrors >= 3)
 
       if (isFatal) {
         this.fatalError = true
@@ -145,7 +158,7 @@ class VoiceRecognition {
     const recognition = new SpeechRecognition()
     recognition.continuous = true
     recognition.interimResults = false
-    recognition.lang = 'en-US'
+    recognition.lang = recognitionLang()
     recognition.maxAlternatives = 5
     return recognition
   }
@@ -177,6 +190,7 @@ class VoiceRecognition {
 
     this.fatalError = false
     this.lastLoggedError = null
+    this._networkErrors = 0
     this.onResultCallback = onResult
     this.onErrorCallback = onError
     this.onStartCallback = onStart
